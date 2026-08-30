@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "Belle Copilot | Laser & Vendas",
+  "version": "1.0",
+  "description": "Copiloto inteligente para atendimento clínico a laser, evolução de parâmetros e cadência de vendas no Belle Software.",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://app.bellesoftware.com.br/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Abrir Belle Copilot",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.bellesoftware.com.br/*"],
+      "js": ["interceptor.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://app.bellesoftware.com.br/*"],
+      "js": ["content.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

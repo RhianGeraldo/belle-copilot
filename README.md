@@ -1,0 +1,79 @@
+# 🚀 Belle Copilot - Assistente Inteligente para Belle Software
+
+Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES Modules) para otimizar, acelerar e guiar a operação de clínicas de estética e depilação a laser integradas ao **Belle Software**.
+
+---
+
+## 🌟 Principais Funcionalidades
+
+1. **Sincronização em Tempo Real (0ms)**:
+   - Captura instantânea de tokens e dados de sessão diretamente das requisições do Belle Software via interceptação `chrome.debugger` + content scripts.
+   - Sincronização automática de datas e salas selecionadas no calendário do Belle.
+
+2. **Visão da Agenda & KPIs**:
+   - KPIs no topo: **Total**, **Confirmados**, **Aguardando** e **Atendidos**.
+   - Filtros rápidos por sala/profissional e status tabs.
+   - Mapeamento completo dos status oficiais do Belle (`Marcado`, `Confirmado`, `Aguardando`, `Em Andamento`, `Atendido`, `Falhou`, `Bloqueado`).
+
+3. **Painel Clínico de Atendimento & Parâmetros Laser**:
+   - **📢 Fila de Próxima Cliente a Chamar**: Identifica automaticamente a próxima cliente aguardando na recepção com botão de chamada rápida.
+   - **Histórico Completo do Laser**: Exibe os últimos parâmetros aplicados por área (Joules, Pulso, Frequência, Ponteira, Disparos).
+   - **Controle de Sessões & Saldos**: Exibe a contagem de sessões realizadas vs. contratadas com barras de progresso visual.
+   - **Validação de Evolução Clínica**: Trava de segurança para impedir finalização sem registro de evolução nas áreas atendidas.
+   - **Transição Automática de Fila**: Ao finalizar os atendimentos da cliente atual, abre automaticamente a próxima cliente com status `Aguardando`.
+
+4. **Motor Comercial & Cadência de Ofertas**:
+   - Algoritmo inteligente baseado em regras clínicas e estágio de tratamento (`cadencia-ofertas.js`).
+   - Apresentação estruturada com oportunidade sugerida, motivo clínico e script verbal pronto para a aplicadora/recepção.
+
+---
+
+## 📁 Estrutura do Projeto
+
+```
+belle-copilot/
+├── manifest.json              # Configuração Manifest V3
+├── background.js              # Service worker & inicialização do sidepanel
+├── content.js                 # Injeção de scripts & captura de DOM/eventos
+├── interceptor.js             # Interceptação de tráfego de rede (XHR/Fetch)
+├── logo.png                   # Identidade visual da extensão
+├── icons/                     # Ícones em resoluções 16x16, 32x32, 48x48, 128x128
+├── docs/                      # Mapeamento técnico detalhado das APIs do Belle
+│   ├── MAPEAMENTO_AGENDA_BELLE.md
+│   ├── MAPEAMENTO_API_BELLE.md
+│   └── MAPEAMENTO_USUARIO_SESSAO.md
+└── sidepanel/                 # Interface do painel lateral (Chrome Side Panel)
+    ├── sidepanel.html         # Estrutura visual HTML5
+    ├── sidepanel.css          # Design system responsivo e moderno
+    ├── main.js                # Orquestrador central e inicialização
+    ├── core/                  # Estado global, RBAC e cliente de API
+    │   ├── state.js
+    │   ├── permissions.js
+    │   └── api-client.js
+    ├── engines/               # Motores de regras clínicas e comerciais
+    │   ├── cadencia-ofertas.js
+    │   └── laser-safety.js
+    ├── views/                 # Módulos de visualização
+    │   ├── agenda-view.js
+    │   ├── atendimento-view.js
+    │   ├── comercial-view.js
+    │   └── config-view.js
+    └── components/            # Modais e componentes reutilizáveis
+        ├── modal-trava.js
+        └── modal-proximo.js
+```
+
+---
+
+## 🔧 Como Instalar e Testar
+
+1. Abra o Google Chrome e acesse `chrome://extensions/`;
+2. Ative o modo de desenvolvedor (**Developer mode**) no canto superior direito;
+3. Clique em **Load unpacked** (Carregar sem compactação);
+4. Selecione a pasta `belle-copilot/`;
+5. Abra o **Belle Software** no navegador e utilize o Side Panel lateral integrado!
+
+---
+
+## 📄 Licença
+Proprietário - Todos os direitos reservados.

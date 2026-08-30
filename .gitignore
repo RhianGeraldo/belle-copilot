@@ -1,0 +1,15 @@
+# Logs & Temp
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Secrets & Environment
+.env
+.env.*
+
+# Editor configs
+.vscode/
+.idea/
+*.swp
+*.swo

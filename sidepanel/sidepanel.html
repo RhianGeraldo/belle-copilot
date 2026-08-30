@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Belle Copilot | Laser & Vendas</title>
+  <link rel="icon" type="image/png" href="../icons/icon-32.png">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- ========================================================= -->
+  <!-- 1. HEADER: IDENTIFICAÇÃO DO USUÁRIO E UNIDADE ATIVA       -->
+  <!-- ========================================================= -->
+  <header class="app-header">
+    <div class="user-card">
+      <div class="user-avatar" id="header-avatar-container">
+        <img id="header-logo-img" src="../logo.png" alt="Belle Copilot" class="header-logo-empresa">
+        <span id="header-avatar-fallback" style="display: none;">🏢</span>
+      </div>
+
+      <div class="user-info">
+        <!-- Linha 1: Marca & Status Online -->
+        <div class="user-header-top-row">
+          <span class="user-app-badge">🚀 BELLE COPILOT</span>
+          <span id="session-status" class="status-online">
+            <span class="status-dot"></span> Conectado
+          </span>
+        </div>
+
+        <!-- Linha 2: Nome do Usuário -->
+        <div class="user-name" id="user-display-name">👤 Carregando usuário...</div>
+
+        <!-- Linha 3: Unidade da Clínica -->
+        <div class="user-unidade" id="unidade-display">🏢 Carregando clínica...</div>
+
+        <!-- Linha 4: Perfil & Seletor para Gerente -->
+        <div class="user-role-row">
+          <span id="user-role-display" class="user-role-pill">🏷️ Master</span>
+          <div id="role-preview-container" class="role-preview-wrap" style="display: none;">
+            <select id="select-role-preview" class="role-preview-select" title="Alternar visão do perfil (Gerente/Master)">
+              <option value="gerente">👑 Ver: Gerente</option>
+              <option value="aplicadora">🩺 Ver: Aplicadora</option>
+              <option value="consultora">🎯 Ver: Consultora</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions-group">
+        <button id="btn-refresh-session" class="btn-icon" title="Sincronizar dados com o Belle Software">
+          🔄
+        </button>
+        <button id="btn-open-config" class="btn-icon" title="Abrir Diagnóstico e Configurações">
+          ⚙️
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <!-- ========================================================= -->
+    <!-- PAINEL SUPERIOR FIXO (HEADER, SALAS, KPIs E NAVEGAÇÃO)    -->
+    <!-- ========================================================= -->
+    <div class="fixed-top-panel" id="fixed-top-panel">
+      <!-- 2. FILTRO DE SALAS -->
+      <section class="card control-card" id="card-filtro-salas">
+        <div class="filter-group">
+          <label for="select-profissional">📍 Filtrar por Sala / Recurso:</label>
+          <select id="select-profissional" class="form-select">
+            <option value="todos">Todas as Salas</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 3. CARDS DE KPIs & RESUMO DO DIA -->
+      <section class="kpi-grid" id="card-kpi-grid">
+        <div class="kpi-card" data-filter="todos" title="Clique para filtrar todos os agendamentos">
+          <span class="kpi-label">Total</span>
+          <strong class="kpi-value" id="kpi-total">0</strong>
+        </div>
+        <div class="kpi-card kpi-success" data-filter="confirmado" title="Clique para filtrar apenas confirmados">
+          <span class="kpi-label">Confirmados</span>
+          <strong class="kpi-value" id="kpi-confirmados">0</strong>
+        </div>
+        <div class="kpi-card kpi-warning" data-filter="aguardando" title="Clique para filtrar clientes aguardando chamada">
+          <span class="kpi-label">Aguardando</span>
+          <strong class="kpi-value" id="kpi-aguardando">0</strong>
+        </div>
+        <div class="kpi-card kpi-purple" data-filter="finalizado" title="Clique para filtrar atendidos">
+          <span class="kpi-label">Atendidos</span>
+          <strong class="kpi-value" id="kpi-finalizados">0</strong>
+        </div>
+      </section>
+
+      <!-- 4. NAVEGAÇÃO POR ABAS (DINÂMICA POR PERFIL) -->
+      <nav class="nav-tabs" id="main-nav-tabs">
+        <button class="tab-item active" data-target="tab-agenda" id="tab-nav-agenda">
+          📅 Agenda do Dia
+        </button>
+        <button class="tab-item" data-target="tab-atendimento" id="tab-nav-atendimento">
+          🩺 Atendimento
+        </button>
+        <button class="tab-item" data-target="tab-comercial" id="tab-nav-comercial" style="display: none;">
+          🎯 Comercial & Vendas
+        </button>
+      </nav>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- CONTAINER DE SCROLL INDEPENDENTE DAS ABAS                 -->
+    <!-- ========================================================= -->
+    <div class="tabs-scroll-container">
+      <!-- TAB 1: LISTA DE AGENDAMENTOS (TIMELINE)                   -->
+      <section id="tab-agenda" class="tab-content active">
+      <!-- Tabulação Rápida por Status -->
+      <div class="status-tab-bar" id="status-tab-bar">
+        <button class="status-tab-btn active" data-status="todos">
+          <span class="status-tab-name">Todos</span>
+          <span class="status-tab-count" id="count-status-todos">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="aguardando">
+          <span class="status-tab-dot dot-aguardando"></span>
+          <span class="status-tab-name">Aguardando</span>
+          <span class="status-tab-count" id="count-status-aguardando">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="confirmado">
+          <span class="status-tab-dot dot-confirmado"></span>
+          <span class="status-tab-name">Confirmados</span>
+          <span class="status-tab-count" id="count-status-confirmado">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="agendado">
+          <span class="status-tab-dot dot-agendado"></span>
+          <span class="status-tab-name">Marcados</span>
+          <span class="status-tab-count" id="count-status-agendado">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="atendimento">
+          <span class="status-tab-dot dot-atendimento"></span>
+          <span class="status-tab-name">Em Andamento</span>
+          <span class="status-tab-count" id="count-status-atendimento">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="finalizado">
+          <span class="status-tab-dot dot-finalizado"></span>
+          <span class="status-tab-name">Atendidos</span>
+          <span class="status-tab-count" id="count-status-finalizado">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="falta">
+          <span class="status-tab-dot dot-falta"></span>
+          <span class="status-tab-name">Falhou</span>
+          <span class="status-tab-count" id="count-status-falta">0</span>
+        </button>
+        <button class="status-tab-btn" data-status="bloqueado">
+          <span class="status-tab-dot dot-bloqueado"></span>
+          <span class="status-tab-name">Bloqueados</span>
+          <span class="status-tab-count" id="count-status-bloqueado">0</span>
+        </button>
+      </div>
+
+      <!-- Indicador de Carregamento -->
+      <div id="loading-agenda" class="spinner-container" style="display: none;">
+        <div class="spinner"></div>
+        <span>Carregando agenda em tempo real...</span>
+      </div>
+
+      <!-- Timeline dos Agendamentos -->
+      <div id="agenda-timeline-container" class="agenda-timeline timeline-container">
+        <!-- Renderizado dinamicamente via JavaScript -->
+      </div>
+
+      <!-- Estado Vazio -->
+      <div id="agenda-empty-state" class="empty-state" style="display: none;">
+        <div class="empty-icon">📅</div>
+        <p>Nenhum agendamento encontrado para esta seleção.</p>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB 2: DETALHES DO ATENDIMENTO & PARÂMETROS LASER        -->
+    <!-- ========================================================= -->
+    <section id="tab-atendimento" class="tab-content">
+      <div id="atendimento-placeholder" class="empty-state">
+        <div class="empty-icon">🩺</div>
+        <p>Selecione um agendamento na lista da agenda para abrir o painel clínico de atendimento.</p>
+      </div>
+
+      <div id="atendimento-content" style="display: none;">
+        <!-- Card 0: Próxima Cliente a Chamar (Recepção / Aguardando) -->
+        <div class="card card-proxima-aguardando" id="card-proxima-aguardando" style="display: none;">
+          <div class="proxima-aguardando-header">
+            <div class="title-with-icon">
+              <span class="icon-bubble icon-pulse" style="background: #ffedd5; color: #ea580c;">📢</span>
+              <strong style="color: #9a3412; font-size: 12.5px;">Próxima Cliente a Chamar (Recepção)</strong>
+            </div>
+            <span class="badge-count-pill" style="background: #ffedd5; color: #c2410c; font-weight: 800;">Aguardando</span>
+          </div>
+          <div class="proxima-aguardando-body" id="proxima-aguardando-info">
+            <!-- Injetado dinamicamente -->
+          </div>
+        </div>
+
+        <!-- Card 1: Identificação do Paciente -->
+        <div class="card atendimento-card-header">
+          <div class="atend-header-top">
+            <span class="atend-time" id="atend-horario">⏰ 00:00 - 00:00</span>
+            <span class="app-badge badge-confirmado" id="atend-status-badge">Confirmado</span>
+          </div>
+          <h2 class="atend-client-title" id="atend-nome-cliente">Nome do Cliente</h2>
+          
+          <div class="atend-meta-grid">
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">🏷️ Prontuário:</span>
+              <strong id="atend-cod-paciente">#0000</strong>
+            </div>
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">📄 CPF:</span>
+              <strong id="atend-cpf">-</strong>
+            </div>
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">📱 Celular:</span>
+              <strong id="atend-telefone">-</strong>
+            </div>
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">📋 Consulta:</span>
+              <strong id="atend-cod-consulta">#0000</strong>
+            </div>
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">📍 Sala / Recurso:</span>
+              <strong id="atend-sala">SALA DEPILAÇÃO A LASER</strong>
+            </div>
+            <div class="atend-meta-item">
+              <span class="atend-meta-lbl">👩‍⚕️ Profissional:</span>
+              <strong id="atend-profissional">-</strong>
+            </div>
+          </div>
+
+          <!-- Tags e Alertas Clínicos -->
+          <div class="tags-container-card" id="atend-tags-box" style="margin-top: 10px; display: none;"></div>
+
+          <!-- Múltiplos Agendamentos do Mesmo Cliente Hoje -->
+          <div id="atend-multi-app-box" class="atend-multi-card" style="margin-top: 12px; display: none;">
+            <div class="multi-app-header">
+              <span>⚠️ <strong>Atenção:</strong> Esta cliente possui <span id="atend-multi-qtd">2</span> agendamentos hoje:</span>
+            </div>
+            <div id="atend-multi-buttons" class="multi-app-buttons"></div>
+          </div>
+        </div>
+
+        <!-- Card 2: Contrato / Pacote Ativo -->
+        <div class="card" id="atend-card-pacote">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble">📦</span>
+              <span>Pacote & Contrato Ativo</span>
+            </div>
+            <span id="atend-cod-orcamento" class="badge-count-pill" style="background: #f1f5f9; color: #475569;">#00000</span>
+          </div>
+          <div class="atend-pacote-box">
+            <strong class="atend-plano-name" id="atend-nome-plano">Carregando plano...</strong>
+          </div>
+        </div>
+
+        <!-- Card Oportunidades & Ofertas do Dia (Motor de Cadência Clínica) -->
+        <div class="card card-ofertas-sugeridas" id="atend-card-ofertas" style="display: none;">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble" style="background: #fef08a; color: #854d0e;">💡</span>
+              <span style="color: #854d0e; font-weight: 800;">Oportunidades & Ofertas de Hoje</span>
+            </div>
+            <span class="badge-count-pill" id="atend-qtd-ofertas" style="background: #fef9c3; color: #a16207;">1 sugestão</span>
+          </div>
+          <p class="ofertas-intro-hint">
+            🎯 Cadência de vendas personalizada baseada nas áreas e sessões da cliente:
+          </p>
+          <div id="atend-lista-ofertas" class="atend-ofertas-list">
+            <!-- Injetado dinamicamente -->
+          </div>
+        </div>
+
+        <!-- Card 3: Áreas e Procedimentos de Hoje com Saldos -->
+        <div class="card">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble">✨</span>
+              <span>Áreas / Procedimentos de Hoje</span>
+            </div>
+            <span id="atend-qtd-servicos" class="badge-count-pill">0 áreas</span>
+          </div>
+          <div id="atend-lista-servicos" class="atend-services-list">
+            <div style="font-size: 11px; color: #64748b; padding: 4px;">Carregando serviços e saldos...</div>
+          </div>
+        </div>
+
+        <!-- Card 4: Histórico dos Últimos Parâmetros do Laser -->
+        <div class="card" id="atend-card-parametros">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble" style="background: #fef3c7; color: #b45309;">⚡</span>
+              <span>Histórico de Parâmetros Anteriores</span>
+            </div>
+            <span class="badge-date-pill" id="atend-laser-data-badge">Última Sessão</span>
+          </div>
+          <div id="loading-laser-params" class="spinner-container" style="display: none; margin-bottom: 8px;">
+            <div class="spinner"></div>
+            <span>Consultando histórico no prontuário...</span>
+          </div>
+          <div id="atend-lista-laser-params" class="atend-laser-list">
+            <div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>
+          </div>
+        </div>
+
+        <!-- Card 5: REGISTRO DE PARÂMETROS DE HOJE (FORMULÁRIOS POR ÁREA) -->
+        <div class="card card-param-registro" id="atend-card-novo-parametro">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble" style="background: #f3e8ff; color: #7e22ce;">📝</span>
+              <span style="color: #6b21a8; font-weight: 800;">Registrar Parâmetros de Hoje</span>
+            </div>
+            <span class="badge-count-pill" id="atend-qtd-areas-registro" style="background: #f3e8ff; color: #7e22ce;">1 Área</span>
+          </div>
+          <p class="param-registro-hint">
+            💡 Os campos foram pré-preenchidos com a última sessão. Altere apenas os valores que evoluíram hoje.
+          </p>
+
+          <!-- Lista de Formulários por Área Tratada -->
+          <div id="atend-lista-forms-laser" class="atend-forms-laser-list">
+            <!-- Injetado dinamicamente -->
+          </div>
+
+          <!-- Status de Salvamento -->
+          <div id="atend-status-salvar-laser" class="param-save-status" style="display: none;"></div>
+
+          <!-- Botão Principal de Salvamento em Lote -->
+          <button id="btn-salvar-parametros-laser" class="btn btn-primary btn-save-all-laser">
+            💾 Salvar Parâmetros (Todas as Áreas)
+          </button>
+        </div>
+
+        <!-- Card 6: Ações Rápidas -->
+        <div class="card action-buttons-card">
+          <button id="btn-atend-finalizar" class="btn btn-primary" style="width: 100%; margin-bottom: 8px; font-weight: 800; background: #16a34a; border-color: #15803d; color: #ffffff;">
+            ✅ Finalizar Atendimento
+          </button>
+          <button id="btn-atend-voltar" class="btn btn-outline" style="width: 100%;">
+            ◀ Voltar para a Agenda
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB COMERCIAL: PAINEL DA CONSULTORA (OPORTUNIDADES DO DIA)-->
+    <!-- ========================================================= -->
+    <section id="tab-comercial" class="tab-content">
+      <!-- Card 1: Resumo do Funil Comercial do Dia -->
+      <div class="card comercial-kpi-card">
+        <div class="card-section-title-flex">
+          <div class="title-with-icon">
+            <span class="icon-bubble" style="background: #fef08a; color: #854d0e;">🎯</span>
+            <span style="font-weight: 800; color: #0f172a;">Painel da Consultora (Vendas do Dia)</span>
+          </div>
+          <span class="badge-count-pill" id="comercial-qtd-oportunidades" style="background: #fef9c3; color: #a16207;">0 oportunidades</span>
+        </div>
+        <p style="font-size: 11.5px; color: #64748b; margin-bottom: 10px;">
+          Acompanhamento estratégico de clientes do dia, renovações de pacotes e cross-sell.
+        </p>
+
+        <div class="comercial-kpi-grid">
+          <div class="com-kpi-box">
+            <span class="com-kpi-lbl">Reta Final (Renovação)</span>
+            <strong class="com-kpi-val" id="com-kpi-reta-final" style="color: #b45309;">0</strong>
+          </div>
+          <div class="com-kpi-box">
+            <span class="com-kpi-lbl">Aniversariantes</span>
+            <strong class="com-kpi-val" id="com-kpi-aniver" style="color: #db2777;">0</strong>
+          </div>
+          <div class="com-kpi-box">
+            <span class="com-kpi-lbl">Novas Áreas / Cross-sell</span>
+            <strong class="com-kpi-val" id="com-kpi-cross" style="color: #16a34a;">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Busca Rápida de Ficha & Saldo da Cliente -->
+      <div class="card">
+        <div class="card-section-title-flex">
+          <div class="title-with-icon">
+            <span class="icon-bubble">🔍</span>
+            <span>Consultar Ficha / Saldo da Paciente</span>
+          </div>
+        </div>
+        <div class="form-group" style="display: flex; gap: 6px; margin-bottom: 8px;">
+          <input 
+            type="text" 
+            id="input-busca-saldo-comercial" 
+            placeholder="Buscar por nome, telefone ou CPF..." 
+            class="form-input" 
+            style="flex: 1; font-size: 12px;"
+          >
+          <button id="btn-buscar-saldo-comercial" class="btn btn-primary" style="padding: 6px 12px; font-size: 11.5px;">
+            Buscar
+          </button>
+        </div>
+
+        <div id="loading-saldo-comercial" class="spinner-container" style="display: none; margin: 8px 0;">
+          <div class="spinner"></div>
+          <span>Consultando ficha financeira...</span>
+        </div>
+
+        <div id="resultado-saldo-comercial" style="margin-top: 8px; display: none;"></div>
+      </div>
+
+      <!-- Card 3: Lista de Oportunidades do Dia -->
+      <div class="card">
+        <div class="card-section-title-flex">
+          <div class="title-with-icon">
+            <span class="icon-bubble" style="background: #e0f2fe; color: #0369a1;">📋</span>
+            <span>Oportunidades de Vendas de Hoje</span>
+          </div>
+          <span class="badge-count-pill" id="com-badge-total-opp">0</span>
+        </div>
+
+        <div id="lista-oportunidades-comercial" class="comercial-opp-list">
+          <div style="font-size: 11px; color: #64748b; padding: 6px;">Nenhuma oportunidade gerada ainda para hoje.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB CONFIGURAÇÕES & AJUSTES DA SESSÃO                     -->
+    <!-- ========================================================= -->
+    <section id="tab-config" class="tab-content">
+      <div class="card block-card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="title-with-icon">
+            <span class="icon-bubble">⚙️</span>
+            <span>Parâmetros de Sessão e Conexão</span>
+          </div>
+          <button id="btn-config-voltar" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;">◀ Voltar</button>
+        </div>
+
+        <div class="form-group">
+          <label>Token de Autorização (Capturado do Cookie):</label>
+          <input type="password" id="input-token-manual" placeholder="Token de autorização..." class="form-input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Cód. Estabelecimento (Fixo):</label>
+            <input type="text" id="input-cod-estab" value="1" readonly class="form-input disabled-input">
+          </div>
+          <div class="form-group flex-1">
+            <label>Login / Usuário:</label>
+            <input type="text" id="input-cod-usuario" value="master-admin" class="form-input">
+          </div>
+        </div>
+
+        <div class="btn-group-action" style="margin-top: 10px;">
+          <button id="btn-salvar-config" class="btn btn-primary">
+            💾 Salvar Parâmetros
+          </button>
+          <button id="btn-recarregar-tudo" class="btn btn-secondary">
+            🔄 Recarregar Completo
+          </button>
+        </div>
+
+        <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 11px; color: #475569;">📡 Diagnóstico da API (agendaapi):</strong>
+            <button id="btn-test-agenda-api" class="btn-action-mini" style="font-size: 10px;">⚡ Testar Chamada</button>
+          </div>
+          <div id="debug-status-badge" style="font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 4px;">Status: Pronto</div>
+          <pre id="debug-raw-response" style="background: #0f172a; color: #38bdf8; font-size: 10px; padding: 8px; border-radius: 6px; max-height: 180px; overflow: auto; white-space: pre-wrap; font-family: monospace;">Nenhuma chamada executada ainda...</pre>
+        </div>
+      </div>
+    </section>
+    </div>
+  </main>
+
+  <!-- ========================================================= -->
+  <!-- MODAL DE TRAVA DE SEGURANÇA: PARÂMETROS SEM EVOLUÇÃO      -->
+  <!-- ========================================================= -->
+  <div id="modal-trava-evolucao" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header modal-header-warning">
+        <span class="modal-icon">⚠️</span>
+        <h3 class="modal-title">Atenção: Parâmetros Sem Evolução</h3>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: #334155; margin-bottom: 10px;">
+          Identificamos que as seguintes áreas estão com os <strong>mesmos parâmetros da última sessão</strong> (sem evolução de energia/joules):
+        </p>
+        <div id="lista-areas-sem-evolucao" class="modal-areas-alert-list">
+          <!-- Injetado dinamicamente com as áreas idênticas -->
+        </div>
+        <p style="font-size: 11px; color: #64748b; margin-top: 10px;">
+          Deseja realmente confirmar e salvar o atendimento de hoje sem alteração de parâmetros?
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancelar-salvar-sem-evolucao" class="btn btn-outline">
+          ✏️ Revisar / Alterar
+        </button>
+        <button id="btn-confirmar-salvar-sem-evolucao" class="btn btn-warning">
+          ✅ Confirmar e Salvar Assim
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL DE ALERTA: PRÓXIMO AGENDAMENTO DO MESMO CLIENTE     -->
+  <!-- ========================================================= -->
+  <div id="modal-proximo-agendamento" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header modal-header-info">
+        <span class="modal-icon">🗓️</span>
+        <h3 class="modal-title">Outro Agendamento Hoje</h3>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: #1e293b; margin-bottom: 10px;">
+          Atendimento finalizado com sucesso! Identificamos que a cliente <strong id="modal-proximo-nome-cliente">Cliente</strong> possui <strong>outro agendamento em sequência hoje</strong>:
+        </p>
+        
+        <div id="modal-proximo-lista-cards" class="modal-proximo-cards-list">
+          <!-- Injetado dinamicamente -->
+        </div>
+
+        <p style="font-size: 11.5px; color: #475569; margin-top: 10px;">
+          Deseja abrir diretamente o próximo atendimento desta cliente agora?
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-proximo-voltar-agenda" class="btn btn-outline">
+          📅 Voltar para Agenda
+        </button>
+        <button id="btn-proximo-iniciar-atendimento" class="btn btn-primary">
+          🩺 Ir para Próximo Atendimento ➔
+        </button>
+      </div>
+    </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

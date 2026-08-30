@@ -1,9 +1,10 @@
 /**
  * BELLE COPILOT - MODAL DE AGENDAMENTO DA PRÓXIMA SESSÃO (RECEPÇÃO / COMERCIAL)
- * - Trava estrita para áreas com saldo zerado (não permite agendar saldo 0);
+ * - Mapeamento e montagem estrita do array completo de serviços (arrServ e obServ);
+ * - Trava de áreas com saldo zerado;
  * - Suporta agendamento sequencial em lote para clientes com múltiplos planos/pacotes;
  * - Executa a validação oficial (/validacao) e a gravação no Belle (/edicaoagenda);
- * - Feedback visual elegante integrado sem uso de popups nativos do navegador (alert).
+ * - Feedback visual elegante integrado no Side Panel.
  */
 
 import { state } from '../core/state.js';
@@ -50,7 +51,9 @@ let callbackSalvar = null;
 let currentAppAgendamento = null;
 let tipoProcedimentoAtual = "depilacao";
 let debounceDisponibilidadeTimer = null;
-let planosEstruturadosCache = [];
+
+// Mapa em memória com os objetos completos originais dos serviços indexados
+const servicosOriginaisRegistry = new Map();
 
 const DIAS_SEMANA = [
   "Domingo",
@@ -159,28 +162,94 @@ function obterTempoServico(nomeServ = "") {
 }
 
 /**
- * Agrupa serviços selecionados por plano (FILTRA ESTRITAMENTE ÁREAS COM SALDO > 0)
+ * Formata um objeto de serviço estritamente de acordo com a API do Belle (/validacao e /edicaoagenda)
+ */
+function formatarServicoParaArrServ(s, codOrc, codPlano, idGeinfo) {
+  let codServ = Number(s.cod_servico || s.codServico || s.codServ || s.id || s.codigo || 0);
+  const sNome = String(s.nome || s.servico || s.nom_servico || "Serviço").trim();
+  
+  // Tenta encontrar ID oficial no catálogo se estiver zerado
+  if (!codServ && state.servicosCatalogo?.length > 0) {
+    const sNomeNorm = sNome.toLowerCase();
+    const match = state.servicosCatalogo.find(c => {
+      const cNome = (c.nome || "").toLowerCase().trim();
+      return cNome === sNomeNorm || cNome.includes(sNomeNorm) || sNomeNorm.includes(cNome);
+    });
+    if (match) {
+      codServ = Number(match.id || match.codigo || match.cod_servico || 0);
+    }
+  }
+  if (!codServ) codServ = 55556418;
+
+  const sTempo = Number(s.tempo || s.tempo_atendimento || obterTempoServico(sNome) || 5);
+  const sValor = String(s.valor || "0,00");
+  const sQtd = String(s.quantidade || s.contratadas || s.sessoes || "10");
+  const sGasto = Number(s._gasto ?? s.gasto ?? s.realizadas ?? s.gastos ?? 0);
+  const sSaldo = String(s.saldo_atual ?? s.saldo ?? s.restante ?? Math.max(1, Number(sQtd) - sGasto));
+  const sCodSaldo = Number(s.cod_saldo || 0);
+  const sGeinfo = Number(s.id_geinfo || idGeinfo || state.currentSalas?.[0]?.id_geinfo || 85015);
+  const finalCodOrc = Number(codOrc || s.cod_orcamento || 0);
+
+  return {
+    id_geinfo: sGeinfo,
+    cod_saldo: sCodSaldo,
+    cod_orcamento: finalCodOrc,
+    cod_servico: codServ,
+    nome: sNome,
+    valor: sValor,
+    tempo: sTempo,
+    quantidade: sQtd,
+    saldo_atual: sSaldo,
+    tipo: Number(s.tipo || 3),
+    usa_campanha: String(s.usa_campanha || "2"),
+    cod_campanha: Number(s.cod_campanha || 0),
+    nome_campanha: s.nome_campanha || "",
+    usa_regiao: Boolean(s.usa_regiao),
+    dt_renovado: s.dt_renovado || null,
+    cod_movimento_renovacao: s.cod_movimento_renovacao || null,
+    label: s.label || `${codServ}-${sNome} `,
+    _gasto: sGasto,
+    usa_dia: s.usa_dia || "1",
+    dia_retorno: Number(s.dia_retorno || 0),
+    imagem: s.imagem || "",
+    custo: String(s.custo || "0,00"),
+    sessoes: sQtd,
+    gastos: sGasto,
+    restante: sSaldo,
+    lbCampanha: s.lbCampanha || "",
+    usa_equip: Number(s.usa_equip || 0),
+    teleatendimento: Boolean(s.teleatendimento)
+  };
+}
+
+/**
+ * Agrupa serviços selecionados por plano com dados completos para o payload
  */
 export function calcularPlanosEServicosSelecionados() {
   const checkedInputs = modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked:not(:disabled)") || [];
   const planosMap = new Map();
 
   checkedInputs.forEach(chk => {
+    const sNome = chk.value;
+    const codOrc = chk.getAttribute("data-plano-orc") || currentAppAgendamento?.codOrcamento || "0";
+    const nomePlano = chk.getAttribute("data-plano-nome") || currentAppAgendamento?.nomePlano || "Plano de Sessões";
+    const codPlano = chk.getAttribute("data-plano-cod") || currentAppAgendamento?.codPlano || "0";
+    const codServico = chk.getAttribute("data-cod-servico") || "";
+    const tempoServ = Number(chk.getAttribute("data-tempo")) || obterTempoServico(sNome);
     const saldoRestanteNum = Number(chk.getAttribute("data-saldo-restante") || 1);
+
     if (saldoRestanteNum <= 0) return; // Trava: não agendamos áreas zeradas
 
-    const sNome = chk.value;
-    const codOrc = chk.getAttribute("data-plano-orc") || currentAppAgendamento?.codOrcamento || "padrao";
-    const nomePlano = chk.getAttribute("data-plano-nome") || currentAppAgendamento?.nomePlano || "Plano de Sessões";
-    const codPlano = chk.getAttribute("data-plano-cod") || currentAppAgendamento?.codPlano || "";
-    const tempoServ = Number(chk.getAttribute("data-tempo")) || obterTempoServico(sNome);
-    const codServico = chk.getAttribute("data-cod-servico") || "";
-    const rawServJson = chk.getAttribute("data-raw-serv");
+    // Recupera objeto original completo do registro em memória
+    const regKey = `${codOrc}_${sNome.trim().toLowerCase()}`;
+    const servOriginal = servicosOriginaisRegistry.get(regKey) || servicosOriginaisRegistry.get(`${codOrc}_${codServico}`);
 
-    let rawServObj = null;
-    if (rawServJson) {
-      try { rawServObj = JSON.parse(decodeURIComponent(rawServJson)); } catch (e) {}
-    }
+    const servicoFormatado = formatarServicoParaArrServ(
+      servOriginal || { nome: sNome, cod_servico: codServico, tempo: tempoServ, saldo_atual: saldoRestanteNum },
+      codOrc,
+      codPlano,
+      currentAppAgendamento?.idGeinfo
+    );
 
     if (!planosMap.has(codOrc)) {
       planosMap.set(codOrc, {
@@ -194,27 +263,9 @@ export function calcularPlanosEServicosSelecionados() {
     }
 
     const p = planosMap.get(codOrc);
-    p.duracaoMin += tempoServ;
-    p.servicos.push({ nome: sNome, tempo: tempoServ, codServico });
-
-    if (rawServObj) {
-      p.servicosCompletos.push(rawServObj);
-    } else {
-      p.servicosCompletos.push({
-        id_geinfo: currentAppAgendamento?.idGeinfo || 85015,
-        cod_saldo: 0,
-        cod_orcamento: Number(codOrc) || 0,
-        cod_servico: Number(codServico) || 55556418,
-        nome: sNome,
-        valor: "0,00",
-        tempo: tempoServ,
-        quantidade: "10",
-        saldo_atual: String(saldoRestanteNum),
-        tipo: 3,
-        _gasto: 0,
-        restante: String(saldoRestanteNum)
-      });
-    }
+    p.duracaoMin += servicoFormatado.tempo;
+    p.servicos.push({ nome: sNome, tempo: servicoFormatado.tempo, codServico: servicoFormatado.cod_servico });
+    p.servicosCompletos.push(servicoFormatado);
   });
 
   const planosArray = Array.from(planosMap.values());
@@ -474,10 +525,12 @@ function atualizarRegraEDataSugerida() {
 }
 
 /**
- * Renderiza a lista de serviços estruturados (BLOQUEIA ESTRITAMENTE ÁREAS ZERADAS)
+ * Renderiza a lista de serviços estruturados (INDEXA OBJETOS NO REGISTRO EM MEMÓRIA)
  */
 function renderizarPlanosEServicos(planosComServicos) {
   if (!modalAgendaListaServicos) return;
+
+  servicosOriginaisRegistry.clear();
 
   if (!Array.isArray(planosComServicos) || planosComServicos.length === 0) {
     modalAgendaListaServicos.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Nenhuma área encontrada no plano.</div>';
@@ -487,25 +540,36 @@ function renderizarPlanosEServicos(planosComServicos) {
   let html = "";
   planosComServicos.forEach((plano, pIdx) => {
     const isMultiplo = planosComServicos.length > 1;
+    const codOrcPlano = plano.codOrcamento || "";
+    const codPlanoPlano = plano.codPlano || "";
+    const nomePlanoPlano = plano.nomePlano || "Plano de Sessões";
+
     const headerPlanoHtml = isMultiplo ? `
       <div style="font-size: 11px; font-weight: 800; color: #0369a1; background: #e0f2fe; padding: 3px 6px; border-radius: 4px; margin-top: ${pIdx > 0 ? '6px' : '0'}; margin-bottom: 3px; display: flex; justify-content: space-between;">
-        <span>📦 Plano #${pIdx + 1}: ${plano.nomePlano || 'Pacote de Sessões'}</span>
-        <small style="color: #0284c7;">#${plano.codOrcamento || ''}</small>
+        <span>📦 Plano #${pIdx + 1}: ${nomePlanoPlano}</span>
+        <small style="color: #0284c7;">#${codOrcPlano}</small>
       </div>
     ` : '';
 
     let servicosItemsHtml = "";
     plano.servicos.forEach((s, sIdx) => {
-      const sNome = s.servico || s.nome || s.nom_servico || `Área #${sIdx + 1}`;
+      const sNome = String(s.servico || s.nome || s.nom_servico || `Área #${sIdx + 1}`).trim();
       const sTipo = identificarTipoProcedimento(sNome);
       const iconTipo = (sTipo === "clareamento") ? "🧴" : "🪒";
       
-      const realizadas = parseInt(s.gasto || s.realizadas || s.qtd_executada || 0, 10);
-      const contratadas = parseInt(s.quantidade || s.contratadas || s.qtd_contratada || 10, 10);
-      const saldoRestante = parseInt(s.saldo_atual || s.saldo || (contratadas - realizadas), 10);
+      const realizadas = parseInt(s.gasto || s.realizadas || s.qtd_executada || s.gastos || 0, 10);
+      const contratadas = parseInt(s.quantidade || s.contratadas || s.qtd_contratada || s.sessoes || 10, 10);
+      const saldoRestante = parseInt(s.saldo_atual || s.saldo || s.restante || (contratadas - realizadas), 10);
       const proximaSessao = realizadas + 1;
-      const tempoServ = s.tempo || obterTempoServico(sNome);
-      const codServico = s.cod_servico || s.codServico || s.codServ || "";
+      const tempoServ = Number(s.tempo || s.tempo_atendimento || obterTempoServico(sNome));
+      const codServico = String(s.cod_servico || s.codServico || s.codServ || "");
+
+      // Registra o objeto original no mapa em memória
+      const servFormatado = formatarServicoParaArrServ(s, codOrcPlano, codPlanoPlano, currentAppAgendamento?.idGeinfo);
+      servicosOriginaisRegistry.set(`${codOrcPlano}_${sNome.toLowerCase()}`, servFormatado);
+      if (codServico) {
+        servicosOriginaisRegistry.set(`${codOrcPlano}_${codServico}`, servFormatado);
+      }
 
       let sessaoTxt = "";
       const isSaldoZerado = (saldoRestante <= 0);
@@ -521,7 +585,6 @@ function renderizarPlanosEServicos(planosComServicos) {
       const isChecked = !isSaldoZerado ? "checked" : "";
       const isDesabilitado = isSaldoZerado ? "disabled" : "";
       const estiloLabel = isSaldoZerado ? "style='opacity: 0.5; background: #f1f5f9; cursor: not-allowed;'" : "";
-      const rawJson = encodeURIComponent(JSON.stringify(s));
 
       servicosItemsHtml += `
         <label class="check-servico-item" ${estiloLabel}>
@@ -529,13 +592,12 @@ function renderizarPlanosEServicos(planosComServicos) {
             type="checkbox" 
             name="servico_agendar" 
             value="${sNome}" 
-            data-plano-orc="${plano.codOrcamento || ''}"
-            data-plano-cod="${plano.codPlano || ''}"
-            data-plano-nome="${plano.nomePlano || ''}"
+            data-plano-orc="${codOrcPlano}"
+            data-plano-cod="${codPlanoPlano}"
+            data-plano-nome="${nomePlanoPlano}"
             data-cod-servico="${codServico}"
             data-tempo="${tempoServ}"
             data-saldo-restante="${saldoRestante}"
-            data-raw-serv="${rawJson}"
             ${isChecked}
             ${isDesabilitado}
           >
@@ -696,6 +758,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
         }
         return {
           nome: sNome,
+          cod_servico: s.cod_servico || s.codServico || "",
           gasto: f,
           quantidade: tot,
           saldo: sal,
@@ -711,7 +774,6 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
       });
     }
 
-    planosEstruturadosCache = planosEstruturados;
     renderizarPlanosEServicos(planosEstruturados);
   }
 
@@ -780,9 +842,6 @@ export function fecharModalAgendarProxima() {
   callbackSalvar = null;
 }
 
-/**
- * Exibe o modal elegante de sucesso da finalização do agendamento
- */
 function abrirModalSucesso(clienteNome, dataBr, nomeSala, planosAgendados) {
   if (!modalAgendamentoSucesso) return;
 
@@ -855,7 +914,14 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
     return;
   }
 
-  // Altera botão para feedback de carregamento
+  // Validação estrita de integridade do arrServ
+  for (const p of planos) {
+    if (!Array.isArray(p.servicosCompletos) || p.servicosCompletos.length === 0) {
+      alert(`⚠️ Erro: Nenhum serviço válido identificado para o plano ${p.nomePlano}.`);
+      return;
+    }
+  }
+
   btnConfirmarAgendarProxima.disabled = true;
   btnConfirmarAgendarProxima.textContent = "⏳ Gravando no Belle...";
 
@@ -876,7 +942,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
     p.horarioInicio = hIni;
     p.horarioFim = hFim;
 
-    // 1. Monta Payload de Validação
+    // 1. Monta Payload de Validação (/validacao)
     const payloadValidacao = {
       codAgenda: "",
       status: "",
@@ -886,10 +952,10 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
       statusAlterado: "Marcado"
     };
 
-    console.log(`[Agendamento ${i + 1}/${planos.length}] 📤 Validando agendamento:`, payloadValidacao);
+    console.log(`[Agendamento ${i + 1}/${planos.length}] 📤 Disparando /validacao:`, payloadValidacao);
     await validarAgendamentoApi(state.currentToken, payloadValidacao, state.currentCodEstab);
 
-    // 2. Monta Payload Oficial de Gravação (edicaoagenda)
+    // 2. Monta Payload Oficial de Gravação (/edicaoagenda)
     const payloadEdicao = {
       obs: "Agendado via Belle Copilot",
       TAA: "",
@@ -936,8 +1002,8 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
         tipo: "3",
         forma: "p",
         servicos: p.servicosCompletos.map(s => ({
-          codServico: s.cod_servico,
-          saldoRestante: Number(s.saldo_atual) || 1,
+          codServico: Number(s.cod_servico),
+          saldoRestante: Number(s.saldo_atual || s.restante || 1),
           nome: s.nome
         }))
       },
@@ -972,7 +1038,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
       teleAtend: false
     };
 
-    console.log(`[Agendamento ${i + 1}/${planos.length}] 💾 Gravando edicaoagenda:`, payloadEdicao);
+    console.log(`[Agendamento ${i + 1}/${planos.length}] 💾 Disparando /edicaoagenda com ${p.servicosCompletos.length} serviços no arrServ:`, payloadEdicao);
     const resGravar = await salvarEdicaoAgendaApi(state.currentToken, payloadEdicao, state.currentCodEstab);
     resultadosGravacao.push({ plano: p, res: resGravar });
   }

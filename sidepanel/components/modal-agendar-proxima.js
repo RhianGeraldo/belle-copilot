@@ -6,7 +6,7 @@
  * - Depilação para Clareamento: +25 dias
  * - Clareamento para Depilação: +25 dias
  * 
- * Formatação de Data em DD/MM/YYYY com dia da semana e consulta oficial de saldos.
+ * Formato de Data estrito DD/MM/YYYY com máscara e seletor de calendário sincronizado.
  */
 
 import { state } from '../core/state.js';
@@ -21,7 +21,9 @@ const modalAgendaTipoProximoBadge = document.getElementById("modal-agenda-tipo-p
 const modalAgendaLblData = document.getElementById("modal-agenda-lbl-data");
 const modalAgendaDataBrDisplay = document.getElementById("modal-agenda-data-br-display");
 const modalAgendaListaServicos = document.getElementById("modal-agenda-lista-servicos");
-const modalAgendaInputData = document.getElementById("modal-agenda-input-data");
+const modalAgendaInputDataBr = document.getElementById("modal-agenda-input-data-br");
+const modalAgendaPicker = document.getElementById("modal-agenda-picker");
+const btnModalAgendaAbrirCalendario = document.getElementById("btn-modal-agenda-abrir-calendario");
 const modalAgendaInputHora = document.getElementById("modal-agenda-input-hora");
 const modalAgendaSelectSala = document.getElementById("modal-agenda-select-sala");
 const btnCancelarAgendarProxima = document.getElementById("btn-cancelar-agendar-proxima");
@@ -89,15 +91,27 @@ function obterDataBaseAgendamento(app) {
 }
 
 /**
- * Atualiza o texto DD/MM/YYYY e dia da semana na tela
+ * Define e formata a data nos campos em formato DD/MM/YYYY
  */
-function atualizarTextoDataBr(dataObj) {
-  if (!modalAgendaDataBrDisplay || !dataObj || isNaN(dataObj.getTime())) return;
+function setarDataNoModal(dataObj) {
+  if (!dataObj || isNaN(dataObj.getTime())) return;
+  
   const dd = String(dataObj.getDate()).padStart(2, "0");
   const mm = String(dataObj.getMonth() + 1).padStart(2, "0");
   const yyyy = dataObj.getFullYear();
+  const dataBr = `${dd}/${mm}/${yyyy}`;
+  const dataIso = `${yyyy}-${mm}-${dd}`;
   const diaSemana = DIAS_SEMANA[dataObj.getDay()] || "";
-  modalAgendaDataBrDisplay.textContent = `📅 ${dd}/${mm}/${yyyy} (${diaSemana})`;
+
+  if (modalAgendaInputDataBr) {
+    modalAgendaInputDataBr.value = dataBr;
+  }
+  if (modalAgendaPicker) {
+    modalAgendaPicker.value = dataIso;
+  }
+  if (modalAgendaDataBrDisplay) {
+    modalAgendaDataBrDisplay.textContent = `📅 ${diaSemana}`;
+  }
 }
 
 /**
@@ -123,20 +137,11 @@ function atualizarRegraEDataSugerida() {
   const dataSugerida = new Date(dataBase.getTime());
   dataSugerida.setDate(dataSugerida.getDate() + diasIntervalo);
 
-  const yyyy = dataSugerida.getFullYear();
-  const mm = String(dataSugerida.getMonth() + 1).padStart(2, "0");
-  const dd = String(dataSugerida.getDate()).padStart(2, "0");
-  const dataFormatadaIso = `${yyyy}-${mm}-${dd}`;
-
-  if (modalAgendaInputData) {
-    modalAgendaInputData.value = dataFormatadaIso;
-  }
+  setarDataNoModal(dataSugerida);
 
   if (modalAgendaLblData) {
     modalAgendaLblData.textContent = `🗓️ Data Sugerida (+${diasIntervalo} dias):`;
   }
-
-  atualizarTextoDataBr(dataSugerida);
 
   // 4. Atualiza badges e banners explicativos
   const nomeOrigem = (tipoProcedimentoAtual === "clareamento") ? "🧴 Clareamento" : "🪒 Depilação";
@@ -183,7 +188,7 @@ function renderizarListaServicosSaldo(servicosComSaldo) {
     let sessaoTxt = "";
     if (contratadas > 0) {
       if (saldoRestante > 0) {
-        sessaoTxt = `(Sessão ${proximaSessao}/${contratadas} • Restam ${saldoRestante} sessões)`;
+        sessaoTxt = `(Sessão ${proximaSessao}/${contratadas} • Saldo: ${saldoRestante} sessões)`;
       } else {
         sessaoTxt = `(Concluído ${realizadas}/${contratadas} • Saldo: 0)`;
       }
@@ -322,12 +327,51 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     }
   }
 
-  // 5. Listener no input de data para atualizar o texto DD/MM/YYYY se o usuário escolher outra data no picker
-  modalAgendaInputData?.addEventListener("change", (e) => {
+  // 5. Configuração de eventos de máscara e sincronização do input DD/MM/YYYY
+  if (modalAgendaInputDataBr) {
+    modalAgendaInputDataBr.addEventListener("input", (e) => {
+      let v = e.target.value.replace(/\D/g, "");
+      if (v.length > 8) v = v.substring(0, 8);
+      if (v.length >= 5) {
+        e.target.value = `${v.substring(0, 2)}/${v.substring(2, 4)}/${v.substring(4, 8)}`;
+      } else if (v.length >= 3) {
+        e.target.value = `${v.substring(0, 2)}/${v.substring(2, 4)}`;
+      } else {
+        e.target.value = v;
+      }
+
+      if (e.target.value.length === 10) {
+        const [d, m, y] = e.target.value.split("/").map(Number);
+        const dataManual = new Date(y, m - 1, d);
+        if (!isNaN(dataManual.getTime())) {
+          const diaSemana = DIAS_SEMANA[dataManual.getDay()] || "";
+          if (modalAgendaDataBrDisplay) modalAgendaDataBrDisplay.textContent = `📅 ${diaSemana}`;
+          if (modalAgendaPicker) {
+            const mmStr = String(m).padStart(2, "0");
+            const ddStr = String(d).padStart(2, "0");
+            modalAgendaPicker.value = `${y}-${mmStr}-${ddStr}`;
+          }
+        }
+      }
+    });
+  }
+
+  // Sincroniza do picker para o input DD/MM/YYYY
+  modalAgendaPicker?.addEventListener("change", (e) => {
     if (e.target.value) {
       const [y, m, d] = e.target.value.split("-").map(Number);
-      const dataManual = new Date(y, m - 1, d);
-      atualizarTextoDataBr(dataManual);
+      const dataPick = new Date(y, m - 1, d);
+      setarDataNoModal(dataPick);
+    }
+  });
+
+  btnModalAgendaAbrirCalendario?.addEventListener("click", () => {
+    if (modalAgendaPicker) {
+      if (typeof modalAgendaPicker.showPicker === "function") {
+        modalAgendaPicker.showPicker();
+      } else {
+        modalAgendaPicker.click();
+      }
     }
   });
 
@@ -346,7 +390,7 @@ export function fecharModalAgendarProxima() {
 btnConfirmarAgendarProxima?.addEventListener("click", () => {
   if (!currentAppAgendamento) return;
 
-  const dataEscolhida = modalAgendaInputData?.value;
+  const dataEscolhidaBr = modalAgendaInputDataBr?.value || "";
   const horaEscolhida = modalAgendaInputHora?.value;
   const salaEscolhida = modalAgendaSelectSala?.value;
 
@@ -360,7 +404,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     codCliente: currentAppAgendamento.codCliente,
     telefone: currentAppAgendamento.telefone,
     cpf: currentAppAgendamento.cpf,
-    data: dataEscolhida,
+    data: dataEscolhidaBr,
     horario: horaEscolhida,
     sala: salaEscolhida,
     servicos: checkedServicos
@@ -372,13 +416,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     callbackSalvar(dadosAgendamento);
   }
 
-  let dataFormatadaBr = dataEscolhida;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dataEscolhida)) {
-    const [y, m, d] = dataEscolhida.split("-");
-    dataFormatadaBr = `${d}/${m}/${y}`;
-  }
-
-  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataFormatadaBr} às ${horaEscolhida} registrada com sucesso!`);
+  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataEscolhidaBr} às ${horaEscolhida} registrada com sucesso!`);
   fecharModalAgendarProxima();
 });
 

@@ -235,3 +235,37 @@ Com as informações das 4 requisições:
 2. **Duração do Procedimento**: Calculada somando os tempos das áreas selecionadas (ex: 20 min);
 3. **Bloqueios / Conflitos**: Extraídos de `agendaapi` (todos os agendamentos marcados entre `start_date` e `end_date` daquela sala);
 4. **Horários Sugeridos**: Slots livres onde `[Horário Início, Horário Início + Duração]` não colide com agendamentos existentes na mesma sala.
+
+---
+
+## ⚡ 5️⃣ A Regra de Ouro: Cálculo de Horários Livres vs. Ocupados
+
+A lógica de cálculo de disponibilidade segue o cruzamento exato entre os **Turnos Válidos** e a **Ocupação do `agendaapi`**:
+
+```
+[ Universo de Horários do Turno ]  (Ex: 08:00 às 20:00)
+                MINUS (-)
+[ Horários Ocupados da agendaapi ] (Ex: 08:30 - 09:00, 14:00 - 14:30)
+                EQUALS (=)
+[ Horários 100% Livres para Agendamento ] (Ex: 08:00, 09:00, 09:30, ...)
+```
+
+### Exemplo Prático de Matriz de Slots:
+* **Turno Válido da Sala na Data**: `08:00` até `12:00` (Granularidade de 20 min):
+  * Slots Possíveis: `08:00`, `08:20`, `08:40`, `09:00`, `09:20`, `09:40`, `10:00`, `10:20`, `10:40`, `11:00`, `11:20`, `11:40`.
+* **Retorno da `agendaapi` para a Sala**:
+  * Agendamento 1: `08:20` às `09:00` (Ocupado / Pronto)
+  * Agendamento 2: `10:20` às `11:00` (Ocupado / Pronto)
+* **Resultado para a Recepcionista no Modal**:
+  * ✅ `08:00` (Livre)
+  * ❌ `08:20` (Ocupado)
+  * ❌ `08:40` (Ocupado)
+  * ✅ `09:00` (Livre)
+  * ✅ `09:20` (Livre)
+  * ✅ `09:40` (Livre)
+  * ✅ `10:00` (Livre)
+  * ❌ `10:20` (Ocupado)
+  * ❌ `10:40` (Ocupado)
+  * ✅ `11:00` (Livre)
+  * ✅ `11:20` (Livre)
+  * ✅ `11:40` (Livre)

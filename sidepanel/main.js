@@ -32,6 +32,7 @@ import {
   inicializarComercialView 
 } from './views/comercial-view.js';
 import { inicializarConfigView } from './views/config-view.js';
+import { configurarModalAgendarProxima } from './components/modal-agendar-proxima.js';
 
 // Elementos de Identificação
 const userDisplayName = document.getElementById("user-display-name");
@@ -238,9 +239,47 @@ export async function sincronizarSessao() {
   }
 }
 
+export async function navegarParaDataAgenda(dataIso) {
+  if (!dataIso) return;
+  console.log(`[BelleCopilot] 📅 Navegando para data da agenda: ${dataIso}`);
+  state.currentDataAgenda = dataIso;
+  
+  ativarModulo("module-agenda");
+  ativarAba("tab-agenda");
+
+  const loadingAgendaEl = document.getElementById("loading-agenda");
+  const agendaTimelineEl = document.getElementById("agenda-timeline-container");
+  const agendaEmptyEl = document.getElementById("agenda-empty-state");
+
+  if (loadingAgendaEl) loadingAgendaEl.style.display = "flex";
+  if (agendaTimelineEl) agendaTimelineEl.style.display = "none";
+  if (agendaEmptyEl) agendaEmptyEl.style.display = "none";
+
+  try {
+    const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, state.lastInterceptedArrGrid, state.currentCodEstab);
+    state.appointmentsData = processarItensAgenda(rawAgenda);
+    sincronizarSalasComAgendamentos(state.appointmentsData);
+    if (loadingAgendaEl) loadingAgendaEl.style.display = "none";
+    if (agendaTimelineEl) agendaTimelineEl.style.display = "flex";
+    renderizarAgenda();
+    renderizarPainelComercial();
+    atualizarKpis();
+  } catch (e) {
+    if (loadingAgendaEl) loadingAgendaEl.style.display = "none";
+    console.warn("Erro ao buscar agenda para data:", e);
+  }
+}
+
 // Inicialização Principal
 document.addEventListener("DOMContentLoaded", () => {
   console.log("🚀 [BELLE COPILOT] Inicializando aplicação modular...");
+
+  // Configura modal de agendamento com callback de navegação
+  configurarModalAgendarProxima({
+    onVerNaAgenda: (dataIso) => {
+      navegarParaDataAgenda(dataIso);
+    }
+  });
 
   // Inicializa Módulos Principais (Agenda | Comercial)
   const moduleNavBtns = document.querySelectorAll(".module-nav-btn");

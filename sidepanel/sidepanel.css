@@ -2433,6 +2433,27 @@ label[for] {
   color: #1e40af;
 }
 
+.modal-header-success {
+  background: #f0fdf4;
+  border-bottom: 1px solid #dcfce7;
+}
+
+.modal-header-success .modal-title {
+  color: #166534;
+}
+
+.modal-sucesso-resumo-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .modal-proximo-cards-list {
   display: flex;
   flex-direction: column;

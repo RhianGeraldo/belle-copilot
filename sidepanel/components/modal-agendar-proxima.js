@@ -46,8 +46,11 @@ const modalAgendamentoSucesso = document.getElementById("modal-agendamento-suces
 const modalSucessoSubtitulo = document.getElementById("modal-sucesso-subtitulo");
 const modalSucessoResumoCard = document.getElementById("modal-sucesso-resumo-card");
 const btnFecharModalSucesso = document.getElementById("btn-fechar-modal-sucesso");
+const btnVerNaAgendaSucesso = document.getElementById("btn-ver-na-agenda-sucesso");
 
 let callbackSalvar = null;
+let callbackVerNaAgenda = null;
+let ultimoDataIsoAgendada = "";
 let currentAppAgendamento = null;
 let tipoProcedimentoAtual = "depilacao";
 let debounceDisponibilidadeTimer = null;
@@ -842,40 +845,66 @@ export function fecharModalAgendarProxima() {
   callbackSalvar = null;
 }
 
-function abrirModalSucesso(clienteNome, dataBr, nomeSala, planosAgendados) {
+export function configurarModalAgendarProxima({ onVerNaAgenda } = {}) {
+  if (onVerNaAgenda) callbackVerNaAgenda = onVerNaAgenda;
+}
+
+export function fecharModalSucesso() {
+  if (modalAgendamentoSucesso) {
+    modalAgendamentoSucesso.style.display = "none";
+  }
+}
+
+export function abrirModalSucesso(clienteNome, dataBr, dataIso, nomeSala, planosAgendados) {
   if (!modalAgendamentoSucesso) return;
+  ultimoDataIsoAgendada = dataIso || "";
 
   if (modalSucessoSubtitulo) {
-    modalSucessoSubtitulo.textContent = `Sessão agendada com sucesso para ${clienteNome || 'a paciente'}.`;
+    modalSucessoSubtitulo.innerHTML = `Sessão cadastrada com sucesso para <strong>${clienteNome || 'a cliente'}</strong> no Belle Software:`;
   }
 
   if (modalSucessoResumoCard) {
-    let agendamentosHtml = "";
-    planosAgendados.forEach((p, idx) => {
-      const servs = p.servicos.map(s => s.nome.split("-")[0].trim()).join(", ");
-      agendamentosHtml += `
-        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; margin-top: ${idx > 0 ? '6px' : '0'};">
-          <div style="display: flex; justify-content: space-between; font-weight: 800; color: #0284c7; margin-bottom: 2px;">
-            <span>⏰ ${p.horarioInicio} às ${p.horarioFim}</span>
-            <span class="badge-count-pill" style="background: #e0f2fe; color: #0369a1; font-size: 10px;">${p.duracaoMin} min</span>
+    let diaSemanaTxt = "";
+    if (dataIso && /^\d{4}-\d{2}-\d{2}$/.test(dataIso)) {
+      const [y, m, d] = dataIso.split("-").map(Number);
+      const dtObj = new Date(y, m - 1, d);
+      diaSemanaTxt = ` (${DIAS_SEMANA[dtObj.getDay()] || ''})`;
+    }
+
+    let planosHtml = "";
+    (planosAgendados || []).forEach((p, idx) => {
+      const servs = (p.servicos || []).map(s => (s.nome || "Área").split("-")[0].trim()).join(", ");
+      planosHtml += `
+        <div style="background: #ffffff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 8px 10px; margin-top: ${idx > 0 ? '6px' : '0'};">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+            <span style="font-weight: 800; color: #0284c7; font-size: 12px;">⏰ ${p.horarioInicio} às ${p.horarioFim}</span>
+            <span class="badge-count-pill" style="background: #e0f2fe; color: #0369a1; font-size: 10px; font-weight: 700;">⏱️ ${p.duracaoMin} min</span>
           </div>
           <div style="font-weight: 700; color: #0f172a; font-size: 12px; margin-bottom: 2px;">
             ✨ ${servs}
           </div>
           <div style="font-size: 10.5px; color: #64748b;">
-            📦 ${p.nomePlano}
+            📦 ${p.nomePlano || 'Plano de Sessões'}
           </div>
         </div>
       `;
     });
 
     modalSucessoResumoCard.innerHTML = `
-      <div style="margin-bottom: 6px;">
-        <strong style="color: #0f172a; font-size: 12.5px;">👤 ${clienteNome}</strong>
-        <div style="color: #64748b; font-size: 11px;">🗓️ Data: <strong>${dataBr}</strong> • 📍 Sala: <strong>${nomeSala}</strong></div>
+      <div style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong style="color: #0f172a; font-size: 13px;">👤 ${clienteNome}</strong>
+          <span class="app-badge badge-agendado" style="font-size: 9.5px;">Marcado</span>
+        </div>
+        <div style="color: #0284c7; font-size: 12px; font-weight: 700; margin-top: 3px;">
+          🗓️ Data: <strong>${dataBr}</strong><span style="font-weight: 600; color: #64748b;">${diaSemanaTxt}</span>
+        </div>
+        <div style="color: #475569; font-size: 11px; margin-top: 2px;">
+          📍 Sala: <strong>${nomeSala}</strong>
+        </div>
       </div>
       <div style="display: flex; flex-direction: column; gap: 4px;">
-        ${agendamentosHtml}
+        ${planosHtml}
       </div>
     `;
   }
@@ -884,8 +913,13 @@ function abrirModalSucesso(clienteNome, dataBr, nomeSala, planosAgendados) {
 }
 
 btnFecharModalSucesso?.addEventListener("click", () => {
-  if (modalAgendamentoSucesso) {
-    modalAgendamentoSucesso.style.display = "none";
+  fecharModalSucesso();
+});
+
+btnVerNaAgendaSucesso?.addEventListener("click", () => {
+  fecharModalSucesso();
+  if (typeof callbackVerNaAgenda === "function" && ultimoDataIsoAgendada) {
+    callbackVerNaAgenda(ultimoDataIsoAgendada);
   }
 });
 
@@ -1048,12 +1082,16 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
 
   const sucessos = resultadosGravacao.filter(r => r.res?.success);
   if (sucessos.length > 0) {
+    const nomeClienteSalvo = currentAppAgendamento?.clienteNome || "Cliente";
+    const dataIsoSalvo = dataIso;
+    const dataBrSalvo = dataEscolhidaBr;
+
     if (typeof callbackSalvar === "function") {
       callbackSalvar(resultadosGravacao);
     }
 
     fecharModalAgendarProxima();
-    abrirModalSucesso(currentAppAgendamento.clienteNome, dataEscolhidaBr, nomeSalaAlvo, planos);
+    abrirModalSucesso(nomeClienteSalvo, dataBrSalvo, dataIsoSalvo, nomeSalaAlvo, planos);
   } else {
     alert("❌ Erro ao salvar agendamento no Belle. Verifique a conexão com o sistema.");
   }

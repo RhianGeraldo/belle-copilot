@@ -657,25 +657,34 @@
   </div>
 
   <!-- ========================================================= -->
-  <!-- MODAL: SUCESSO DO AGENDAMENTO (FEEDBACK VISUAL ELEGANTE)  -->
+  <!-- ========================================================= -->
+  <!-- MODAL DE SUCESSO: AGENDAMENTO REALIZADO COM BOTÕES       -->
   <!-- ========================================================= -->
   <div id="modal-agendamento-sucesso" class="modal-backdrop" style="display: none;">
-    <div class="modal-dialog" style="max-width: 360px; text-align: center;">
-      <div style="padding: 20px 16px 14px 16px;">
-        <div style="width: 56px; height: 56px; background: #dcfce7; color: #16a34a; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 12px auto; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.2);">
-          ✅
-        </div>
-        <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">Agendamento Salvo com Sucesso!</h3>
-        <p id="modal-sucesso-subtitulo" style="font-size: 11.5px; color: #64748b; margin-bottom: 12px;">
-          Sessão cadastrada com sucesso na agenda do Belle Software.
+    <div class="modal-dialog">
+      <div class="modal-header modal-header-success">
+        <span class="modal-icon">✅</span>
+        <h3 class="modal-title">Agendamento Realizado com Sucesso!</h3>
+      </div>
+      <div class="modal-body">
+        <p id="modal-sucesso-subtitulo" style="font-size: 12px; color: #334155; margin-bottom: 10px;">
+          Sessão cadastrada com sucesso na agenda do Belle Software:
         </p>
 
-        <div id="modal-sucesso-resumo-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left; margin-bottom: 14px; font-size: 11.5px;">
+        <div id="modal-sucesso-resumo-card" class="modal-sucesso-resumo-box">
           <!-- Injetado dinamicamente com os agendamentos -->
         </div>
 
-        <button id="btn-fechar-modal-sucesso" class="btn btn-primary" style="width: 100%; padding: 9px; font-size: 13px; font-weight: 700;">
-          🎉 Concluir e Voltar para Agenda
+        <p style="font-size: 11px; color: #64748b; margin-top: 10px;">
+          O agendamento já está sincronizado e salvo na grade do Belle.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-fechar-modal-sucesso" class="btn btn-outline">
+          Fechar
+        </button>
+        <button id="btn-ver-na-agenda-sucesso" class="btn btn-primary">
+          📅 Ver na Agenda
         </button>
       </div>
     </div>

@@ -342,6 +342,30 @@ export async function buscarParametrosLaserApi(token, codCliente, codEstab = "1"
   return [];
 }
 
+export async function buscarVendasPlanosClienteApi(token, codCliente, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok || !codCliente) return [];
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Plano/v1.0/vendasplanos?codCliente=${codCliente}&estabGeral=1&limit=50`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "authorization": authTok,
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const lista = data?.registros || (Array.isArray(data) ? data : []);
+      if (Array.isArray(lista)) return lista;
+    }
+  } catch (e) {
+    console.warn(`Erro ao consultar vendasplanos do cliente #${codCliente}:`, e);
+  }
+  return [];
+}
+
 export async function buscarSaldoVendaPlanoApi(token, codOrc, codPlano, idGeinfo, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   if (!authTok) {

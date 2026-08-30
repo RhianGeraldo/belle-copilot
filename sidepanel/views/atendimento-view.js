@@ -9,6 +9,7 @@ import {
   buscarParametrosLaserApi, 
   buscarSaldoVendaPlanoApi, 
   salvarParametrosLaserEmLoteApi, 
+  atualizarServicosAgendamentoApi,
   finalizarAtendimentoApi 
 } from '../core/api-client.js';
 import { atualizarOfertasSugeridasAtendimento } from '../engines/cadencia-ofertas.js';
@@ -265,78 +266,127 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
            data-orig-energia="${energiaNum}"
            data-orig-frequencia="${freqNum}"
            data-orig-disparos="${disparosNum}"
-           data-orig-obs="">
+           data-orig-obs=""
+           data-status="realizada">
         
         <div class="param-form-header">
-          <span class="param-form-title" title="${areaFormatada}">✨ ${areaFormatada}</span>
-          <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
-        </div>
-
-        <div class="param-fields-grid">
-          <div class="param-field">
-            <label>Fototipo:</label>
-            <select class="param-input param-fototipo">
-              <option value="I" ${prev.fototipo === 'I' ? 'selected' : ''}>I</option>
-              <option value="II" ${prev.fototipo === 'II' ? 'selected' : ''}>II</option>
-              <option value="III" ${prev.fototipo === 'III' ? 'selected' : ''}>III</option>
-              <option value="IV" ${prev.fototipo === 'IV' || !prev.fototipo ? 'selected' : ''}>IV</option>
-              <option value="V" ${prev.fototipo === 'V' ? 'selected' : ''}>V</option>
-              <option value="VI" ${prev.fototipo === 'VI' ? 'selected' : ''}>VI</option>
-            </select>
+          <div class="param-header-info">
+            <span class="param-form-title" title="${areaFormatada}">✨ ${areaFormatada}</span>
+            <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
           </div>
 
-          <div class="param-field">
-            <label>Modo:</label>
-            <select class="param-input param-modo">
-              <option value="HR" ${prev.modo === 'HR' || !prev.modo ? 'selected' : ''}>HR</option>
-              <option value="SHR" ${prev.modo === 'SHR' ? 'selected' : ''}>SHR</option>
-              <option value="STAMP" ${prev.modo === 'STAMP' ? 'selected' : ''}>STAMP</option>
-            </select>
-          </div>
-
-          <div class="param-field">
-            <label>Energia (J):</label>
-            <div class="param-stepper-wrap">
-              <button type="button" class="btn-param-step" data-delta="-1">−</button>
-              <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaNum}">
-              <button type="button" class="btn-param-step" data-delta="1">+</button>
-            </div>
-          </div>
-
-          <div class="param-field">
-            <label>Frequência:</label>
-            <div class="param-stepper-wrap">
-              <button type="button" class="btn-param-step" data-delta="-0.1">−</button>
-              <input type="number" step="0.1" min="0.1" max="10.0" class="param-input param-frequencia" value="${freqNum}">
-              <button type="button" class="btn-param-step" data-delta="0.1">+</button>
-            </div>
-          </div>
-
-          <div class="param-field">
-            <label>Qtd Disparos:</label>
-            <div class="param-stepper-wrap">
-              <button type="button" class="btn-param-step" data-delta="-50">−</button>
-              <input type="number" step="50" min="0" max="5000" class="param-input param-disparos" value="${disparosNum}">
-              <button type="button" class="btn-param-step" data-delta="50">+</button>
-            </div>
+          <div class="param-status-toggle">
+            <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
+              ✅ Realizada
+            </button>
+            <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
+              ❌ Não Realizada
+            </button>
           </div>
         </div>
 
-        <div class="param-field" style="margin-top: 8px;">
-          <label style="display: flex; justify-content: space-between; align-items: center;">
-            <span>Observação Clínica da Área:</span>
-            <span style="font-weight: normal; font-size: 10px; color: #8b5cf6;">💡 Opções rápidas</span>
-          </label>
-          <div class="param-obs-pills-row">
-            <span class="obs-pill" data-text="Boa tolerância">👍 Boa tolerância</span>
-            <span class="obs-pill" data-text="Pele íntegra">✨ Pele íntegra</span>
-            <span class="obs-pill" data-text="Sensibilidade leve">⚡ Sensibilidade leve</span>
-            <span class="obs-pill" data-text="Hiperemia leve">🔴 Hiperemia leve</span>
-            <span class="obs-pill" data-text="Pelos finos">🔍 Pelos finos</span>
-            <span class="obs-pill" data-text="Pelos grossos">💥 Pelos grossos</span>
-            <span class="obs-pill" data-text="Sem intercorrências">✅ Sem intercorrências</span>
+        <!-- SEÇÃO QUANDO REALIZADA (Padrão) -->
+        <div class="param-section-realizada">
+          <div class="param-fields-grid">
+            <div class="param-field">
+              <label>Fototipo:</label>
+              <select class="param-input param-fototipo">
+                <option value="I" ${prev.fototipo === 'I' ? 'selected' : ''}>I</option>
+                <option value="II" ${prev.fototipo === 'II' ? 'selected' : ''}>II</option>
+                <option value="III" ${prev.fototipo === 'III' ? 'selected' : ''}>III</option>
+                <option value="IV" ${prev.fototipo === 'IV' || !prev.fototipo ? 'selected' : ''}>IV</option>
+                <option value="V" ${prev.fototipo === 'V' ? 'selected' : ''}>V</option>
+                <option value="VI" ${prev.fototipo === 'VI' ? 'selected' : ''}>VI</option>
+              </select>
+            </div>
+
+            <div class="param-field">
+              <label>Modo:</label>
+              <select class="param-input param-modo">
+                <option value="HR" ${prev.modo === 'HR' || !prev.modo ? 'selected' : ''}>HR</option>
+                <option value="SHR" ${prev.modo === 'SHR' ? 'selected' : ''}>SHR</option>
+                <option value="STAMP" ${prev.modo === 'STAMP' ? 'selected' : ''}>STAMP</option>
+              </select>
+            </div>
+
+            <div class="param-field">
+              <label>Energia (J):</label>
+              <div class="param-stepper-wrap">
+                <button type="button" class="btn-param-step" data-delta="-1">−</button>
+                <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaNum}">
+                <button type="button" class="btn-param-step" data-delta="1">+</button>
+              </div>
+            </div>
+
+            <div class="param-field">
+              <label>Frequência:</label>
+              <div class="param-stepper-wrap">
+                <button type="button" class="btn-param-step" data-delta="-0.1">−</button>
+                <input type="number" step="0.1" min="0.1" max="10.0" class="param-input param-frequencia" value="${freqNum}">
+                <button type="button" class="btn-param-step" data-delta="0.1">+</button>
+              </div>
+            </div>
+
+            <div class="param-field">
+              <label>Qtd Disparos:</label>
+              <div class="param-stepper-wrap">
+                <button type="button" class="btn-param-step" data-delta="-50">−</button>
+                <input type="number" step="50" min="0" max="5000" class="param-input param-disparos" value="${disparosNum}">
+                <button type="button" class="btn-param-step" data-delta="50">+</button>
+              </div>
+            </div>
           </div>
-          <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]} ${energiaNum}J • Boa tolerância" value="">
+
+          <div class="param-field" style="margin-top: 8px;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Observação Clínica da Área:</span>
+              <span style="font-weight: normal; font-size: 10px; color: #8b5cf6;">💡 Opções rápidas</span>
+            </label>
+            <div class="param-obs-pills-row">
+              <span class="obs-pill" data-text="Boa tolerância">👍 Boa tolerância</span>
+              <span class="obs-pill" data-text="Pele íntegra">✨ Pele íntegra</span>
+              <span class="obs-pill" data-text="Sensibilidade leve">⚡ Sensibilidade leve</span>
+              <span class="obs-pill" data-text="Hiperemia leve">🔴 Hiperemia leve</span>
+              <span class="obs-pill" data-text="Pelos finos">🔍 Pelos finos</span>
+              <span class="obs-pill" data-text="Pelos grossos">💥 Pelos grossos</span>
+              <span class="obs-pill" data-text="Sem intercorrências">✅ Sem intercorrências</span>
+            </div>
+            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]} ${energiaNum}J • Boa tolerância" value="">
+          </div>
+        </div>
+
+        <!-- SEÇÃO QUANDO NÃO REALIZADA -->
+        <div class="param-section-nao-realizada" style="display: none;">
+          <div class="param-skip-alert">
+            <span class="param-skip-alert-icon">🛡️</span>
+            <div class="param-skip-alert-text">
+              <strong>Área não realizada na sessão de hoje.</strong><br>
+              Esta área será removida do agendamento para <strong>preservar a sessão no saldo do plano</strong> da cliente.
+            </div>
+          </div>
+
+          <div class="param-skip-options">
+            <label class="param-skip-chk-wrap">
+              <input type="checkbox" class="chk-remover-agendamento" checked>
+              <span>Remover do agendamento (não descontar sessão no Belle)</span>
+            </label>
+
+            <div class="param-field" style="margin-top: 6px;">
+              <label style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Motivo da Não Realização:</span>
+                <span style="font-weight: normal; font-size: 10px; color: #e11d48;">Motivos rápidos</span>
+              </label>
+              <div class="param-skip-pills-row">
+                <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">⚡ Sensibilidade / Dor</span>
+                <span class="skip-pill" data-reason="Pele sensível / Lesão no local">🩹 Pele sensível / Lesão</span>
+                <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">☀️ Sol recente / Bronzeada</span>
+                <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">🩸 Período menstrual</span>
+                <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">⏱️ Sem tempo / Desistência</span>
+                <span class="skip-pill" data-reason="Área com pelos não raspados">🔍 Pelos não raspados</span>
+              </div>
+              <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="">
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -360,11 +410,19 @@ export async function salvarParametrosLaserDireto(parametros) {
   const res = await salvarParametrosLaserEmLoteApi(parametros);
 
   if (res.success) {
+    const qtdRealizadas = parametros.filter(p => p.isRealizada !== false).length;
+    const qtdNaoRealizadas = parametros.filter(p => p.isRealizada === false).length;
+
+    let msgSucesso = `Sucesso: ${qtdRealizadas} parâmetro(s) registrado(s) com sucesso no prontuário!`;
+    if (qtdNaoRealizadas > 0) {
+      msgSucesso += ` (${qtdNaoRealizadas} área(s) não realizada(s) registrada(s))`;
+    }
+
     btnSalvarParametrosLaser.textContent = "✅ Parâmetros Salvos!";
     btnSalvarParametrosLaser.style.background = "#16a34a";
     if (atendStatusSalvarLaser) {
       atendStatusSalvarLaser.className = "param-save-status status-success";
-      atendStatusSalvarLaser.textContent = `Sucesso: ${res.salvos} parâmetro(s) registrado(s) com sucesso no prontuário!`;
+      atendStatusSalvarLaser.textContent = msgSucesso;
     }
 
     if (state.selectedAppointment?.codCliente) {
@@ -393,15 +451,49 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
   if (!app) return;
 
   const parametrosParaSalvar = coletarParametrosDosFormularios();
+  const areasRealizadas = parametrosParaSalvar.filter(p => p.isRealizada !== false);
+  const areasNaoRealizadas = parametrosParaSalvar.filter(p => p.isRealizada === false);
+  const areasParaRemover = areasNaoRealizadas.filter(p => p.removerDoAgendamento !== false);
+
   const { possuiSemEvolucao, areasSemEvolucao } = verificarEvolucaoParametros(parametrosParaSalvar);
 
   const executarSalvarEFinalizar = async () => {
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.disabled = true;
+      btnAtendFinalizar.textContent = "⏳ Processando...";
+    }
+
+    // 1. Sincronização Inteligente com o Belle: remove áreas não realizadas do agendamento para NÃO descontar sessões
+    if (areasParaRemover.length > 0 && areasRealizadas.length > 0) {
+      if (btnAtendFinalizar) btnAtendFinalizar.textContent = "⏳ Ajustando agendamento...";
+      
+      const servicosParaManter = (app.arrServ && app.arrServ.length > 0)
+        ? app.arrServ.filter(s => {
+            const sNomeNorm = (s.nome || "").toLowerCase().trim();
+            const sCod = String(s.codServ || s.cod_servico || "");
+            return areasRealizadas.some(r => {
+              const rNomeNorm = (r.nomeArea || "").toLowerCase().trim();
+              const rCod = String(r.codServ || "");
+              return (rCod && sCod && rCod === sCod) || rNomeNorm.includes(sNomeNorm) || sNomeNorm.includes(rNomeNorm);
+            });
+          })
+        : [];
+
+      if (servicosParaManter.length > 0 && servicosParaManter.length < (app.arrServ || []).length) {
+        console.log(`[Atendimento] ✂️ Removendo ${areasParaRemover.length} área(s) não realizada(s) do agendamento para não descontar do pacote da cliente.`);
+        await atualizarServicosAgendamentoApi(state.currentToken, app, servicosParaManter, state.currentCodEstab);
+        app.arrServ = servicosParaManter;
+        limparCachesAtendimento();
+      }
+    }
+
+    // 2. Salva parâmetros do laser (disparos nas realizadas e notas de intercorrência nas não realizadas)
     if (parametrosParaSalvar.length > 0) {
       await salvarParametrosLaserDireto(parametrosParaSalvar);
     }
 
+    // 3. Finaliza oficialmente a consulta no Belle
     if (btnAtendFinalizar) {
-      btnAtendFinalizar.disabled = true;
       btnAtendFinalizar.textContent = "⏳ Concluindo...";
     }
 
@@ -420,6 +512,8 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
         atendStatusBadge.className = "app-badge badge-finalizado";
         atendStatusBadge.textContent = "Atendido";
       }
+
+      limparCachesAtendimento();
 
       const codCli = app.codCliente;
       const nomeCli = (app.clienteNome || "").toLowerCase().trim();
@@ -753,6 +847,62 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
   callbackRecarregarAgenda = onRecarregarAgenda;
 
   atendListaFormsLaser?.addEventListener("click", (e) => {
+    // 1. Alternância de status Realizada vs Não Realizada
+    const toggleBtn = e.target.closest(".btn-toggle-status");
+    if (toggleBtn) {
+      e.preventDefault();
+      const card = toggleBtn.closest(".atend-param-form-card");
+      if (!card) return;
+
+      const newStatus = toggleBtn.getAttribute("data-status");
+      card.setAttribute("data-status", newStatus);
+
+      card.querySelectorAll(".btn-toggle-status").forEach(b => b.classList.remove("active"));
+      toggleBtn.classList.add("active");
+
+      const secRealizada = card.querySelector(".param-section-realizada");
+      const secNaoRealizada = card.querySelector(".param-section-nao-realizada");
+
+      if (newStatus === "nao_realizada") {
+        card.classList.add("param-card-skipped");
+        if (secRealizada) secRealizada.style.display = "none";
+        if (secNaoRealizada) secNaoRealizada.style.display = "block";
+      } else {
+        card.classList.remove("param-card-skipped");
+        if (secRealizada) secRealizada.style.display = "block";
+        if (secNaoRealizada) secNaoRealizada.style.display = "none";
+      }
+      return;
+    }
+
+    // 2. Chips de motivo de não realização
+    const skipPill = e.target.closest(".skip-pill");
+    if (skipPill) {
+      e.preventDefault();
+      const card = skipPill.closest(".atend-param-form-card");
+      const skipInput = card?.querySelector(".param-skip-obs");
+      const reason = skipPill.getAttribute("data-reason");
+      if (skipInput && reason) {
+        let currentText = skipInput.value.trim();
+        if (currentText.includes(reason)) {
+          currentText = currentText.replace(new RegExp(`\\s*(?:•\\s*)?${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'gi'), '').trim();
+          currentText = currentText.replace(/^•\s*/, '').replace(/•\s*•/, '•').trim();
+          skipPill.classList.remove("active");
+        } else {
+          if (currentText.length > 0) {
+            currentText += ` • ${reason}`;
+          } else {
+            currentText = reason;
+          }
+          skipPill.classList.add("active");
+        }
+        skipInput.value = currentText;
+        skipInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return;
+    }
+
+    // 3. Stepper de valores (Energia, Frequência, Disparos)
     const stepBtn = e.target.closest(".btn-param-step");
     if (stepBtn) {
       e.preventDefault();
@@ -771,6 +921,7 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
       return;
     }
 
+    // 4. Multi-select Tags / Pills de Observação Clínica (Área Realizada)
     const pill = e.target.closest(".obs-pill");
     if (pill) {
       e.preventDefault();

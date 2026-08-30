@@ -858,6 +858,10 @@ true
 1. **Auto-Preenchimento Inteligente**: Cada card de área é populado automaticamente com os valores da **última sessão** da cliente para aquela mesma região.
 2. **Trava de Segurança (Parâmetros Sem Evolução)**: Se a profissional tentar salvar parâmetros idênticos aos da sessão anterior sem alterar a potência/modo, a extensão bloqueia o salvamento automático e exibe um modal de confirmação com a lista das áreas sem evolução.
 3. **Salvamento em Lote**: Ao clicar em `💾 Salvar Parâmetros`, a extensão itera sobre todas as áreas ativas e executa as requisições de forma sequencial com feedback de progresso em tempo real.
+4. **Tratamento de Áreas Não Realizadas (Sensibilidade / Intercorrência)**: Se a cliente não aguentar ou não puder realizar determinada área no dia (ex: sensibilidade aguda, exposição solar, lesão):
+   * O card da área pode ser marcado como `❌ Não Realizada`;
+   * O sistema suprime disparos e Joules de aplicação técnica para essa área;
+   * **Antes de finalizar o atendimento**, a extensão sincroniza com o Belle via `POST /edicaoagenda` removendo a área cancelada do agendamento, garantindo que o encerramento da consulta **NÃO debite indevidamente a sessão do plano/pacote da cliente**.
 
 ---
 

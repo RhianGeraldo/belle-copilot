@@ -265,8 +265,22 @@ export async function buscarDetalhesAgendaApi(token, codConsulta, codEstab = "1"
   if (!authTok) return null;
 
   try {
-    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/agenda/${codConsulta}?estabGeral=1`;
-    const res = await fetch(url, {
+    const urlDetalhes = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/detalhes_api/${codConsulta}?estabGeral=1`;
+    const res = await fetch(urlDetalhes, {
+      headers: {
+        "authorization": authTok,
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data === "object") return data;
+    }
+  } catch (e) {}
+
+  try {
+    const urlAgenda = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/agenda/${codConsulta}?estabGeral=1`;
+    const res = await fetch(urlAgenda, {
       headers: {
         "authorization": authTok,
         "accept": "application/json, text/plain, */*"
@@ -427,6 +441,11 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
   let salvosComSucesso = 0;
   for (const item of payloadArray) {
     try {
+      const isRealizada = item.isRealizada !== false;
+      const observacaoFinal = isRealizada
+        ? (item.obs || item.observacao || "")
+        : (item.obs?.startsWith("NÃO REALIZADA") ? item.obs : `NÃO REALIZADA: ${item.obs || item.motivo || "Sensibilidade / Dor no dia"}`);
+
       const payloadFormatado = {
         id: null,
         codAgendamento: String(item.codAgendamento || codConsulta || ""),
@@ -435,12 +454,12 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
         densidade: 0,
         cor: 0,
         espessura: 0,
-        energia: String(item.energia || item.currentEnergia || "25"),
-        frequencia: String(item.frequencia || "0,8"),
-        larguraPulso: item.pulso || item.largura_pulso || null,
-        qtdDisparos: String(item.disparos || item.qtd_disparos || "200"),
+        energia: isRealizada ? String(item.energia || item.currentEnergia || "25") : "",
+        frequencia: isRealizada ? String(item.frequencia || "0,8") : "",
+        larguraPulso: isRealizada ? (item.pulso || item.largura_pulso || null) : null,
+        qtdDisparos: isRealizada ? String(item.disparos || item.qtd_disparos || "200") : "0",
         modoAplicacao: item.modo || item.modo_aplicacao || "HR",
-        observacao: item.obs || item.observacao || "",
+        observacao: observacaoFinal,
         anexo: null
       };
 
@@ -550,3 +569,63 @@ export async function finalizarAtendimentoApi(token, codConsulta, codEstab = "1"
     return false;
   }
 }
+
+/**
+ * Atualiza os serviços de um agendamento no Belle Software, removendo áreas não realizadas
+ * para que o encerramento da consulta não debite sessões indevidamente do plano do cliente.
+ */
+export async function atualizarServicosAgendamentoApi(token, app, servicosManter, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  const codConsulta = app?.codConsulta || app?.id;
+  if (!authTok || !codConsulta) return { success: false, error: "Dados insuficientes" };
+
+  try {
+    let detalhes = await buscarDetalhesAgendaApi(authTok, codConsulta, codEstab);
+    if (!detalhes || typeof detalhes !== "object") {
+      detalhes = {};
+    }
+
+    const hrIni = detalhes.hrIni || app.horario || "00:00";
+    let tempoTotal = 0;
+    servicosManter.forEach(s => {
+      tempoTotal += Number(s.tempo || 5);
+    });
+    if (tempoTotal <= 0) tempoTotal = 5;
+
+    const [h, m] = hrIni.split(":").map(Number);
+    const minFim = (h * 60 + m) + tempoTotal;
+    const hrFimCalc = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
+
+    const payloadEdicao = {
+      ...detalhes,
+      codAgenda: String(codConsulta),
+      tpEdicao: "A",
+      estab: String(codEstab || state.currentCodEstab || "1"),
+      hrIni: hrIni,
+      hrFim: hrFimCalc,
+      tempo: tempoTotal,
+      arrServ: servicosManter,
+      obServ: servicosManter,
+      status: detalhes.status || app.status || "Marcado"
+    };
+
+    if (detalhes.obOrc && Array.isArray(detalhes.obOrc.servicos)) {
+      payloadEdicao.obOrc = {
+        ...detalhes.obOrc,
+        servicos: servicosManter.map(s => ({
+          codServico: Number(s.cod_servico || s.codServ || 0),
+          saldoRestante: Number(s.saldo_atual || 1),
+          nome: s.nome
+        }))
+      };
+    }
+
+    console.log(`[AgendaAPI] 🔄 Atualizando agendamento #${codConsulta} removendo áreas não realizadas (${servicosManter.length} áreas restantes):`, payloadEdicao);
+    const res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
+    return res;
+  } catch (err) {
+    console.warn("Erro ao atualizar serviços do agendamento:", err);
+    return { success: false, error: err.message };
+  }
+}
+

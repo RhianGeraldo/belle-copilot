@@ -74,16 +74,21 @@ export function coletarParametrosDosFormularios() {
 
   const listaParaSalvar = [];
   formCards.forEach(card => {
-    const codServ = card.getAttribute("data-cod-serv");
+    const codServ = card.getAttribute("data-cod-serv") || "";
     const areaNome = card.getAttribute("data-area-nome") || "Área";
     const areaFormatada = card.getAttribute("data-area-formatada") || areaNome;
+    const status = card.getAttribute("data-status") || "realizada";
+    const isRealizada = status === "realizada";
 
     const fototipo = card.querySelector(".param-fototipo")?.value || "IV";
     const modo = card.querySelector(".param-modo")?.value || "HR";
     const energia = card.querySelector(".param-energia")?.value || "25";
     const frequencia = card.querySelector(".param-frequencia")?.value || "0,8";
     const disparos = card.querySelector(".param-disparos")?.value || "200";
-    const obs = card.querySelector(".param-obs")?.value?.trim() || "";
+    const obsRealizada = card.querySelector(".param-obs")?.value?.trim() || "";
+    
+    const removerDoAgendamento = card.querySelector(".chk-remover-agendamento") ? card.querySelector(".chk-remover-agendamento").checked : true;
+    const skipObs = card.querySelector(".param-skip-obs")?.value?.trim() || "";
 
     const origFototipo = card.getAttribute("data-orig-fototipo") || "";
     const origModo = card.getAttribute("data-orig-modo") || "";
@@ -92,20 +97,29 @@ export function coletarParametrosDosFormularios() {
     const origDisparos = parseInt(card.getAttribute("data-orig-disparos"), 10) || 0;
 
     const currentEnergiaNum = parseFloat(energia) || 0;
-    const isSemEvolucao = (origEnergia > 0 && currentEnergiaNum === origEnergia);
+    const isSemEvolucao = isRealizada && (origEnergia > 0 && currentEnergiaNum === origEnergia);
+
+    const observacaoFinal = isRealizada
+      ? obsRealizada
+      : (skipObs ? (skipObs.startsWith("NÃO REALIZADA") ? skipObs : `NÃO REALIZADA: ${skipObs}`) : "NÃO REALIZADA HOJE");
 
     listaParaSalvar.push({
       cod_paciente: String(app?.codCliente || ""),
       data_hora: hojeStr,
       area: areaFormatada,
+      codServ: codServ,
       fototipo: fototipo,
       modo_aplicacao: modo,
-      energia: String(energia),
-      frequencia: String(frequencia).replace(".", ","),
+      energia: isRealizada ? String(energia) : "",
+      frequencia: isRealizada ? String(frequencia).replace(".", ",") : "",
       largura_pulso: "",
-      qtd_disparos: String(disparos),
-      observacao: obs,
+      qtd_disparos: isRealizada ? String(disparos) : "0",
+      observacao: observacaoFinal,
+      obs: observacaoFinal,
       profissional: app?.profissional || state.currentUserName || "Profissional",
+      isRealizada: isRealizada,
+      status: status,
+      removerDoAgendamento: removerDoAgendamento,
       isSemEvolucao: isSemEvolucao,
       origEnergia: origEnergia,
       currentEnergia: currentEnergiaNum,
@@ -117,7 +131,7 @@ export function coletarParametrosDosFormularios() {
 }
 
 export function verificarEvolucaoParametros(parametrosParaSalvar) {
-  const areasSemEvolucao = parametrosParaSalvar.filter(p => p.isSemEvolucao);
+  const areasSemEvolucao = (parametrosParaSalvar || []).filter(p => p.isRealizada !== false && p.isSemEvolucao);
   return {
     possuiSemEvolucao: areasSemEvolucao.length > 0,
     areasSemEvolucao: areasSemEvolucao

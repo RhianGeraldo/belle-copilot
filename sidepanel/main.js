@@ -393,13 +393,13 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   } else if (msg.action === "BELLE_LIVE_SALAS_CAPTURED" && Array.isArray(msg.data)) {
     state.currentSalas = msg.data;
+    if (msg.codEstab) {
+      state.currentCodEstab = String(msg.codEstab);
+    }
     if (msg.data.length > 0) {
       if (msg.data[0].nom_clinica) {
         state.currentClinicaNome = msg.data[0].nom_clinica;
         if (unidadeDisplay) unidadeDisplay.textContent = `🏢 ${state.currentClinicaNome}`;
-      }
-      if (msg.data[0].cod_clinica) {
-        state.currentCodEstab = String(msg.data[0].cod_clinica);
       }
       state.lastInterceptedArrGrid = montarArrGridDeGridSala(msg.data, state.currentCodEstab);
     }

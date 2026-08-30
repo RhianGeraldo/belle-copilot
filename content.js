@@ -869,10 +869,12 @@ window.addEventListener("message", (event) => {
       });
     } else if ((url.includes("salas") || url.includes("gridsala")) && Array.isArray(parsedJson)) {
       console.log(`[Agenda Assistant] 📥 Interceptadas ${parsedJson.length} salas/gridsala!`);
+      const matchEtb = url.match(/[?&]etb=(\d+)/);
       safeSendMessage({
         action: "BELLE_LIVE_SALAS_CAPTURED",
         url: url,
         method: method,
+        codEstab: matchEtb ? matchEtb[1] : null,
         data: parsedJson
       });
     } else if (url.includes("get_servicos") || url.includes("detalhes_api") || url.includes("edicaoagenda")) {

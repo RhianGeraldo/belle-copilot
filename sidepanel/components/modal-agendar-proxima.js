@@ -335,8 +335,14 @@ async function executarCalculoDisponibilidade() {
   const dataIso = dataBrParaIso(dataBr);
 
   const selectedOpt = modalAgendaSelectSala?.selectedOptions?.[0];
-  const codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "2";
-  const nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || currentAppAgendamento?.salaNome || "SALA DE DEPILAÇAO A LASER";
+  let codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "";
+  let nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || selectedOpt?.textContent?.replace(/^📍\s*/, "").trim() || currentAppAgendamento?.salaNome || "";
+
+  if (!codSalaAlvo && Array.isArray(state.currentSalas) && state.currentSalas.length > 0) {
+    const sPadrao = state.currentSalas.find(s => (s.nome || s.title || "").toLowerCase().includes("laser") || (s.nome || s.title || "").toLowerCase().includes("procedimento")) || state.currentSalas[0];
+    codSalaAlvo = String(sPadrao.cod_sala || sPadrao.id || sPadrao.codigo || "");
+    nomeSalaAlvo = (sPadrao.nome || sPadrao.title || "").trim();
+  }
 
   const { planos, duracaoTotalMin } = calcularPlanosEServicosSelecionados();
   const totalAreas = planos.reduce((acc, p) => acc + p.servicos.length, 0);
@@ -657,36 +663,58 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     modalAgendaContextoHoje.innerHTML = `📍 Sessão de Hoje: <strong>${nomeProcHoje}</strong> <span style="font-weight: 800; color: ${statusElegivel ? '#16a34a' : '#64748b'};">• [Status: ${statusLabel}]</span>`;
   }
 
-  // 1. Configura salas
+  // 1. Configura salas da unidade ativa
   if (modalAgendaSelectSala) {
     modalAgendaSelectSala.innerHTML = "";
     
-    if (!state.currentSalas || state.currentSalas.length === 0) {
-      state.currentSalas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
+    // Sempre sincroniza o grid de salas atualizado da unidade
+    let salas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
+    if (Array.isArray(salas) && salas.length > 0) {
+      state.currentSalas = salas;
+    } else {
+      salas = state.currentSalas || [];
     }
 
-    const salas = state.currentSalas || [];
     if (salas.length > 0) {
+      const limpa = (str) => (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+      const appNomeLimpo = limpa(app.salaNome || app.sala || "");
+      const appCodLimpo = String(app.codSala || "").trim();
+      let optSelecionada = false;
+
       salas.forEach(sala => {
-        const sCod = String(sala.cod_sala || sala.id || sala.codigo || "");
-        const sNome = sala.nome || sala.title || "";
+        const sCod = String(sala.cod_sala || sala.id || sala.codigo || "").trim();
+        const sNome = (sala.nome || sala.title || sala.label || "").trim();
         const opt = document.createElement("option");
         opt.value = sCod;
         opt.setAttribute("data-cod", sCod);
         opt.setAttribute("data-nome", sNome);
         opt.textContent = `📍 ${sNome}`;
 
-        const isMesmaSala = (app.salaNome && sNome.trim().toLowerCase() === app.salaNome.trim().toLowerCase()) ||
-                            (app.codSala && String(sCod) === String(app.codSala));
+        const sNomeLimpo = limpa(sNome);
+        const isMesmaSala = (!optSelecionada) && (
+          (appCodLimpo && sCod === appCodLimpo) ||
+          (appNomeLimpo && (sNomeLimpo === appNomeLimpo || sNomeLimpo.includes(appNomeLimpo) || appNomeLimpo.includes(sNomeLimpo)))
+        );
 
-        if (isMesmaSala) opt.selected = true;
+        if (isMesmaSala) {
+          opt.selected = true;
+          optSelecionada = true;
+        }
         modalAgendaSelectSala.appendChild(opt);
       });
-    }
 
-    modalAgendaSelectSala.addEventListener("change", () => {
-      carregarDisponibilidadeHorarios();
-    });
+      if (!optSelecionada && modalAgendaSelectSala.options.length > 0) {
+        let idxLaser = -1;
+        for (let i = 0; i < modalAgendaSelectSala.options.length; i++) {
+          const optTxt = modalAgendaSelectSala.options[i].textContent.toLowerCase();
+          if (optTxt.includes("laser") || optTxt.includes("procedimento")) {
+            idxLaser = i;
+            break;
+          }
+        }
+        modalAgendaSelectSala.selectedIndex = idxLaser >= 0 ? idxLaser : 0;
+      }
+    }
   }
 
   // 2. Consulta e agrupa todos os planos e saldos da paciente
@@ -934,8 +962,14 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
   const horaEscolhida = modalAgendaSelectHorario?.value || "09:00";
   
   const selectedOpt = modalAgendaSelectSala?.selectedOptions?.[0];
-  const codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "2";
-  const nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || currentAppAgendamento?.salaNome || "SALA DE DEPILAÇAO A LASER";
+  let codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "";
+  let nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || selectedOpt?.textContent?.replace(/^📍\s*/, "").trim() || currentAppAgendamento?.salaNome || "";
+
+  if (!codSalaAlvo && Array.isArray(state.currentSalas) && state.currentSalas.length > 0) {
+    const sPadrao = state.currentSalas.find(s => (s.nome || s.title || "").toLowerCase().includes("laser") || (s.nome || s.title || "").toLowerCase().includes("procedimento")) || state.currentSalas[0];
+    codSalaAlvo = String(sPadrao.cod_sala || sPadrao.id || sPadrao.codigo || "");
+    nomeSalaAlvo = (sPadrao.nome || sPadrao.title || "").trim();
+  }
 
   const { planos, duracaoTotalMin } = calcularPlanosEServicosSelecionados();
   if (planos.length === 0) {
@@ -1099,4 +1133,8 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
 
 btnCancelarAgendarProxima?.addEventListener("click", () => {
   fecharModalAgendarProxima();
+});
+
+modalAgendaSelectSala?.addEventListener("change", () => {
+  carregarDisponibilidadeHorarios();
 });

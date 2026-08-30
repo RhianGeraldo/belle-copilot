@@ -115,8 +115,9 @@ export async function buscarGridSalaApi(token, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   if (!authTok) return [];
 
+  const estabAlvo = String(codEstab || state.currentCodEstab || "1");
   try {
-    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/gridsala?etb=1&restringe=0&estabGeral=1`;
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/gridsala?etb=${encodeURIComponent(estabAlvo)}&restringe=0&estabGeral=1`;
     const res = await fetch(url, {
       method: "GET",
       headers: {
@@ -140,8 +141,9 @@ export async function buscarTurnosValidosApi(token, codSala, dataIsoStr, codEsta
   const authTok = token || state.currentToken || "";
   if (!authTok || !codSala) return [];
 
+  const estabAlvo = String(codEstab || state.currentCodEstab || "1");
   let dataUtc = `${dataIsoStr || new Date().toISOString().split("T")[0]}T03:00:00.000Z`;
-  const cacheKey = `turno_${codSala}_${dataIsoStr}`;
+  const cacheKey = `turno_${estabAlvo}_${codSala}_${dataIsoStr}`;
   const cached = getFromCache(turnosValidosCache, cacheKey);
   if (cached) return cached;
 

@@ -95,7 +95,7 @@ export function processarItensAgenda(rawItems) {
       duracaoMin: Number(item.duracaoMin || 30),
       procedimento: item.procedimento || item.nome_servico || item.servico || (isBloq ? "BLOQUEIO DE AGENDA" : "Depilação a Laser"),
       salaNome: item.sala || item.nomSala || item.salaNome || "SALA DEPILAÇÃO A LASER",
-      codSala: item.codSala || item.cod_sala || "",
+      codSala: String(item.codSala || item.cod_sala || item.resourceId || item.codTipo || ""),
       profissional: item.nomProf || item.profissional || item.nom_profissional || "Profissional",
       codProfissional: item.codProf || item.cod_profissional || "",
       status: statusNormalizado,
@@ -117,16 +117,33 @@ export function processarItensAgenda(rawItems) {
 
 export function sincronizarSalasComAgendamentos(appointments) {
   if (!Array.isArray(appointments) || appointments.length === 0) return;
+  
+  const salasExistentes = Array.isArray(state.currentSalas) && state.currentSalas.length > 0 ? [...state.currentSalas] : [];
   const salasMap = new Map();
+
+  salasExistentes.forEach(s => {
+    const nomeNorm = (s.nome || s.title || "").trim().toLowerCase();
+    if (nomeNorm) salasMap.set(nomeNorm, s);
+  });
+
   appointments.forEach(app => {
     if (app.salaNome && app.salaNome.trim()) {
-      const nome = app.salaNome.trim();
-      if (!salasMap.has(nome)) {
-        salasMap.set(nome, {
-          id: app.codSala || salasMap.size + 1,
-          nome: nome,
-          title: nome
+      const nomeLimpo = app.salaNome.trim();
+      const nomeNorm = nomeLimpo.toLowerCase();
+      if (!salasMap.has(nomeNorm)) {
+        salasMap.set(nomeNorm, {
+          cod_sala: app.codSala || "",
+          id: app.codSala || "",
+          codigo: app.codSala || "",
+          nome: nomeLimpo,
+          title: nomeLimpo
         });
+      } else {
+        const sExistente = salasMap.get(nomeNorm);
+        if (!sExistente.cod_sala && app.codSala) {
+          sExistente.cod_sala = app.codSala;
+          sExistente.id = app.codSala;
+        }
       }
     }
   });

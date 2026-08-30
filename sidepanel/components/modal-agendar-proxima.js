@@ -6,10 +6,11 @@
  * - Depilação para Clareamento: +25 dias
  * - Clareamento para Depilação: +25 dias
  * 
- * Data base calculada a partir do agendamento de hoje se status for Aguardando, Em Andamento ou Atendido.
+ * Formatação de Data em DD/MM/YYYY com dia da semana e consulta oficial de saldos.
  */
 
 import { state } from '../core/state.js';
+import { buscarSaldoVendaPlanoApi } from '../core/api-client.js';
 
 const modalAgendarProxima = document.getElementById("modal-agendar-proxima");
 const modalAgendaNomeCliente = document.getElementById("modal-agenda-nome-cliente");
@@ -18,6 +19,7 @@ const modalAgendaContextoHoje = document.getElementById("modal-agenda-contexto-h
 const modalAgendaBadgeRegra = document.getElementById("modal-agenda-badge-regra");
 const modalAgendaTipoProximoBadge = document.getElementById("modal-agenda-tipo-proximo-badge");
 const modalAgendaLblData = document.getElementById("modal-agenda-lbl-data");
+const modalAgendaDataBrDisplay = document.getElementById("modal-agenda-data-br-display");
 const modalAgendaListaServicos = document.getElementById("modal-agenda-lista-servicos");
 const modalAgendaInputData = document.getElementById("modal-agenda-input-data");
 const modalAgendaInputHora = document.getElementById("modal-agenda-input-hora");
@@ -28,6 +30,16 @@ const btnConfirmarAgendarProxima = document.getElementById("btn-confirmar-agenda
 let callbackSalvar = null;
 let currentAppAgendamento = null;
 let tipoProcedimentoAtual = "depilacao"; // "depilacao" ou "clareamento"
+
+const DIAS_SEMANA = [
+  "Domingo",
+  "Segunda-feira",
+  "Terça-feira",
+  "Quarta-feira",
+  "Quinta-feira",
+  "Sexta-feira",
+  "Sábado"
+];
 
 /**
  * Identifica se um texto / serviço refere-se a Clareamento ou Depilação a Laser
@@ -77,6 +89,18 @@ function obterDataBaseAgendamento(app) {
 }
 
 /**
+ * Atualiza o texto DD/MM/YYYY e dia da semana na tela
+ */
+function atualizarTextoDataBr(dataObj) {
+  if (!modalAgendaDataBrDisplay || !dataObj || isNaN(dataObj.getTime())) return;
+  const dd = String(dataObj.getDate()).padStart(2, "0");
+  const mm = String(dataObj.getMonth() + 1).padStart(2, "0");
+  const yyyy = dataObj.getFullYear();
+  const diaSemana = DIAS_SEMANA[dataObj.getDay()] || "";
+  modalAgendaDataBrDisplay.textContent = `📅 ${dd}/${mm}/${yyyy} (${diaSemana})`;
+}
+
+/**
  * Recalcula e atualiza o banner de regra, intervalo e data sugerida no modal
  */
 function atualizarRegraEDataSugerida() {
@@ -112,6 +136,8 @@ function atualizarRegraEDataSugerida() {
     modalAgendaLblData.textContent = `🗓️ Data Sugerida (+${diasIntervalo} dias):`;
   }
 
+  atualizarTextoDataBr(dataSugerida);
+
   // 4. Atualiza badges e banners explicativos
   const nomeOrigem = (tipoProcedimentoAtual === "clareamento") ? "🧴 Clareamento" : "🪒 Depilação";
   const nomeDestino = (tipoDestino === "clareamento") ? "🧴 Clareamento" : "🪒 Depilação";
@@ -132,7 +158,61 @@ function atualizarRegraEDataSugerida() {
   }
 }
 
-export function abrirModalAgendarProxima(app, onSalvar) {
+/**
+ * Renderiza a lista de serviços e saldos exatos das áreas
+ */
+function renderizarListaServicosSaldo(servicosComSaldo) {
+  if (!modalAgendaListaServicos) return;
+
+  if (!Array.isArray(servicosComSaldo) || servicosComSaldo.length === 0) {
+    modalAgendaListaServicos.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Nenhuma área encontrada no plano.</div>';
+    return;
+  }
+
+  let itemsHtml = "";
+  servicosComSaldo.forEach((s, idx) => {
+    const sNome = s.servico || s.nome || s.nom_servico || `Área #${idx + 1}`;
+    const sTipo = identificarTipoProcedimento(sNome);
+    const iconTipo = (sTipo === "clareamento") ? "🧴" : "🪒";
+    
+    const realizadas = parseInt(s.gasto || s.realizadas || s.qtd_executada || 0, 10);
+    const contratadas = parseInt(s.quantidade || s.contratadas || s.qtd_contratada || 10, 10);
+    const saldoRestante = parseInt(s.saldo_atual || s.saldo || (contratadas - realizadas), 10);
+    const proximaSessao = realizadas + 1;
+
+    let sessaoTxt = "";
+    if (contratadas > 0) {
+      if (saldoRestante > 0) {
+        sessaoTxt = `(Sessão ${proximaSessao}/${contratadas} • Restam ${saldoRestante} sessões)`;
+      } else {
+        sessaoTxt = `(Concluído ${realizadas}/${contratadas} • Saldo: 0)`;
+      }
+    }
+
+    const isChecked = saldoRestante > 0 ? "checked" : "";
+    const isDesabilitado = saldoRestante <= 0 ? "style='opacity: 0.6;'" : "";
+
+    itemsHtml += `
+      <label class="check-servico-item" ${isDesabilitado}>
+        <input type="checkbox" name="servico_agendar" value="${sNome}" ${isChecked}>
+        <span>${iconTipo} <strong>${sNome}</strong> ${sessaoTxt ? `<small style="color: #0284c7; font-weight: 700;">${sessaoTxt}</small>` : ''}</span>
+      </label>
+    `;
+  });
+
+  modalAgendaListaServicos.innerHTML = itemsHtml;
+
+  // Listener para recalcular ao alternar seleção
+  modalAgendaListaServicos.querySelectorAll("input[name='servico_agendar']").forEach(chk => {
+    chk.addEventListener("change", () => {
+      atualizarRegraEDataSugerida();
+    });
+  });
+
+  atualizarRegraEDataSugerida();
+}
+
+export async function abrirModalAgendarProxima(app, onSalvar) {
   if (!modalAgendarProxima || !app) return;
 
   currentAppAgendamento = app;
@@ -185,64 +265,73 @@ export function abrirModalAgendarProxima(app, onSalvar) {
     }
   }
 
-  // 4. Lista de Áreas / Serviços com saldo ou extraídos de lbServ / arrServ
+  // 4. Carrega e exibe as áreas com saldo
   if (modalAgendaListaServicos) {
-    let servicos = (app.arrServ && app.arrServ.length > 0) ? [...app.arrServ] : [];
-    if (servicos.length === 0 && app.procedimento) {
-      servicos.push({ nome: app.procedimento, cod_servico: "" });
+    modalAgendaListaServicos.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Carregando saldo de sessões...</div>';
+    
+    // a) Tenta buscar saldo exato da API oficial saldovendaplano
+    let servicosSaldo = null;
+    if (app.codOrcamento && state.currentToken) {
+      try {
+        servicosSaldo = await buscarSaldoVendaPlanoApi(state.currentToken, app.codOrcamento, app.codPlano, app.idGeinfo, state.currentCodEstab);
+      } catch (e) {}
     }
 
-    const progressoMap = new Map();
-    if (app.lbServ) {
-      const linhas = app.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
-      linhas.forEach(l => {
-        const match = l.match(/(.+?)\s*-\s*(\d+\/\d+)/);
-        if (match) {
-          progressoMap.set(match[1].trim().toLowerCase(), match[2]);
-        }
-      });
-    }
-
-    let itemsHtml = "";
-    servicos.forEach((s, idx) => {
-      const sNome = s.nome || `Área #${idx + 1}`;
-      const sTipo = identificarTipoProcedimento(sNome);
-      const iconTipo = (sTipo === "clareamento") ? "🧴" : "🪒";
-      
-      let sessaoTxt = "";
-      for (const [k, v] of progressoMap.entries()) {
-        if (sNome.toLowerCase().includes(k) || k.includes(sNome.toLowerCase().substring(0, 8))) {
-          const parts = v.split("/");
-          if (parts.length === 2) {
-            const feitas = Number(parts[0]) || 0;
-            const total = Number(parts[1]) || 0;
-            sessaoTxt = `(Próxima: ${feitas + 1}/${total} - Restam ${Math.max(0, total - feitas - 1)})`;
-          }
-          break;
-        }
+    if (Array.isArray(servicosSaldo) && servicosSaldo.length > 0) {
+      renderizarListaServicosSaldo(servicosSaldo);
+    } else {
+      // b) Fallback: extrai do lbServ / arrServ
+      let servicosFallback = (app.arrServ && app.arrServ.length > 0) ? [...app.arrServ] : [];
+      if (servicosFallback.length === 0 && app.procedimento) {
+        servicosFallback.push({ nome: app.procedimento, cod_servico: "" });
       }
 
-      itemsHtml += `
-        <label class="check-servico-item">
-          <input type="checkbox" name="servico_agendar" value="${sNome}" checked>
-          <span>${iconTipo} <strong>${sNome}</strong> ${sessaoTxt ? `<small style="color: #0284c7; font-weight: 700;">${sessaoTxt}</small>` : ''}</span>
-        </label>
-      `;
-    });
+      const progressoMap = new Map();
+      if (app.lbServ) {
+        const linhas = app.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
+        linhas.forEach(l => {
+          const match = l.match(/(.+?)\s*-\s*(\d+)\/(\d+)/);
+          if (match) {
+            const f = parseInt(match[2], 10) || 0;
+            const tot = parseInt(match[3], 10) || 10;
+            progressoMap.set(match[1].trim().toLowerCase(), { feitas: f, total: tot, saldo: Math.max(0, tot - f) });
+          }
+        });
+      }
 
-    modalAgendaListaServicos.innerHTML = itemsHtml || '<div style="font-size: 11px; color: #64748b;">Nenhuma área encontrada.</div>';
-
-    // Adiciona listener para recalcular em tempo real ao marcar/desmarcar checkboxes
-    modalAgendaListaServicos.querySelectorAll("input[name='servico_agendar']").forEach(chk => {
-      chk.addEventListener("change", () => {
-        atualizarRegraEDataSugerida();
+      const formatado = servicosFallback.map(s => {
+        const sNome = s.nome || "Área";
+        let f = 0, tot = 10, sal = 10;
+        for (const [k, v] of progressoMap.entries()) {
+          if (sNome.toLowerCase().includes(k) || k.includes(sNome.toLowerCase().substring(0, 8))) {
+            f = v.feitas;
+            tot = v.total;
+            sal = v.saldo;
+            break;
+          }
+        }
+        return {
+          nome: sNome,
+          gasto: f,
+          quantidade: tot,
+          saldo: sal
+        };
       });
-    });
+
+      renderizarListaServicosSaldo(formatado);
+    }
   }
 
-  // 5. Executa cálculo inicial de intervalo e data sugerida
-  atualizarRegraEDataSugerida();
+  // 5. Listener no input de data para atualizar o texto DD/MM/YYYY se o usuário escolher outra data no picker
+  modalAgendaInputData?.addEventListener("change", (e) => {
+    if (e.target.value) {
+      const [y, m, d] = e.target.value.split("-").map(Number);
+      const dataManual = new Date(y, m - 1, d);
+      atualizarTextoDataBr(dataManual);
+    }
+  });
 
+  atualizarRegraEDataSugerida();
   modalAgendarProxima.style.display = "flex";
 }
 
@@ -283,7 +372,13 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     callbackSalvar(dadosAgendamento);
   }
 
-  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataEscolhida} às ${horaEscolhida} registrada com sucesso!`);
+  let dataFormatadaBr = dataEscolhida;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dataEscolhida)) {
+    const [y, m, d] = dataEscolhida.split("-");
+    dataFormatadaBr = `${d}/${m}/${y}`;
+  }
+
+  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataFormatadaBr} às ${horaEscolhida} registrada com sucesso!`);
   fecharModalAgendarProxima();
 });
 

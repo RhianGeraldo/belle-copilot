@@ -1,8 +1,8 @@
 /**
  * BELLE COPILOT - MODAL DE AGENDAMENTO DA PRÓXIMA SESSÃO (RECEPÇÃO / COMERCIAL)
  * - Suporta agendamento sequencial em lote para clientes com múltiplos planos/pacotes;
- * - Agrupa áreas por plano, soma a duração unificada total e busca slots contínuos na sala;
- * - Ao selecionar o horário, divide automaticamente em agendamentos consecutivos (ex: 14:00 às 14:10 e 14:10 às 14:30).
+ * - Executa a validação oficial (/validacao) e a gravação no Belle (/edicaoagenda);
+ * - Divide automaticamente em agendamentos consecutivos para cada plano com persistência real na API.
  */
 
 import { state } from '../core/state.js';
@@ -13,7 +13,9 @@ import {
   buscarServicosCatalogoApi, 
   buscarGridSalaApi,
   buscarAgendaApi, 
-  montarArrGridDeGridSala 
+  montarArrGridDeGridSala,
+  validarAgendamentoApi,
+  salvarEdicaoAgendaApi 
 } from '../core/api-client.js';
 
 const modalAgendarProxima = document.getElementById("modal-agendar-proxima");
@@ -39,7 +41,7 @@ const btnConfirmarAgendarProxima = document.getElementById("btn-confirmar-agenda
 
 let callbackSalvar = null;
 let currentAppAgendamento = null;
-let tipoProcedimentoAtual = "depilacao"; // "depilacao" ou "clareamento"
+let tipoProcedimentoAtual = "depilacao";
 let debounceDisponibilidadeTimer = null;
 let planosEstruturadosCache = [];
 
@@ -53,27 +55,18 @@ const DIAS_SEMANA = [
   "Sábado"
 ];
 
-/**
- * Converte horário string "HH:MM" em minutos desde meia-noite
- */
 function horaParaMinutos(horaStr = "") {
   if (!horaStr) return 0;
   const partes = String(horaStr).trim().split(":");
   return (Number(partes[0]) || 0) * 60 + (Number(partes[1]) || 0);
 }
 
-/**
- * Converte minutos desde meia-noite em string "HH:MM"
- */
 function minutosParaHora(minutos = 0) {
   const h = Math.floor(minutos / 60);
   const m = minutos % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/**
- * Identifica se um texto / serviço refere-se a Clareamento ou Depilação a Laser
- */
 export function identificarTipoProcedimento(texto = "") {
   if (!texto) return "depilacao";
   const t = texto.toLowerCase();
@@ -90,9 +83,6 @@ export function identificarTipoProcedimento(texto = "") {
   return "depilacao";
 }
 
-/**
- * Calcula o intervalo clínico exato em dias
- */
 export function calcularIntervaloClinico(tipoOrigem, tipoDestino) {
   if (tipoOrigem === "depilacao" && tipoDestino === "depilacao") return 45;
   if (tipoOrigem === "clareamento" && tipoDestino === "clareamento") return 45;
@@ -101,9 +91,6 @@ export function calcularIntervaloClinico(tipoOrigem, tipoDestino) {
   return 45;
 }
 
-/**
- * Obtém a data base de hoje para o cálculo
- */
 function obterDataBaseAgendamento(app) {
   let dataBase = new Date();
   
@@ -118,9 +105,6 @@ function obterDataBaseAgendamento(app) {
   return dataBase;
 }
 
-/**
- * Converte data DD/MM/YYYY para YYYY-MM-DD
- */
 function dataBrParaIso(dataBr = "") {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataBr)) {
     const [d, m, y] = dataBr.split("/");
@@ -129,9 +113,6 @@ function dataBrParaIso(dataBr = "") {
   return dataBr;
 }
 
-/**
- * Define e formata a data nos campos em formato DD/MM/YYYY
- */
 function setarDataNoModal(dataObj) {
   if (!dataObj || isNaN(dataObj.getTime())) return;
   
@@ -153,9 +134,6 @@ function setarDataNoModal(dataObj) {
   }
 }
 
-/**
- * Retorna o tempo individual de um serviço em minutos
- */
 function obterTempoServico(nomeServ = "") {
   const nomeNorm = String(nomeServ).toLowerCase().trim();
   const catalogo = state.servicosCatalogo || [];
@@ -174,7 +152,7 @@ function obterTempoServico(nomeServ = "") {
 }
 
 /**
- * Mapeia e calcula a duração por plano e total
+ * Agrupa serviços selecionados por plano com dados completos para o payload
  */
 export function calcularPlanosEServicosSelecionados() {
   const checkedInputs = modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked") || [];
@@ -186,6 +164,13 @@ export function calcularPlanosEServicosSelecionados() {
     const nomePlano = chk.getAttribute("data-plano-nome") || currentAppAgendamento?.nomePlano || "Plano de Sessões";
     const codPlano = chk.getAttribute("data-plano-cod") || currentAppAgendamento?.codPlano || "";
     const tempoServ = Number(chk.getAttribute("data-tempo")) || obterTempoServico(sNome);
+    const codServico = chk.getAttribute("data-cod-servico") || "";
+    const rawServJson = chk.getAttribute("data-raw-serv");
+
+    let rawServObj = null;
+    if (rawServJson) {
+      try { rawServObj = JSON.parse(decodeURIComponent(rawServJson)); } catch (e) {}
+    }
 
     if (!planosMap.has(codOrc)) {
       planosMap.set(codOrc, {
@@ -193,13 +178,33 @@ export function calcularPlanosEServicosSelecionados() {
         codPlano: codPlano,
         nomePlano: nomePlano,
         duracaoMin: 0,
-        servicos: []
+        servicos: [],
+        servicosCompletos: []
       });
     }
 
     const p = planosMap.get(codOrc);
     p.duracaoMin += tempoServ;
-    p.servicos.push({ nome: sNome, tempo: tempoServ });
+    p.servicos.push({ nome: sNome, tempo: tempoServ, codServico });
+
+    if (rawServObj) {
+      p.servicosCompletos.push(rawServObj);
+    } else {
+      p.servicosCompletos.push({
+        id_geinfo: currentAppAgendamento?.idGeinfo || 85015,
+        cod_saldo: 0,
+        cod_orcamento: Number(codOrc) || 0,
+        cod_servico: Number(codServico) || 55556418,
+        nome: sNome,
+        valor: "0,00",
+        tempo: tempoServ,
+        quantidade: "10",
+        saldo_atual: "1",
+        tipo: 3,
+        _gasto: 0,
+        restante: "1"
+      });
+    }
   });
 
   const planosArray = Array.from(planosMap.values());
@@ -215,9 +220,6 @@ export function calcularPlanosEServicosSelecionados() {
   };
 }
 
-/**
- * Atualiza o preview sequencial dos agendamentos no modal
- */
 function atualizarPreviewSequencial(horaInicioStr) {
   if (!modalAgendaSequencialPreview || !modalAgendaSequencialLista) return;
 
@@ -255,9 +257,6 @@ function atualizarPreviewSequencial(horaInicioStr) {
   modalAgendaSequencialPreview.style.display = "block";
 }
 
-/**
- * Consulta a API do Belle e calcula os horários livres onde cabe a duração total
- */
 export async function carregarDisponibilidadeHorarios() {
   if (!modalAgendaSelectHorario) return;
 
@@ -275,7 +274,6 @@ async function executarCalculoDisponibilidade() {
   const codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "2";
   const nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || currentAppAgendamento?.salaNome || "SALA DE DEPILAÇAO A LASER";
 
-  // 1. Obtém planos e duração unificada total
   const { planos, duracaoTotalMin } = calcularPlanosEServicosSelecionados();
   const totalAreas = planos.reduce((acc, p) => acc + p.servicos.length, 0);
   
@@ -304,7 +302,6 @@ async function executarCalculoDisponibilidade() {
       state.currentSalas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
     }
 
-    // 2. Consulta turnos válidos para a sala e data alvo
     const turnosValidos = await buscarTurnosValidosApi(state.currentToken, codSalaAlvo, dataIso, state.currentCodEstab);
     
     const [y, m, d] = dataIso.split("-").map(Number);
@@ -328,7 +325,6 @@ async function executarCalculoDisponibilidade() {
       }
     }
 
-    // 3. Consulta a ocupação da agenda no dia alvo
     const arrGridTarget = montarArrGridDeGridSala(state.currentSalas, state.currentCodEstab);
     const agendamentosDia = await buscarAgendaApi(state.currentToken, dataIso, arrGridTarget, state.currentCodEstab);
 
@@ -375,7 +371,6 @@ async function executarCalculoDisponibilidade() {
       });
     }
 
-    // 4. Gera e valida todos os slots possíveis de 5 em 5 minutos para o bloco total
     const slotsDisponiveis = [];
     const stepMin = 5;
 
@@ -401,7 +396,6 @@ async function executarCalculoDisponibilidade() {
       }
     });
 
-    // 5. Preenche o select de horários livres
     if (slotsDisponiveis.length > 0) {
       let optionsHtml = "";
       slotsDisponiveis.forEach((slot) => {
@@ -409,7 +403,7 @@ async function executarCalculoDisponibilidade() {
       });
       modalAgendaSelectHorario.innerHTML = optionsHtml;
       
-      const txtInfoPlanos = planos.length > 1 ? ` (bloco consecutivo de ${planos.length} planos)` : '';
+      const txtInfoPlanos = planos.length > 1 ? ` (bloco de ${planos.length} planos em sequência)` : '';
       if (modalAgendaDisponibilidadeStatus) {
         modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #16a34a; font-weight: 700;">✅ ${slotsDisponiveis.length} horários livres para ${duracaoTotalMin} min${txtInfoPlanos}</span>`;
       }
@@ -429,9 +423,6 @@ async function executarCalculoDisponibilidade() {
   }
 }
 
-/**
- * Recalcula e atualiza o banner de regra, intervalo e data sugerida no modal
- */
 function atualizarRegraEDataSugerida() {
   if (!currentAppAgendamento) return;
 
@@ -472,9 +463,6 @@ function atualizarRegraEDataSugerida() {
   carregarDisponibilidadeHorarios();
 }
 
-/**
- * Renderiza a lista de serviços estruturados e agrupados por plano
- */
 function renderizarPlanosEServicos(planosComServicos) {
   if (!modalAgendaListaServicos) return;
 
@@ -504,6 +492,7 @@ function renderizarPlanosEServicos(planosComServicos) {
       const saldoRestante = parseInt(s.saldo_atual || s.saldo || (contratadas - realizadas), 10);
       const proximaSessao = realizadas + 1;
       const tempoServ = s.tempo || obterTempoServico(sNome);
+      const codServico = s.cod_servico || s.codServico || s.codServ || "";
 
       let sessaoTxt = "";
       if (contratadas > 0) {
@@ -516,6 +505,7 @@ function renderizarPlanosEServicos(planosComServicos) {
 
       const isChecked = saldoRestante > 0 ? "checked" : "";
       const isDesabilitado = saldoRestante <= 0 ? "style='opacity: 0.6;'" : "";
+      const rawJson = encodeURIComponent(JSON.stringify(s));
 
       servicosItemsHtml += `
         <label class="check-servico-item" ${isDesabilitado}>
@@ -526,7 +516,9 @@ function renderizarPlanosEServicos(planosComServicos) {
             data-plano-orc="${plano.codOrcamento || ''}"
             data-plano-cod="${plano.codPlano || ''}"
             data-plano-nome="${plano.nomePlano || ''}"
+            data-cod-servico="${codServico}"
             data-tempo="${tempoServ}"
+            data-raw-serv="${rawJson}"
             ${isChecked}
           >
           <span>${iconTipo} <strong>${sNome}</strong> ${sessaoTxt ? `<small style="color: #0284c7; font-weight: 700;">${sessaoTxt}</small>` : ''}</span>
@@ -619,12 +611,9 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     modalAgendaListaServicos.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Carregando planos e saldo de sessões...</div>';
     
     const planosEstruturados = [];
-
-    // a) Identifica múltiplos agendamentos da cliente no dia de hoje
     const agendamentosClienteHoje = (state.appointmentsData || []).filter(a => String(a.codCliente) === String(app.codCliente));
     const orcamentosProcessados = new Set();
 
-    // Processa os orçamentos dos agendamentos de hoje
     for (const ag of agendamentosClienteHoje) {
       const orcKey = String(ag.codOrcamento || "").trim();
       if (orcKey && !orcamentosProcessados.has(orcKey)) {
@@ -643,7 +632,6 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
       }
     }
 
-    // Se ainda não encontrou ou cliente tem outros planos na base
     if (planosEstruturados.length === 0 && app.codOrcamento) {
       try {
         const servicosSaldo = await buscarSaldoVendaPlanoApi(state.currentToken, app.codOrcamento, app.codPlano, app.idGeinfo, state.currentCodEstab);
@@ -658,7 +646,6 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
       } catch (e) {}
     }
 
-    // Fallback: monta do lbServ/arrServ
     if (planosEstruturados.length === 0) {
       let servicosFallback = (app.arrServ && app.arrServ.length > 0) ? [...app.arrServ] : [];
       if (servicosFallback.length === 0 && app.procedimento) {
@@ -710,7 +697,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     renderizarPlanosEServicos(planosEstruturados);
   }
 
-  // 3. Listeners do campo de data DD/MM/YYYY
+  // 3. Listeners de Data e Hora
   if (modalAgendaInputDataBr) {
     modalAgendaInputDataBr.addEventListener("input", (e) => {
       let v = e.target.value.replace(/\D/g, "");
@@ -775,12 +762,19 @@ export function fecharModalAgendarProxima() {
   callbackSalvar = null;
 }
 
-btnConfirmarAgendarProxima?.addEventListener("click", () => {
+/**
+ * Salva oficialmente o agendamento no Belle Software (validacao + edicaoagenda)
+ */
+btnConfirmarAgendarProxima?.addEventListener("click", async () => {
   if (!currentAppAgendamento) return;
 
   const dataEscolhidaBr = modalAgendaInputDataBr?.value || "";
+  const dataIso = dataBrParaIso(dataEscolhidaBr);
   const horaEscolhida = modalAgendaSelectHorario?.value || "09:00";
-  const salaEscolhida = modalAgendaSelectSala?.value;
+  
+  const selectedOpt = modalAgendaSelectSala?.selectedOptions?.[0];
+  const codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "2";
+  const nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || currentAppAgendamento?.salaNome || "SALA DE DEPILAÇAO A LASER";
 
   const { planos, duracaoTotalMin } = calcularPlanosEServicosSelecionados();
   if (planos.length === 0) {
@@ -788,44 +782,153 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     return;
   }
 
+  if (!horaEscolhida) {
+    alert("⚠️ Selecione um horário disponível.");
+    return;
+  }
+
+  // Altera botão para feedback de carregamento
+  btnConfirmarAgendarProxima.disabled = true;
+  btnConfirmarAgendarProxima.textContent = "⏳ Gravando no Belle...";
+
   let startMin = horaParaMinutos(horaEscolhida);
-  const agendamentosConsecutivos = planos.map((p, idx) => {
+  const [y, m, d] = dataIso.split("-").map(Number);
+  const dataObj = new Date(y, m - 1, d);
+  const diaSemanaNum = dataObj.getDay();
+
+  const resultadosGravacao = [];
+
+  for (let i = 0; i < planos.length; i++) {
+    const p = planos[i];
     const endMin = startMin + p.duracaoMin;
     const hIni = minutosParaHora(startMin);
     const hFim = minutosParaHora(endMin);
     startMin = endMin;
 
-    return {
-      clienteNome: currentAppAgendamento.clienteNome,
-      codCliente: currentAppAgendamento.codCliente,
-      telefone: currentAppAgendamento.telefone,
-      cpf: currentAppAgendamento.cpf,
-      data: dataEscolhidaBr,
-      horario: hIni,
-      hrFim: hFim,
-      duracaoMin: p.duracaoMin,
-      codOrcamento: p.codOrcamento,
-      codPlano: p.codPlano,
-      nomePlano: p.nomePlano,
-      sala: salaEscolhida,
-      servicos: p.servicos.map(s => s.nome)
+    p.horarioInicio = hIni;
+    p.horarioFim = hFim;
+
+    // 1. Monta Payload de Validação
+    const payloadValidacao = {
+      codAgenda: "",
+      status: "",
+      codOrc: Number(p.codOrcamento) || 0,
+      codCli: Number(currentAppAgendamento.codCliente) || 0,
+      arrServ: p.servicosCompletos,
+      statusAlterado: "Marcado"
     };
-  });
 
-  console.log("[BelleCopilot] 📅 Agendamentos consecutivos gerados:", agendamentosConsecutivos);
+    console.log(`[Agendamento ${i + 1}/${planos.length}] 📤 Validando agendamento:`, payloadValidacao);
+    await validarAgendamentoApi(state.currentToken, payloadValidacao, state.currentCodEstab);
 
-  if (typeof callbackSalvar === "function") {
-    callbackSalvar(agendamentosConsecutivos);
+    // 2. Monta Payload Oficial de Gravação (edicaoagenda)
+    const payloadEdicao = {
+      obs: "Agendado via Belle Copilot",
+      TAA: "",
+      tipo: "3",
+      estab: String(state.currentCodEstab || "1"),
+      saldo: "",
+      hrFim: hFim,
+      hrIni: hIni,
+      visao: "resourceTimeGridDay",
+      codOrc: Number(p.codOrcamento) || 0,
+      status: "Marcado",
+      tpPlano: "orc",
+      codSala: String(codSalaAlvo),
+      codConv: "",
+      tpArea: "1",
+      tipoObs: 2264,
+      codEquip: "",
+      nomeProf: currentAppAgendamento.profissional || "",
+      codPlano: Number(p.codPlano) || 0,
+      vendedor: state.currentCodUsuario || "master-admin",
+      codRegiao: "",
+      tpEdicao: "I",
+      codAgenda: "",
+      codOrcOld: "",
+      statusAnt: "",
+      tpAgd: "sala",
+      codCliente: Number(currentAppAgendamento.codCliente) || 0,
+      codProfiss: currentAppAgendamento.codProfissional || "",
+      tpAgendaOld: "",
+      tpAgenda: "Serviço",
+      teleatendimento: "",
+      fltCli: String(currentAppAgendamento.codCliente || ""),
+      usaInt: true,
+      ckConv: false,
+      usaPlan: true,
+      planVld: false,
+      preferencia: false,
+      dia: diaSemanaNum,
+      obOrc: {
+        cod_orcamento: Number(p.codOrcamento) || 0,
+        cod_plano: Number(p.codPlano) || 0,
+        nome: p.nomePlano || "",
+        dtOrc: "",
+        tipo: "3",
+        forma: "p",
+        servicos: p.servicosCompletos.map(s => ({
+          codServico: s.cod_servico,
+          saldoRestante: s.saldo_atual || 1,
+          nome: s.nome
+        }))
+      },
+      obCli: {
+        cod_paciente: Number(currentAppAgendamento.codCliente) || 0,
+        nom_paciente: currentAppAgendamento.clienteNome || "",
+        cpf: currentAppAgendamento.cpf || "",
+        celular: currentAppAgendamento.telefone || ""
+      },
+      obServ: p.servicosCompletos,
+      obHora: { label: hIni, value: hIni },
+      obConv: { label: "0-Particular", value: "" },
+      obEstab: {
+        cod: String(state.currentCodEstab || "1"),
+        nome: state.currentClinicaNome || "Estética & Laser"
+      },
+      obVendedor: {
+        label: state.currentUserName || "Master",
+        value: { cod_usuario: state.currentCodUsuario || "master-admin" }
+      },
+      obSala: {
+        label: nomeSalaAlvo,
+        value: { nome: nomeSalaAlvo, codSala: String(codSalaAlvo), tempo: "5" }
+      },
+      arrReg: [],
+      arrServ: p.servicosCompletos,
+      arrEquip: [],
+      tempo: p.duracaoMin,
+      dtAgenda: `${dataIso}, 00:00:00`,
+      dtAgendaComp: `${dataIso}, 00:00:00`,
+      obObs: 2264,
+      teleAtend: false
+    };
+
+    console.log(`[Agendamento ${i + 1}/${planos.length}] 💾 Gravando edicaoagenda:`, payloadEdicao);
+    const resGravar = await salvarEdicaoAgendaApi(state.currentToken, payloadEdicao, state.currentCodEstab);
+    resultadosGravacao.push({ plano: p, res: resGravar });
   }
 
-  if (agendamentosConsecutivos.length > 1) {
-    const resumo = agendamentosConsecutivos.map((a, i) => `${i + 1}º às ${a.horario} (${a.duracaoMin}m)`).join(", ");
-    alert(`✅ ${agendamentosConsecutivos.length} Agendamentos consecutivos gerados para ${currentAppAgendamento.clienteNome} no dia ${dataEscolhidaBr}:\n${resumo}`);
+  btnConfirmarAgendarProxima.disabled = false;
+  btnConfirmarAgendarProxima.textContent = "💾 Salvar Agendamento";
+
+  const sucessos = resultadosGravacao.filter(r => r.res?.success);
+  if (sucessos.length > 0) {
+    if (typeof callbackSalvar === "function") {
+      callbackSalvar(resultadosGravacao);
+    }
+
+    if (planos.length > 1) {
+      const resumo = planos.map((p, i) => `${i + 1}º [${p.nomePlano}]: ${p.horarioInicio} às ${p.horarioFim}`).join("\n");
+      alert(`✅ ${planos.length} Agendamentos consecutivos salvos com SUCESSO no Belle Software!\n\n${resumo}`);
+    } else {
+      alert(`✅ Agendamento de ${currentAppAgendamento.clienteNome} salvo com SUCESSO no dia ${dataEscolhidaBr} às ${horaEscolhida} (Sala: ${nomeSalaAlvo})!`);
+    }
+
+    fecharModalAgendarProxima();
   } else {
-    alert(`✅ Solicitação de agendamento para ${currentAppAgendamento.clienteNome} no dia ${dataEscolhidaBr} às ${horaEscolhida} (${duracaoTotalMin} min) registrada com sucesso!`);
+    alert("❌ Erro ao salvar agendamento no Belle. Verifique a conexão com o sistema.");
   }
-
-  fecharModalAgendarProxima();
 });
 
 btnCancelarAgendarProxima?.addEventListener("click", () => {

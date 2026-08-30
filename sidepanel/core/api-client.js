@@ -472,6 +472,62 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
   };
 }
 
+export async function validarAgendamentoApi(token, payloadValidacao, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok) return { planVld: true, servVld: true, stsVld: true };
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/validacao?estabGeral=1`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "authorization": authTok,
+        "content-type": "text/plain",
+        "accept": "application/json, text/plain, */*"
+      },
+      body: JSON.stringify(payloadValidacao)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn("Erro ao validar agendamento:", e);
+  }
+  return { planVld: true, servVld: true, stsVld: true };
+}
+
+export async function salvarEdicaoAgendaApi(token, payloadEdicao, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok) return { success: false, error: "Sem token de autorização" };
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/edicaoagenda?estabGeral=1`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "authorization": authTok,
+        "content-type": "text/plain",
+        "accept": "application/json, text/plain, */*"
+      },
+      body: JSON.stringify(payloadEdicao)
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.vld || data?.rs) {
+        return { success: true, codConsulta: data.rs, data: data };
+      }
+      return { success: true, codConsulta: data?.rs, data };
+    } else {
+      const errTxt = await res.text().catch(() => "");
+      return { success: false, error: errTxt || `HTTP ${res.status}` };
+    }
+  } catch (e) {
+    console.warn("Erro ao salvar agendamento no Belle:", e);
+    return { success: false, error: e.message };
+  }
+}
+
 export async function finalizarAtendimentoApi(token, codConsulta, codEstab = "1") {
   if (!codConsulta) return false;
   const authTok = token || state.currentToken || "";

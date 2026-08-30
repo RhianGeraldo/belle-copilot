@@ -305,3 +305,120 @@ $$\text{Duração Total} = \sum_{i=1}^{n} \text{tempo}(\text{serviço}_i)$$
   * **Duração Total da Reserva**: `5 + 10 + 10 = 25 minutos`
   * Se o horário de início for `09:00`, o término no Belle será `09:25`.
   * Na criação do agendamento, o payload envia o array com cada `codServico` e seu respectivo `tempo`.
+
+---
+
+## 7️⃣ Requisição: Validação do Agendamento (`/validacao`)
+
+Antes de persistir o agendamento na base de dados, o Belle Software executa uma validação de regras de negócio (saldo de sessões, vigência do plano e permissões de status).
+
+* **URL**: `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/validacao?estabGeral=1`
+* **Método**: `POST`
+* **Headers**:
+  * `authorization`: Token ativo da sessão
+  * `content-type`: `text/plain`
+  * `accept`: `application/json, text/plain, */*`
+* **Payload JSON (text/plain)**:
+```json
+{
+  "codAgenda": "",
+  "status": "",
+  "codOrc": 406878326,
+  "codCli": 49,
+  "arrServ": [
+    {
+      "id_geinfo": 85015,
+      "cod_saldo": 8615515,
+      "cod_orcamento": 406878326,
+      "cod_servico": 55556418,
+      "nome": "AXILAS (P) - depilação a laser",
+      "valor": "0,00",
+      "tempo": 5,
+      "quantidade": "10",
+      "saldo_atual": "1",
+      "tipo": 3,
+      "_gasto": 9,
+      "restante": "1"
+    }
+  ],
+  "statusAlterado": "Marcado"
+}
+```
+
+* **Resposta de Sucesso**:
+```json
+{
+  "planVld": true,
+  "stsVld": true,
+  "planVldDep": true,
+  "servVld": true,
+  "saldo": true,
+  "permFinalizarVld": true
+}
+```
+
+---
+
+## 8️⃣ Requisição: Gravação do Agendamento (`/edicaoagenda`)
+
+Persiste oficialmente o agendamento na grade do DHTMLX Scheduler do Belle Software.
+
+* **URL**: `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/edicaoagenda?estabGeral=1`
+* **Método**: `POST`
+* **Headers**:
+  * `authorization`: Token ativo da sessão
+  * `content-type`: `text/plain`
+  * `accept`: `application/json, text/plain, */*`
+* **Payload JSON (text/plain)**:
+```json
+{
+  "obs": "ok",
+  "tipo": "3",
+  "estab": "1",
+  "hrIni": "11:45",
+  "hrFim": "12:40",
+  "tempo": 55,
+  "dtAgenda": "2026-10-17, 00:00:00",
+  "dtAgendaComp": "2026-10-17, 00:00:00",
+  "codOrc": 406878326,
+  "status": "Marcado",
+  "tpPlano": "orc",
+  "codSala": "2",
+  "codPlano": 58757888,
+  "vendedor": "master-admin",
+  "tpEdicao": "I",
+  "codAgenda": "",
+  "tpAgd": "sala",
+  "codCliente": 49,
+  "tpAgenda": "Serviço",
+  "obCli": {
+    "cod_paciente": 49,
+    "nom_paciente": "Silvana Lopes de Faria",
+    "cpf": "06311572630",
+    "celular": "(33)99927-6759"
+  },
+  "obSala": {
+    "label": "SALA DE DEPILAÇAO A LASER",
+    "value": { "nome": "SALA DE DEPILAÇAO A LASER", "codSala": "2", "tempo": "5" }
+  },
+  "arrServ": [ ... ]
+}
+```
+
+* **Resposta de Sucesso**:
+```json
+{
+  "rs": 73597086,
+  "vld": true
+}
+```
+*(Onde `rs` é o ID `cod_consulta` único gerado no Belle).*
+
+---
+
+## 🔁 9️⃣ Agendamento Consecutivo para Múltiplos Planos
+
+Quando a paciente possui múltiplos pacotes a serem agendados no mesmo dia:
+1. O sistema envia a sequência (`validacao` ➔ `edicaoagenda`) para o **1º Plano** com horário `[horaInicio, horaInicio + duracaoPlano1]`;
+2. Em seguida, envia a sequência (`validacao` ➔ `edicaoagenda`) para o **2º Plano** com horário `[horaInicio + duracaoPlano1, horaInicio + duracaoPlano1 + duracaoPlano2]`;
+3. Ambos os agendamentos são criados perfeitamente em sequência sem intervalo vazio e sem colisão na grade.

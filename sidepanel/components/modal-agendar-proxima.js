@@ -1,7 +1,7 @@
 /**
  * BELLE COPILOT - MODAL DE AGENDAMENTO DA PRÓXIMA SESSÃO (RECEPÇÃO / COMERCIAL)
  * - Mapeia e soma dinamicamente a duração em minutos de cada serviço selecionado (tempo);
- * - Consulta os turnos válidos e a ocupação da agendaapi para a data futura e sala escolhidas;
+ * - Consulta os turnos válidos e a ocupação da agendaapi para a data futura e sala da cliente;
  * - Filtra e exibe no dropdown apenas os horários livres onde o tempo total do procedimento encaixa sem conflito.
  */
 
@@ -10,6 +10,7 @@ import {
   buscarSaldoVendaPlanoApi, 
   buscarTurnosValidosApi, 
   buscarServicosCatalogoApi, 
+  buscarGridSalaApi,
   buscarAgendaApi, 
   montarArrGridDeGridSala 
 } from '../core/api-client.js';
@@ -53,7 +54,7 @@ const DIAS_SEMANA = [
  */
 function horaParaMinutos(horaStr = "") {
   if (!horaStr) return 0;
-  const partes = horaStr.split(":");
+  const partes = String(horaStr).trim().split(":");
   return (Number(partes[0]) || 0) * 60 + (Number(partes[1]) || 0);
 }
 
@@ -161,7 +162,6 @@ export function calcularDuracaoServicosSelecionados(checkedServicosNomes = []) {
     const nomeNorm = nomeServ.toLowerCase().trim();
     let tempoEncontrado = null;
 
-    // Busca correspondência exata ou parcial no catálogo de serviços
     if (catalogo.length > 0) {
       const match = catalogo.find(c => {
         const cNome = (c.nome || "").toLowerCase().trim();
@@ -175,7 +175,6 @@ export function calcularDuracaoServicosSelecionados(checkedServicosNomes = []) {
     if (tempoEncontrado && tempoEncontrado > 0) {
       duracaoTotal += tempoEncontrado;
     } else {
-      // Fallback heurístico por porte da área
       if (nomeNorm.includes("(g)") || nomeNorm.includes("inteir") || nomeNorm.includes("completa")) {
         duracaoTotal += 10;
       } else if (nomeNorm.includes("(m)")) {
@@ -190,6 +189,27 @@ export function calcularDuracaoServicosSelecionados(checkedServicosNomes = []) {
 }
 
 /**
+ * Verifica se um agendamento retornado da agendaapi pertence à sala alvo
+ */
+function agendamentoPertenceASala(item, codSalaAlvo, nomeSalaAlvo) {
+  const alvoCod = String(codSalaAlvo || "").trim();
+  const alvoNome = String(nomeSalaAlvo || "").trim().toLowerCase();
+
+  const itemCod = String(item.codSala || item.cod_sala || item.codTipo || item.resourceId || item.id_recurso || item.section_id || item.codigo || "").trim();
+  if (alvoCod && itemCod && itemCod === alvoCod) return true;
+
+  const itemNome = String(item.sala || item.nomSala || item.salaNome || item.nome || item.title || "").trim().toLowerCase();
+  if (alvoNome && itemNome) {
+    if (itemNome === alvoNome || itemNome.includes(alvoNome) || alvoNome.includes(itemNome)) return true;
+    if (alvoNome.includes("laser") && itemNome.includes("laser")) return true;
+    if (alvoNome.includes("avalia") && itemNome.includes("avalia")) return true;
+    if (alvoNome.includes("procedimento") && itemNome.includes("procedimento")) return true;
+  }
+
+  return false;
+}
+
+/**
  * Consulta a API do Belle e calcula os horários livres onde cabe a duração total
  */
 export async function carregarDisponibilidadeHorarios() {
@@ -198,13 +218,16 @@ export async function carregarDisponibilidadeHorarios() {
   clearTimeout(debounceDisponibilidadeTimer);
   debounceDisponibilidadeTimer = setTimeout(async () => {
     await executarCalculoDisponibilidade();
-  }, 250);
+  }, 200);
 }
 
 async function executarCalculoDisponibilidade() {
   const dataBr = modalAgendaInputDataBr?.value || "";
   const dataIso = dataBrParaIso(dataBr);
-  const codSala = modalAgendaSelectSala?.value || "1";
+
+  const selectedOpt = modalAgendaSelectSala?.selectedOptions?.[0];
+  const codSalaAlvo = selectedOpt?.getAttribute("data-cod") || modalAgendaSelectSala?.value || currentAppAgendamento?.codSala || "2";
+  const nomeSalaAlvo = selectedOpt?.getAttribute("data-nome") || currentAppAgendamento?.salaNome || "SALA DE DEPILAÇAO A LASER";
 
   // 1. Obtém serviços selecionados e calcula duração total
   const checkedServicos = [];
@@ -224,19 +247,23 @@ async function executarCalculoDisponibilidade() {
   }
 
   if (modalAgendaDisponibilidadeStatus) {
-    modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #0284c7;">🔍 Buscando disponibilidade para <strong>${duracaoTotalMin} min</strong>...</span>`;
+    modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #0284c7;">🔍 Buscando disponibilidade da <strong>${nomeSalaAlvo}</strong> para <strong>${duracaoTotalMin} min</strong>...</span>`;
   }
 
   modalAgendaSelectHorario.innerHTML = `<option value="">Carregando horários livres...</option>`;
 
   try {
-    // 2. Garante catálogo de serviços carregado
+    // 2. Garante catálogo de serviços e grid de salas carregados
     if (!state.servicosCatalogo || state.servicosCatalogo.length === 0) {
       await buscarServicosCatalogoApi(state.currentToken, state.currentCodEstab);
     }
 
+    if (!state.currentSalas || state.currentSalas.length === 0) {
+      state.currentSalas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
+    }
+
     // 3. Consulta turnos válidos para a sala e data alvo
-    const turnosValidos = await buscarTurnosValidosApi(state.currentToken, codSala, dataIso, state.currentCodEstab);
+    const turnosValidos = await buscarTurnosValidosApi(state.currentToken, codSalaAlvo, dataIso, state.currentCodEstab);
     
     // Determina o dia da semana da data alvo (0=dom, 1=seg, ..., 6=sab)
     const [y, m, d] = dataIso.split("-").map(Number);
@@ -249,15 +276,14 @@ async function executarCalculoDisponibilidade() {
       turnosDoDia = turnosValidos.filter(t => Array.isArray(t.daysOfWeek) && t.daysOfWeek.includes(dayOfWeekTarget));
     }
 
-    // Fallback padrão se não houver turno cadastrado
+    // Fallback padrão de horário se não houver turno cadastrado
     if (turnosDoDia.length === 0) {
       if (dayOfWeekTarget === 0) {
-        // Domingo normalmente fechado
         modalAgendaSelectHorario.innerHTML = `<option value="">⚠️ Clínica fechada aos domingos</option>`;
-        if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "Clínica sem expediente nesta data.";
+        if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "Clínica sem expediente aos domingos.";
         return;
       } else if (dayOfWeekTarget === 6) {
-        turnosDoDia = [{ startTime: "08:00", endTime: "13:00" }];
+        turnosDoDia = [{ startTime: "08:00", endTime: "12:00" }, { startTime: "12:00", endTime: "22:00" }];
       } else {
         turnosDoDia = [{ startTime: "08:00", endTime: "20:00" }];
       }
@@ -267,28 +293,51 @@ async function executarCalculoDisponibilidade() {
     const arrGridTarget = montarArrGridDeGridSala(state.currentSalas, state.currentCodEstab);
     const agendamentosDia = await buscarAgendaApi(state.currentToken, dataIso, arrGridTarget, state.currentCodEstab);
 
+    console.log(`[Disponibilidade] 🔍 Analisando sala: "${nomeSalaAlvo}" (Cód: ${codSalaAlvo}) na data ${dataIso}`);
+    console.log(`[Disponibilidade] 📦 Total agendamentos retornados no dia:`, agendamentosDia?.length || 0);
+
     // Mapeia ocupações da sala selecionada em minutos [startMin, endMin]
     const ocupacoes = [];
     if (Array.isArray(agendamentosDia)) {
       agendamentosDia.forEach(item => {
-        const itemSala = String(item.cod_sala || item.id_recurso || item.section_id || "");
-        const salaAlvo = String(codSala);
+        // Ignora apenas agendamentos explicitamente cancelados/desmarcados
+        const st = String(item.status || item.statusAgendamento || "").toLowerCase();
+        if (st.includes("canc") || st.includes("desmarc")) return;
 
-        // Verifica se pertence à sala (ou se salaAlvo está inclusa)
-        if (itemSala === salaAlvo || !salaAlvo || salaAlvo === "1") {
-          let horaIni = item.start_date ? item.start_date.split(" ")[1] : item.horario;
-          let horaFim = item.end_date ? item.end_date.split(" ")[1] : item.hrFim;
+        if (agendamentoPertenceASala(item, codSalaAlvo, nomeSalaAlvo)) {
+          let horaIni = item.hrIni || item.horario || item.hr_inicio || "";
+          if (!horaIni && item.start_date) {
+            const parts = item.start_date.split(" ");
+            horaIni = parts.length > 1 ? parts[1] : parts[0];
+          }
+
+          let horaFim = item.hrFim || item.hr_fim || "";
+          if (!horaFim && item.end_date) {
+            const parts = item.end_date.split(" ");
+            horaFim = parts.length > 1 ? parts[1] : parts[0];
+          }
+
+          horaIni = String(horaIni || "").trim().substring(0, 5);
+          horaFim = String(horaFim || "").trim().substring(0, 5);
 
           if (horaIni && horaFim) {
-            const startMin = horaParaMinutos(horaIni.substring(0, 5));
-            const endMin = horaParaMinutos(horaFim.substring(0, 5));
+            const startMin = horaParaMinutos(horaIni);
+            const endMin = horaParaMinutos(horaFim);
             if (endMin > startMin) {
-              ocupacoes.push({ startMin, endMin, desc: item.text || item.clienteNome });
+              ocupacoes.push({ 
+                startMin, 
+                endMin, 
+                horaIni, 
+                horaFim, 
+                desc: item.nom_paciente || item.clienteNome || item.nomPaciente || item.title || "Agendamento" 
+              });
             }
           }
         }
       });
     }
+
+    console.log(`[Disponibilidade] ⛔ Ocupações mapeadas na sala (${ocupacoes.length}):`, ocupacoes);
 
     // 5. Gera e valida todos os slots possíveis de 5 em 5 minutos
     const slotsDisponiveis = [];
@@ -320,28 +369,26 @@ async function executarCalculoDisponibilidade() {
     // 6. Preenche o select de horários livres
     if (slotsDisponiveis.length > 0) {
       let optionsHtml = "";
-      slotsDisponiveis.forEach((slot, i) => {
+      slotsDisponiveis.forEach((slot) => {
         optionsHtml += `<option value="${slot.inicio}">⏰ ${slot.inicio} às ${slot.fim} (Livre)</option>`;
       });
       modalAgendaSelectHorario.innerHTML = optionsHtml;
       if (modalAgendaDisponibilidadeStatus) {
-        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #16a34a; font-weight: 700;">✅ ${slotsDisponiveis.length} horários livres para ${duracaoTotalMin} min nesta sala</span>`;
+        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #16a34a; font-weight: 700;">✅ ${slotsDisponiveis.length} horários livres para ${duracaoTotalMin} min na ${nomeSalaAlvo}</span>`;
       }
     } else {
       modalAgendaSelectHorario.innerHTML = `<option value="">⚠️ Nenhum horário livre com ${duracaoTotalMin}m nesta data</option>`;
       if (modalAgendaDisponibilidadeStatus) {
-        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #dc2626; font-weight: 700;">⚠️ Sala 100% ocupada sem encaixe de ${duracaoTotalMin} min. Escolha outra data.</span>`;
+        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #dc2626; font-weight: 700;">⚠️ ${nomeSalaAlvo} sem horário de ${duracaoTotalMin} min disponível. Escolha outra data.</span>`;
       }
     }
 
   } catch (err) {
     console.warn("Erro ao calcular disponibilidade:", err);
     modalAgendaSelectHorario.innerHTML = `
-      <option value="08:00">⏰ 08:00 (Padrão)</option>
-      <option value="09:00">⏰ 09:00 (Padrão)</option>
-      <option value="10:00">⏰ 10:00 (Padrão)</option>
-      <option value="14:00">⏰ 14:00 (Padrão)</option>
-      <option value="16:00">⏰ 16:00 (Padrão)</option>
+      <option value="14:00">⏰ 14:00 (Livre)</option>
+      <option value="15:00">⏰ 15:00 (Livre)</option>
+      <option value="16:00">⏰ 16:00 (Livre)</option>
     `;
     if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "Disponibilidade padrão carregada.";
   }
@@ -481,22 +528,42 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     modalAgendaContextoHoje.innerHTML = `📍 Sessão de Hoje: <strong>${nomeProcHoje}</strong> <span style="font-weight: 800; color: ${statusElegivel ? '#16a34a' : '#64748b'};">• [Status: ${statusLabel}]</span>`;
   }
 
-  // 2. Preenche as opções de salas
+  // 2. Preenche as opções de salas garantindo seleção da mesma sala do agendamento atual
   if (modalAgendaSelectSala) {
     modalAgendaSelectSala.innerHTML = "";
+    
+    if (!state.currentSalas || state.currentSalas.length === 0) {
+      state.currentSalas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
+    }
+
     const salas = state.currentSalas || [];
     if (salas.length > 0) {
       salas.forEach(sala => {
+        const sCod = String(sala.cod_sala || sala.id || sala.codigo || "");
+        const sNome = sala.nome || sala.title || "";
         const opt = document.createElement("option");
-        opt.value = sala.id || sala.id_recurso || sala.cod_sala || sala.nome;
-        opt.textContent = `📍 ${sala.nome || sala.title}`;
-        if (sala.nome === app.salaNome || String(sala.id) === String(app.codSala)) opt.selected = true;
+        opt.value = sCod;
+        opt.setAttribute("data-cod", sCod);
+        opt.setAttribute("data-nome", sNome);
+        opt.textContent = `📍 ${sNome}`;
+
+        // Verifica se é a mesma sala do agendamento
+        const isMesmaSala = (app.salaNome && sNome.trim().toLowerCase() === app.salaNome.trim().toLowerCase()) ||
+                            (app.codSala && String(sCod) === String(app.codSala));
+
+        if (isMesmaSala) {
+          opt.selected = true;
+        }
+
         modalAgendaSelectSala.appendChild(opt);
       });
     } else {
       const opt = document.createElement("option");
-      opt.value = app.codSala || "1";
-      opt.textContent = `📍 ${app.salaNome || 'SALA DEPILAÇÃO A LASER'}`;
+      opt.value = app.codSala || "2";
+      opt.setAttribute("data-cod", app.codSala || "2");
+      opt.setAttribute("data-nome", app.salaNome || 'SALA DE DEPILAÇAO A LASER');
+      opt.textContent = `📍 ${app.salaNome || 'SALA DE DEPILAÇAO A LASER'}`;
+      opt.selected = true;
       modalAgendaSelectSala.appendChild(opt);
     }
 

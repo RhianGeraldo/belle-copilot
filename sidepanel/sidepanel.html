@@ -617,8 +617,14 @@
             <div id="modal-agenda-data-br-display" style="font-size: 11px; font-weight: 700; color: #0284c7; margin-top: 3px;">Quarta-feira</div>
           </div>
           <div class="form-group">
-            <label style="font-size: 11px; font-weight: 700; color: #334155;">⏰ Horário:</label>
-            <input type="time" id="modal-agenda-input-hora" class="form-input" style="font-size: 12px; padding: 6px;" value="09:00">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <label style="font-size: 11px; font-weight: 700; color: #334155;">⏰ Horário Livre:</label>
+              <span id="modal-agenda-duracao-badge" class="badge-count-pill" style="background: #f0fdf4; color: #166534; font-size: 10px; font-weight: 800;">⏱️ 20m</span>
+            </div>
+            <select id="modal-agenda-select-horario" class="form-select" style="font-size: 12px; padding: 6px; font-weight: 700; color: #0284c7;">
+              <option value="">Carregando horários livres...</option>
+            </select>
+            <div id="modal-agenda-disponibilidade-status" style="font-size: 10px; color: #64748b; margin-top: 3px;">🔍 Consultando disponibilidade...</div>
           </div>
         </div>
 

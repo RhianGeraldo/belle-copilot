@@ -28,6 +28,7 @@ export const state = {
   ultimosRegistrosLaserCliente: [],
   lastSaldoServicosCache: [],
   lastInterceptedArrGrid: null,
+  servicosCatalogo: [],
 
   // Filtros Ativos
   filtroSalaAtivo: "todos",
@@ -39,6 +40,9 @@ export const state = {
 export const saldoPlanosCache = new Map();
 export const laserParamsCache = new Map();
 export const getServicosCache = new Map();
+export const servicosCatalogoCache = new Map();
+export const turnosValidosCache = new Map();
+export const arvoreSalasCache = new Map();
 
 export function getFromCache(map, key) {
   if (!map || !key || !map.has(key)) return null;
@@ -59,4 +63,7 @@ export function limparCachesAtendimento() {
   saldoPlanosCache.clear();
   laserParamsCache.clear();
   getServicosCache.clear();
+  servicosCatalogoCache.clear();
+  turnosValidosCache.clear();
+  arvoreSalasCache.clear();
 }

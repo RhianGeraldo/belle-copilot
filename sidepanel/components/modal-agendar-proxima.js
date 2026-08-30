@@ -1,16 +1,18 @@
 /**
  * BELLE COPILOT - MODAL DE AGENDAMENTO DA PRÓXIMA SESSÃO (RECEPÇÃO / COMERCIAL)
- * Aplica as regras clínicas de intervalo entre procedimentos:
- * - Depilação para Depilação: +45 dias
- * - Clareamento para Clareamento: +45 dias
- * - Depilação para Clareamento: +25 dias
- * - Clareamento para Depilação: +25 dias
- * 
- * Formato de Data estrito DD/MM/YYYY com máscara e seletor de calendário sincronizado.
+ * - Mapeia e soma dinamicamente a duração em minutos de cada serviço selecionado (tempo);
+ * - Consulta os turnos válidos e a ocupação da agendaapi para a data futura e sala escolhidas;
+ * - Filtra e exibe no dropdown apenas os horários livres onde o tempo total do procedimento encaixa sem conflito.
  */
 
 import { state } from '../core/state.js';
-import { buscarSaldoVendaPlanoApi } from '../core/api-client.js';
+import { 
+  buscarSaldoVendaPlanoApi, 
+  buscarTurnosValidosApi, 
+  buscarServicosCatalogoApi, 
+  buscarAgendaApi, 
+  montarArrGridDeGridSala 
+} from '../core/api-client.js';
 
 const modalAgendarProxima = document.getElementById("modal-agendar-proxima");
 const modalAgendaNomeCliente = document.getElementById("modal-agenda-nome-cliente");
@@ -24,7 +26,9 @@ const modalAgendaListaServicos = document.getElementById("modal-agenda-lista-ser
 const modalAgendaInputDataBr = document.getElementById("modal-agenda-input-data-br");
 const modalAgendaPicker = document.getElementById("modal-agenda-picker");
 const btnModalAgendaAbrirCalendario = document.getElementById("btn-modal-agenda-abrir-calendario");
-const modalAgendaInputHora = document.getElementById("modal-agenda-input-hora");
+const modalAgendaDuracaoBadge = document.getElementById("modal-agenda-duracao-badge");
+const modalAgendaSelectHorario = document.getElementById("modal-agenda-select-horario");
+const modalAgendaDisponibilidadeStatus = document.getElementById("modal-agenda-disponibilidade-status");
 const modalAgendaSelectSala = document.getElementById("modal-agenda-select-sala");
 const btnCancelarAgendarProxima = document.getElementById("btn-cancelar-agendar-proxima");
 const btnConfirmarAgendarProxima = document.getElementById("btn-confirmar-agendar-proxima");
@@ -32,6 +36,7 @@ const btnConfirmarAgendarProxima = document.getElementById("btn-confirmar-agenda
 let callbackSalvar = null;
 let currentAppAgendamento = null;
 let tipoProcedimentoAtual = "depilacao"; // "depilacao" ou "clareamento"
+let debounceDisponibilidadeTimer = null;
 
 const DIAS_SEMANA = [
   "Domingo",
@@ -42,6 +47,24 @@ const DIAS_SEMANA = [
   "Sexta-feira",
   "Sábado"
 ];
+
+/**
+ * Converte horário string "HH:MM" em minutos desde meia-noite
+ */
+function horaParaMinutos(horaStr = "") {
+  if (!horaStr) return 0;
+  const partes = horaStr.split(":");
+  return (Number(partes[0]) || 0) * 60 + (Number(partes[1]) || 0);
+}
+
+/**
+ * Converte minutos desde meia-noite em string "HH:MM"
+ */
+function minutosParaHora(minutos = 0) {
+  const h = Math.floor(minutos / 60);
+  const m = minutos % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 /**
  * Identifica se um texto / serviço refere-se a Clareamento ou Depilação a Laser
@@ -91,6 +114,17 @@ function obterDataBaseAgendamento(app) {
 }
 
 /**
+ * Converte data DD/MM/YYYY para YYYY-MM-DD
+ */
+function dataBrParaIso(dataBr = "") {
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataBr)) {
+    const [d, m, y] = dataBr.split("/");
+    return `${y}-${m}-${d}`;
+  }
+  return dataBr;
+}
+
+/**
  * Define e formata a data nos campos em formato DD/MM/YYYY
  */
 function setarDataNoModal(dataObj) {
@@ -111,6 +145,205 @@ function setarDataNoModal(dataObj) {
   }
   if (modalAgendaDataBrDisplay) {
     modalAgendaDataBrDisplay.textContent = `📅 ${diaSemana}`;
+  }
+}
+
+/**
+ * Calcula a duração total em minutos somando o tempo de cada serviço selecionado
+ */
+export function calcularDuracaoServicosSelecionados(checkedServicosNomes = []) {
+  if (!Array.isArray(checkedServicosNomes) || checkedServicosNomes.length === 0) return 10;
+
+  const catalogo = state.servicosCatalogo || [];
+  let duracaoTotal = 0;
+
+  checkedServicosNomes.forEach(nomeServ => {
+    const nomeNorm = nomeServ.toLowerCase().trim();
+    let tempoEncontrado = null;
+
+    // Busca correspondência exata ou parcial no catálogo de serviços
+    if (catalogo.length > 0) {
+      const match = catalogo.find(c => {
+        const cNome = (c.nome || "").toLowerCase().trim();
+        return cNome === nomeNorm || cNome.includes(nomeNorm) || nomeNorm.includes(cNome);
+      });
+      if (match && match.tempo) {
+        tempoEncontrado = Number(match.tempo);
+      }
+    }
+
+    if (tempoEncontrado && tempoEncontrado > 0) {
+      duracaoTotal += tempoEncontrado;
+    } else {
+      // Fallback heurístico por porte da área
+      if (nomeNorm.includes("(g)") || nomeNorm.includes("inteir") || nomeNorm.includes("completa")) {
+        duracaoTotal += 10;
+      } else if (nomeNorm.includes("(m)")) {
+        duracaoTotal += 5;
+      } else {
+        duracaoTotal += 5;
+      }
+    }
+  });
+
+  return Math.max(5, duracaoTotal);
+}
+
+/**
+ * Consulta a API do Belle e calcula os horários livres onde cabe a duração total
+ */
+export async function carregarDisponibilidadeHorarios() {
+  if (!modalAgendaSelectHorario) return;
+
+  clearTimeout(debounceDisponibilidadeTimer);
+  debounceDisponibilidadeTimer = setTimeout(async () => {
+    await executarCalculoDisponibilidade();
+  }, 250);
+}
+
+async function executarCalculoDisponibilidade() {
+  const dataBr = modalAgendaInputDataBr?.value || "";
+  const dataIso = dataBrParaIso(dataBr);
+  const codSala = modalAgendaSelectSala?.value || "1";
+
+  // 1. Obtém serviços selecionados e calcula duração total
+  const checkedServicos = [];
+  modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked").forEach(chk => {
+    checkedServicos.push(chk.value);
+  });
+
+  const duracaoTotalMin = calcularDuracaoServicosSelecionados(checkedServicos);
+  
+  if (modalAgendaDuracaoBadge) {
+    modalAgendaDuracaoBadge.textContent = `⏱️ ${duracaoTotalMin} min (${checkedServicos.length} área${checkedServicos.length === 1 ? '' : 's'})`;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataIso)) {
+    if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "⚠️ Data inválida.";
+    return;
+  }
+
+  if (modalAgendaDisponibilidadeStatus) {
+    modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #0284c7;">🔍 Buscando disponibilidade para <strong>${duracaoTotalMin} min</strong>...</span>`;
+  }
+
+  modalAgendaSelectHorario.innerHTML = `<option value="">Carregando horários livres...</option>`;
+
+  try {
+    // 2. Garante catálogo de serviços carregado
+    if (!state.servicosCatalogo || state.servicosCatalogo.length === 0) {
+      await buscarServicosCatalogoApi(state.currentToken, state.currentCodEstab);
+    }
+
+    // 3. Consulta turnos válidos para a sala e data alvo
+    const turnosValidos = await buscarTurnosValidosApi(state.currentToken, codSala, dataIso, state.currentCodEstab);
+    
+    // Determina o dia da semana da data alvo (0=dom, 1=seg, ..., 6=sab)
+    const [y, m, d] = dataIso.split("-").map(Number);
+    const dataAlvoObj = new Date(y, m - 1, d);
+    const dayOfWeekTarget = dataAlvoObj.getDay();
+
+    // Filtra turnos do dia da semana
+    let turnosDoDia = [];
+    if (Array.isArray(turnosValidos) && turnosValidos.length > 0) {
+      turnosDoDia = turnosValidos.filter(t => Array.isArray(t.daysOfWeek) && t.daysOfWeek.includes(dayOfWeekTarget));
+    }
+
+    // Fallback padrão se não houver turno cadastrado
+    if (turnosDoDia.length === 0) {
+      if (dayOfWeekTarget === 0) {
+        // Domingo normalmente fechado
+        modalAgendaSelectHorario.innerHTML = `<option value="">⚠️ Clínica fechada aos domingos</option>`;
+        if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "Clínica sem expediente nesta data.";
+        return;
+      } else if (dayOfWeekTarget === 6) {
+        turnosDoDia = [{ startTime: "08:00", endTime: "13:00" }];
+      } else {
+        turnosDoDia = [{ startTime: "08:00", endTime: "20:00" }];
+      }
+    }
+
+    // 4. Consulta a ocupação da agenda no dia alvo
+    const arrGridTarget = montarArrGridDeGridSala(state.currentSalas, state.currentCodEstab);
+    const agendamentosDia = await buscarAgendaApi(state.currentToken, dataIso, arrGridTarget, state.currentCodEstab);
+
+    // Mapeia ocupações da sala selecionada em minutos [startMin, endMin]
+    const ocupacoes = [];
+    if (Array.isArray(agendamentosDia)) {
+      agendamentosDia.forEach(item => {
+        const itemSala = String(item.cod_sala || item.id_recurso || item.section_id || "");
+        const salaAlvo = String(codSala);
+
+        // Verifica se pertence à sala (ou se salaAlvo está inclusa)
+        if (itemSala === salaAlvo || !salaAlvo || salaAlvo === "1") {
+          let horaIni = item.start_date ? item.start_date.split(" ")[1] : item.horario;
+          let horaFim = item.end_date ? item.end_date.split(" ")[1] : item.hrFim;
+
+          if (horaIni && horaFim) {
+            const startMin = horaParaMinutos(horaIni.substring(0, 5));
+            const endMin = horaParaMinutos(horaFim.substring(0, 5));
+            if (endMin > startMin) {
+              ocupacoes.push({ startMin, endMin, desc: item.text || item.clienteNome });
+            }
+          }
+        }
+      });
+    }
+
+    // 5. Gera e valida todos os slots possíveis de 5 em 5 minutos
+    const slotsDisponiveis = [];
+    const stepMin = 5; // Granularidade da agenda de 5 em 5 min
+
+    turnosDoDia.forEach(turno => {
+      const turnoStart = horaParaMinutos(turno.startTime);
+      const turnoEnd = horaParaMinutos(turno.endTime);
+
+      for (let s = turnoStart; s + duracaoTotalMin <= turnoEnd; s += stepMin) {
+        const slotStart = s;
+        const slotEnd = s + duracaoTotalMin;
+
+        // Checa colisão com qualquer agendamento existente na sala
+        const temConflito = ocupacoes.some(oc => {
+          return slotStart < oc.endMin && slotEnd > oc.startMin;
+        });
+
+        if (!temConflito) {
+          slotsDisponiveis.push({
+            inicio: minutosParaHora(slotStart),
+            fim: minutosParaHora(slotEnd),
+            minutos: slotStart
+          });
+        }
+      }
+    });
+
+    // 6. Preenche o select de horários livres
+    if (slotsDisponiveis.length > 0) {
+      let optionsHtml = "";
+      slotsDisponiveis.forEach((slot, i) => {
+        optionsHtml += `<option value="${slot.inicio}">⏰ ${slot.inicio} às ${slot.fim} (Livre)</option>`;
+      });
+      modalAgendaSelectHorario.innerHTML = optionsHtml;
+      if (modalAgendaDisponibilidadeStatus) {
+        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #16a34a; font-weight: 700;">✅ ${slotsDisponiveis.length} horários livres para ${duracaoTotalMin} min nesta sala</span>`;
+      }
+    } else {
+      modalAgendaSelectHorario.innerHTML = `<option value="">⚠️ Nenhum horário livre com ${duracaoTotalMin}m nesta data</option>`;
+      if (modalAgendaDisponibilidadeStatus) {
+        modalAgendaDisponibilidadeStatus.innerHTML = `<span style="color: #dc2626; font-weight: 700;">⚠️ Sala 100% ocupada sem encaixe de ${duracaoTotalMin} min. Escolha outra data.</span>`;
+      }
+    }
+
+  } catch (err) {
+    console.warn("Erro ao calcular disponibilidade:", err);
+    modalAgendaSelectHorario.innerHTML = `
+      <option value="08:00">⏰ 08:00 (Padrão)</option>
+      <option value="09:00">⏰ 09:00 (Padrão)</option>
+      <option value="10:00">⏰ 10:00 (Padrão)</option>
+      <option value="14:00">⏰ 14:00 (Padrão)</option>
+      <option value="16:00">⏰ 16:00 (Padrão)</option>
+    `;
+    if (modalAgendaDisponibilidadeStatus) modalAgendaDisponibilidadeStatus.textContent = "Disponibilidade padrão carregada.";
   }
 }
 
@@ -161,6 +394,9 @@ function atualizarRegraEDataSugerida() {
     modalAgendaBadgeRegra.style.color = isCruzado ? "#1e40af" : "#166534";
     modalAgendaBadgeRegra.innerHTML = `⏱️ Regra Clínica: ${nomeOrigem} ➔ ${nomeDestino} (<strong>+${diasIntervalo} dias</strong> de intervalo)`;
   }
+
+  // 5. Dispara cálculo de horários livres para a data calculada
+  carregarDisponibilidadeHorarios();
 }
 
 /**
@@ -245,12 +481,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     modalAgendaContextoHoje.innerHTML = `📍 Sessão de Hoje: <strong>${nomeProcHoje}</strong> <span style="font-weight: 800; color: ${statusElegivel ? '#16a34a' : '#64748b'};">• [Status: ${statusLabel}]</span>`;
   }
 
-  // 2. Preenche horário padrão
-  if (modalAgendaInputHora) {
-    modalAgendaInputHora.value = app.horario || "09:00";
-  }
-
-  // 3. Preenche as opções de salas
+  // 2. Preenche as opções de salas
   if (modalAgendaSelectSala) {
     modalAgendaSelectSala.innerHTML = "";
     const salas = state.currentSalas || [];
@@ -259,7 +490,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
         const opt = document.createElement("option");
         opt.value = sala.id || sala.id_recurso || sala.cod_sala || sala.nome;
         opt.textContent = `📍 ${sala.nome || sala.title}`;
-        if (sala.nome === app.salaNome) opt.selected = true;
+        if (sala.nome === app.salaNome || String(sala.id) === String(app.codSala)) opt.selected = true;
         modalAgendaSelectSala.appendChild(opt);
       });
     } else {
@@ -268,9 +499,13 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
       opt.textContent = `📍 ${app.salaNome || 'SALA DEPILAÇÃO A LASER'}`;
       modalAgendaSelectSala.appendChild(opt);
     }
+
+    modalAgendaSelectSala.addEventListener("change", () => {
+      carregarDisponibilidadeHorarios();
+    });
   }
 
-  // 4. Carrega e exibe as áreas com saldo
+  // 3. Carrega e exibe as áreas com saldo
   if (modalAgendaListaServicos) {
     modalAgendaListaServicos.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Carregando saldo de sessões...</div>';
     
@@ -327,7 +562,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
     }
   }
 
-  // 5. Configuração de eventos de máscara e sincronização do input DD/MM/YYYY
+  // 4. Configuração de eventos de máscara e sincronização do input DD/MM/YYYY
   if (modalAgendaInputDataBr) {
     modalAgendaInputDataBr.addEventListener("input", (e) => {
       let v = e.target.value.replace(/\D/g, "");
@@ -351,6 +586,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
             const ddStr = String(d).padStart(2, "0");
             modalAgendaPicker.value = `${y}-${mmStr}-${ddStr}`;
           }
+          carregarDisponibilidadeHorarios();
         }
       }
     });
@@ -362,6 +598,7 @@ export async function abrirModalAgendarProxima(app, onSalvar) {
       const [y, m, d] = e.target.value.split("-").map(Number);
       const dataPick = new Date(y, m - 1, d);
       setarDataNoModal(dataPick);
+      carregarDisponibilidadeHorarios();
     }
   });
 
@@ -391,13 +628,15 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
   if (!currentAppAgendamento) return;
 
   const dataEscolhidaBr = modalAgendaInputDataBr?.value || "";
-  const horaEscolhida = modalAgendaInputHora?.value;
+  const horaEscolhida = modalAgendaSelectHorario?.value || "09:00";
   const salaEscolhida = modalAgendaSelectSala?.value;
 
   const checkedServicos = [];
   modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked").forEach(chk => {
     checkedServicos.push(chk.value);
   });
+
+  const duracaoTotal = calcularDuracaoServicosSelecionados(checkedServicos);
 
   const dadosAgendamento = {
     clienteNome: currentAppAgendamento.clienteNome,
@@ -406,6 +645,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     cpf: currentAppAgendamento.cpf,
     data: dataEscolhidaBr,
     horario: horaEscolhida,
+    duracaoMin: duracaoTotal,
     sala: salaEscolhida,
     servicos: checkedServicos
   };
@@ -416,7 +656,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", () => {
     callbackSalvar(dadosAgendamento);
   }
 
-  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataEscolhidaBr} às ${horaEscolhida} registrada com sucesso!`);
+  alert(`✅ Solicitação de agendamento para ${dadosAgendamento.clienteNome} no dia ${dataEscolhidaBr} às ${horaEscolhida} (${duracaoTotal} min) registrada com sucesso!`);
   fecharModalAgendarProxima();
 });
 

@@ -3,7 +3,7 @@
  * Cliente HTTP autônomo e de alta performance com cache para os endpoints do Belle Software.
  */
 
-import { state, getFromCache, setInCache, saldoPlanosCache, laserParamsCache, getServicosCache } from './state.js';
+import { state, getFromCache, setInCache, saldoPlanosCache, laserParamsCache, getServicosCache, servicosCatalogoCache, turnosValidosCache, arvoreSalasCache } from './state.js';
 
 export function montarArrGridDeGridSala(gridSalas, codEstab = "1") {
   if (!Array.isArray(gridSalas) || gridSalas.length === 0) return [];
@@ -78,6 +78,39 @@ export async function buscarEstabelecimentosApi(token, codEstabAtivo = "1") {
   return null;
 }
 
+export async function buscarArvoreSalasApi(token, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok) return [];
+
+  const cacheKey = `arvore_${codEstab}`;
+  const cached = getFromCache(arvoreSalasCache, cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/arvoresala?estabGeral=1`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "authorization": authTok,
+        "etb": String(codEstab || "1"),
+        "restringe": "0",
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const list = data?.rs || (Array.isArray(data) ? data : []);
+      if (list.length > 0) {
+        setInCache(arvoreSalasCache, cacheKey, list);
+        return list;
+      }
+    }
+  } catch (e) {
+    console.warn("Erro ao buscar árvore de salas:", e);
+  }
+  return [];
+}
+
 export async function buscarGridSalaApi(token, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   if (!authTok) return [];
@@ -99,6 +132,69 @@ export async function buscarGridSalaApi(token, codEstab = "1") {
     }
   } catch (e) {
     console.warn("Erro ao buscar grid de salas:", e);
+  }
+  return [];
+}
+
+export async function buscarTurnosValidosApi(token, codSala, dataIsoStr, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok || !codSala) return [];
+
+  let dataUtc = `${dataIsoStr || new Date().toISOString().split("T")[0]}T03:00:00.000Z`;
+  const cacheKey = `turno_${codSala}_${dataIsoStr}`;
+  const cached = getFromCache(turnosValidosCache, cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Buscas/v1.0/turnos_validos?cod=${codSala}&tpAgd=s&dtAgenda=${encodeURIComponent(dataUtc)}&estabGeral=1`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "authorization": authTok,
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (res.ok) {
+      const turnos = await res.json();
+      if (Array.isArray(turnos) && turnos.length > 0) {
+        setInCache(turnosValidosCache, cacheKey, turnos);
+        return turnos;
+      }
+    }
+  } catch (e) {
+    console.warn(`Erro ao buscar turnos válidos da sala #${codSala}:`, e);
+  }
+  return [];
+}
+
+export async function buscarServicosCatalogoApi(token, codEstab = "1") {
+  const authTok = token || state.currentToken || "";
+  if (!authTok) return [];
+
+  const cacheKey = `servicos_catalogo_${codEstab}`;
+  const cached = getFromCache(servicosCatalogoCache, cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Servico/v1.0/servico?filtro=&tipo=&categoria=&ativo=0&tipoFrq=511&paginar=1&primeiro=0&ordenacao=1&limit=250&estabGeral=1`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "authorization": authTok,
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const lista = data?.registros || (Array.isArray(data) ? data : []);
+      if (Array.isArray(lista) && lista.length > 0) {
+        state.servicosCatalogo = lista;
+        setInCache(servicosCatalogoCache, cacheKey, lista);
+        return lista;
+      }
+    }
+  } catch (e) {
+    console.warn("Erro ao buscar catálogo de serviços:", e);
   }
   return [];
 }

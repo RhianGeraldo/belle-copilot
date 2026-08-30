@@ -269,3 +269,39 @@ A lógica de cálculo de disponibilidade segue o cruzamento exato entre os **Tur
   * ✅ `11:00` (Livre)
   * ✅ `11:20` (Livre)
   * ✅ `11:40` (Livre)
+
+---
+
+## 6️⃣ Requisição: Catálogo de Serviços e Duração (`/servico`)
+
+Consulta o catálogo completo de procedimentos da clínica para mapear o código oficial (`codServico`), nome e a **duração em minutos (`tempo`)** de cada área.
+
+* **URL**: `https://app.bellesoftware.com.br/api/release/controller/Servico/v1.0/servico?filtro=&tipo=&categoria=&ativo=0&tipoFrq=511&paginar=1&primeiro=0&ordenacao=1&limit=100&estabGeral=1`
+* **Método**: `GET`
+* **Headers**:
+  * `authorization`: Token ativo da sessão
+  * `accept`: `application/json, text/plain, */*`
+
+### Estrutura de Campos Relevantes de Cada Serviço:
+```json
+{
+  "codServico": 55556418,
+  "nome": "AXILAS (P) - depilação a laser",
+  "tempo": 5,
+  "valor": "30,00",
+  "nomCat": "DEPILAÇÃO A LASER",
+  "id_geinfo": 124248
+}
+```
+
+### ⏱️ Cálculo da Duração Total do Agendamento (Soma de Tempos):
+Ao agendar múltiplas áreas para a paciente na mesma sessão:
+$$\text{Duração Total} = \sum_{i=1}^{n} \text{tempo}(\text{serviço}_i)$$
+
+* **Exemplo Prático**:
+  1. `AXILAS (P)` ➔ **5 minutos** (`codServico: 55556418`)
+  2. `VIRILHA COMPLETA (M)` ➔ **10 minutos** (`codServico: 55556425`)
+  3. `MEIA PERNA (M)` ➔ **10 minutos** (`codServico: 55556430`)
+  * **Duração Total da Reserva**: `5 + 10 + 10 = 25 minutos`
+  * Se o horário de início for `09:00`, o término no Belle será `09:25`.
+  * Na criação do agendamento, o payload envia o array com cada `codServico` e seu respectivo `tempo`.

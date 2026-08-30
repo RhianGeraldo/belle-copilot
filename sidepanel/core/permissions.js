@@ -30,18 +30,26 @@ export function classificarPerfilUsuario(userData, codUsuario = "") {
     return "gerente";
   }
 
-  // 2. Consultora / Recepção / Vendas
+  // 2. Recepção / Atendimento
+  if (
+    fullText.includes("recepc") ||
+    fullText.includes("atendiment") ||
+    fullText.includes("portaria")
+  ) {
+    return "recepcao";
+  }
+
+  // 3. Consultora / Vendas
   if (
     fullText.includes("consultor") ||
     fullText.includes("vendedor") ||
     fullText.includes("comercial") ||
-    fullText.includes("recepc") ||
-    fullText.includes("atendiment")
+    fullText.includes("vendas")
   ) {
     return "consultora";
   }
 
-  // 3. Aplicadora / Esteticista / Biomédica / Laser
+  // 4. Aplicadora / Esteticista / Biomédica / Laser
   if (
     fullText.includes("aplicador") ||
     fullText.includes("estetic") ||
@@ -62,46 +70,57 @@ export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba, onRenderizar
 
   const rolePreviewContainer = document.getElementById("role-preview-container");
   const selectRolePreview = document.getElementById("select-role-preview");
-  const cardFiltroSalas = document.getElementById("card-filtro-salas");
-  const cardKpiGrid = document.getElementById("card-kpi-grid");
-  const tabNavAgenda = document.getElementById("tab-nav-agenda");
-  const tabNavAtendimento = document.getElementById("tab-nav-atendimento");
-  const tabNavComercial = document.getElementById("tab-nav-comercial");
+  const mainModuleNav = document.getElementById("main-module-nav");
+  const moduleAgenda = document.getElementById("module-agenda");
+  const moduleComercial = document.getElementById("module-comercial");
+  const tabModuleAgenda = document.getElementById("tab-module-agenda");
+  const tabModuleComercial = document.getElementById("tab-module-comercial");
 
   if (rolePreviewContainer) {
     rolePreviewContainer.style.display = (state.currentUserOriginalRole === "gerente") ? "block" : "none";
     if (selectRolePreview) selectRolePreview.value = perfil;
   }
 
-  if (perfil === "aplicadora") {
-    // 🩺 Modo Aplicadora: Agenda do Dia + Atendimento Clínico (Cabine)
-    if (cardFiltroSalas) cardFiltroSalas.style.display = "block";
-    if (cardKpiGrid) cardKpiGrid.style.display = "grid";
-    if (tabNavAgenda) tabNavAgenda.style.display = "block";
-    if (tabNavAtendimento) tabNavAtendimento.style.display = "block";
-    if (tabNavComercial) tabNavComercial.style.display = "none";
-
-    const activeTab = document.querySelector(".tab-content.active");
-    if (!activeTab || activeTab.id === "tab-comercial") {
-      if (typeof onAtivarAba === "function") onAtivarAba("tab-agenda");
+  if (perfil === "aplicadora" || perfil === "recepcao") {
+    // 📅 Modo Aplicadora / Recepção: Foco exclusivo no Módulo Agenda
+    if (mainModuleNav) mainModuleNav.style.display = "none";
+    if (moduleAgenda) {
+      moduleAgenda.style.display = "flex";
+      moduleAgenda.classList.add("active");
     }
+    if (moduleComercial) {
+      moduleComercial.style.display = "none";
+      moduleComercial.classList.remove("active");
+    }
+
+    if (typeof onAtivarAba === "function") onAtivarAba("tab-agenda");
   } else if (perfil === "consultora") {
-    // 🎯 Modo Consultora: Foco exclusivo em Comercial / Oportunidades & Ficha (sem agenda)
-    if (cardFiltroSalas) cardFiltroSalas.style.display = "none";
-    if (cardKpiGrid) cardKpiGrid.style.display = "none";
-    if (tabNavAgenda) tabNavAgenda.style.display = "none";
-    if (tabNavAtendimento) tabNavAtendimento.style.display = "none";
-    if (tabNavComercial) tabNavComercial.style.display = "block";
+    // 🎯 Modo Consultora: Foco exclusivo no Módulo Comercial
+    if (mainModuleNav) mainModuleNav.style.display = "none";
+    if (moduleAgenda) {
+      moduleAgenda.style.display = "none";
+      moduleAgenda.classList.remove("active");
+    }
+    if (moduleComercial) {
+      moduleComercial.style.display = "flex";
+      moduleComercial.classList.add("active");
+    }
 
     if (typeof onAtivarAba === "function") onAtivarAba("tab-comercial");
     if (typeof onRenderizarComercial === "function") onRenderizarComercial();
   } else {
-    // 👑 Modo Gerente: Acesso total (Agenda + Atendimento + Comercial + Configurações)
-    if (cardFiltroSalas) cardFiltroSalas.style.display = "block";
-    if (cardKpiGrid) cardKpiGrid.style.display = "grid";
-    if (tabNavAgenda) tabNavAgenda.style.display = "block";
-    if (tabNavAtendimento) tabNavAtendimento.style.display = "block";
-    if (tabNavComercial) tabNavComercial.style.display = "block";
+    // 👑 Modo Gerente: Exibe barra superior com Módulos (Agenda | Comercial)
+    if (mainModuleNav) mainModuleNav.style.display = "flex";
+    if (moduleAgenda) {
+      moduleAgenda.style.display = "flex";
+      moduleAgenda.classList.add("active");
+    }
+    if (moduleComercial) {
+      moduleComercial.style.display = "none";
+      moduleComercial.classList.remove("active");
+    }
+    if (tabModuleAgenda) tabModuleAgenda.classList.add("active");
+    if (tabModuleComercial) tabModuleComercial.classList.remove("active");
 
     if (typeof onRenderizarComercial === "function") onRenderizarComercial();
   }

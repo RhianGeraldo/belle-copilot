@@ -4,6 +4,7 @@
  */
 
 import { state } from '../core/state.js';
+import { abrirModalAgendarProxima } from '../components/modal-agendar-proxima.js';
 
 const selectProfissional = document.getElementById("select-profissional");
 const agendaTimelineContainer = document.getElementById("agenda-timeline-container");
@@ -233,6 +234,13 @@ export function renderizarAgenda(onAbrirAtendimento) {
       servicosHtml = `<div class="app-procedure">✨ ${app.procedimento}</div>`;
     }
 
+    const exibirBtnAgendar = (state.currentUserRole === "recepcao" || state.currentUserRole === "gerente" || state.currentUserRole === "consultora");
+    const btnAgendarHtml = exibirBtnAgendar ? `
+      <button class="btn-agendar-proxima-card" data-app-id="${app.id}">
+        📅 Agendar Próxima Sessão
+      </button>
+    ` : '';
+
     card.innerHTML = `
       <div class="app-card-header">
         <span class="app-time">⏰ ${app.horario} - ${app.hrFim} <small style="font-weight: normal; color: #64748b;">(${app.duracaoMin}m)</small></span>
@@ -249,7 +257,16 @@ export function renderizarAgenda(onAbrirAtendimento) {
           <span style="color: #0284c7; font-weight: 600;">📍 ${app.salaNome}</span>
         </div>
       </div>
+      ${btnAgendarHtml}
     `;
+
+    const btnAgendar = card.querySelector(".btn-agendar-proxima-card");
+    if (btnAgendar) {
+      btnAgendar.addEventListener("click", (e) => {
+        e.stopPropagation();
+        abrirModalAgendarProxima(app);
+      });
+    }
 
     card.addEventListener("click", () => {
       if (typeof callbackAbrirAtendimento === "function") {

@@ -46,16 +46,53 @@ const loadingAgenda = document.getElementById("loading-agenda");
 const agendaTimelineContainer = document.getElementById("agenda-timeline-container");
 const agendaEmptyState = document.getElementById("agenda-empty-state");
 
+export function ativarModulo(moduleId) {
+  const moduleNavBtns = document.querySelectorAll(".module-nav-btn");
+  moduleNavBtns.forEach(btn => {
+    if (btn.getAttribute("data-module") === moduleId) btn.classList.add("active");
+    else btn.classList.remove("active");
+  });
+
+  const modules = document.querySelectorAll(".module-container");
+  modules.forEach(m => {
+    if (m.id === moduleId) {
+      m.style.display = "flex";
+      m.classList.add("active");
+    } else {
+      m.style.display = "none";
+      m.classList.remove("active");
+    }
+  });
+
+  const tabConfig = document.getElementById("tab-config");
+  if (tabConfig) tabConfig.style.display = "none";
+}
+
 export function ativarAba(targetId) {
-  const tabButtons = document.querySelectorAll(".tab-item");
-  tabButtons.forEach(b => {
-    if (b.getAttribute("data-target") === targetId) b.classList.add("active");
-    else b.classList.remove("active");
-  });
-  document.querySelectorAll(".tab-content").forEach(tc => {
-    if (tc.id === targetId) tc.classList.add("active");
-    else tc.classList.remove("active");
-  });
+  if (targetId === "tab-agenda" || targetId === "tab-atendimento") {
+    ativarModulo("module-agenda");
+    const subTabButtons = document.querySelectorAll(".sub-tab-item");
+    subTabButtons.forEach(b => {
+      if (b.getAttribute("data-target") === targetId) b.classList.add("active");
+      else b.classList.remove("active");
+    });
+    const subTabs = document.querySelectorAll("#module-agenda .tab-content");
+    subTabs.forEach(tc => {
+      if (tc.id === targetId) tc.classList.add("active");
+      else tc.classList.remove("active");
+    });
+  } else if (targetId === "tab-comercial") {
+    ativarModulo("module-comercial");
+    const comTab = document.getElementById("tab-comercial");
+    if (comTab) comTab.classList.add("active");
+  } else if (targetId === "tab-config") {
+    const tabConfig = document.getElementById("tab-config");
+    if (tabConfig) {
+      document.querySelectorAll(".module-container").forEach(m => m.style.display = "none");
+      tabConfig.style.display = "block";
+      tabConfig.classList.add("active");
+    }
+  }
 }
 
 export function aplicarLogoEmpresa(logoUrl) {
@@ -205,9 +242,23 @@ export async function sincronizarSessao() {
 document.addEventListener("DOMContentLoaded", () => {
   console.log("🚀 [BELLE COPILOT] Inicializando aplicação modular...");
 
-  // Inicializa Abas e Navegação
-  const tabButtons = document.querySelectorAll(".tab-item");
-  tabButtons.forEach(btn => {
+  // Inicializa Módulos Principais (Agenda | Comercial)
+  const moduleNavBtns = document.querySelectorAll(".module-nav-btn");
+  moduleNavBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetModule = btn.getAttribute("data-module");
+      if (targetModule) {
+        ativarModulo(targetModule);
+        if (targetModule === "module-comercial") {
+          renderizarPainelComercial();
+        }
+      }
+    });
+  });
+
+  // Inicializa Sub-Abas da Agenda (Agenda do Dia | Atendimento)
+  const subTabButtons = document.querySelectorAll(".sub-tab-item");
+  subTabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const target = btn.getAttribute("data-target");
       if (target) ativarAba(target);

@@ -1,8 +1,9 @@
 /**
  * BELLE COPILOT - MODAL DE AGENDAMENTO DA PRÓXIMA SESSÃO (RECEPÇÃO / COMERCIAL)
+ * - Trava estrita para áreas com saldo zerado (não permite agendar saldo 0);
  * - Suporta agendamento sequencial em lote para clientes com múltiplos planos/pacotes;
  * - Executa a validação oficial (/validacao) e a gravação no Belle (/edicaoagenda);
- * - Divide automaticamente em agendamentos consecutivos para cada plano com persistência real na API.
+ * - Feedback visual elegante integrado sem uso de popups nativos do navegador (alert).
  */
 
 import { state } from '../core/state.js';
@@ -38,6 +39,12 @@ const modalAgendaSequencialLista = document.getElementById("modal-agenda-sequenc
 const modalAgendaSelectSala = document.getElementById("modal-agenda-select-sala");
 const btnCancelarAgendarProxima = document.getElementById("btn-cancelar-agendar-proxima");
 const btnConfirmarAgendarProxima = document.getElementById("btn-confirmar-agendar-proxima");
+
+// Modal de Sucesso Customizado
+const modalAgendamentoSucesso = document.getElementById("modal-agendamento-sucesso");
+const modalSucessoSubtitulo = document.getElementById("modal-sucesso-subtitulo");
+const modalSucessoResumoCard = document.getElementById("modal-sucesso-resumo-card");
+const btnFecharModalSucesso = document.getElementById("btn-fechar-modal-sucesso");
 
 let callbackSalvar = null;
 let currentAppAgendamento = null;
@@ -152,13 +159,16 @@ function obterTempoServico(nomeServ = "") {
 }
 
 /**
- * Agrupa serviços selecionados por plano com dados completos para o payload
+ * Agrupa serviços selecionados por plano (FILTRA ESTRITAMENTE ÁREAS COM SALDO > 0)
  */
 export function calcularPlanosEServicosSelecionados() {
-  const checkedInputs = modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked") || [];
+  const checkedInputs = modalAgendaListaServicos?.querySelectorAll("input[name='servico_agendar']:checked:not(:disabled)") || [];
   const planosMap = new Map();
 
   checkedInputs.forEach(chk => {
+    const saldoRestanteNum = Number(chk.getAttribute("data-saldo-restante") || 1);
+    if (saldoRestanteNum <= 0) return; // Trava: não agendamos áreas zeradas
+
     const sNome = chk.value;
     const codOrc = chk.getAttribute("data-plano-orc") || currentAppAgendamento?.codOrcamento || "padrao";
     const nomePlano = chk.getAttribute("data-plano-nome") || currentAppAgendamento?.nomePlano || "Plano de Sessões";
@@ -199,10 +209,10 @@ export function calcularPlanosEServicosSelecionados() {
         valor: "0,00",
         tempo: tempoServ,
         quantidade: "10",
-        saldo_atual: "1",
+        saldo_atual: String(saldoRestanteNum),
         tipo: 3,
         _gasto: 0,
-        restante: "1"
+        restante: String(saldoRestanteNum)
       });
     }
   });
@@ -463,6 +473,9 @@ function atualizarRegraEDataSugerida() {
   carregarDisponibilidadeHorarios();
 }
 
+/**
+ * Renderiza a lista de serviços estruturados (BLOQUEIA ESTRITAMENTE ÁREAS ZERADAS)
+ */
 function renderizarPlanosEServicos(planosComServicos) {
   if (!modalAgendaListaServicos) return;
 
@@ -495,20 +508,23 @@ function renderizarPlanosEServicos(planosComServicos) {
       const codServico = s.cod_servico || s.codServico || s.codServ || "";
 
       let sessaoTxt = "";
+      const isSaldoZerado = (saldoRestante <= 0);
+
       if (contratadas > 0) {
-        if (saldoRestante > 0) {
+        if (!isSaldoZerado) {
           sessaoTxt = `(Sessão ${proximaSessao}/${contratadas} • Saldo: ${saldoRestante} | ⏱️ ${tempoServ}m)`;
         } else {
-          sessaoTxt = `(Concluído ${realizadas}/${contratadas} • Saldo: 0)`;
+          sessaoTxt = `(Concluído ${realizadas}/${contratadas} • Saldo Zerado)`;
         }
       }
 
-      const isChecked = saldoRestante > 0 ? "checked" : "";
-      const isDesabilitado = saldoRestante <= 0 ? "style='opacity: 0.6;'" : "";
+      const isChecked = !isSaldoZerado ? "checked" : "";
+      const isDesabilitado = isSaldoZerado ? "disabled" : "";
+      const estiloLabel = isSaldoZerado ? "style='opacity: 0.5; background: #f1f5f9; cursor: not-allowed;'" : "";
       const rawJson = encodeURIComponent(JSON.stringify(s));
 
       servicosItemsHtml += `
-        <label class="check-servico-item" ${isDesabilitado}>
+        <label class="check-servico-item" ${estiloLabel}>
           <input 
             type="checkbox" 
             name="servico_agendar" 
@@ -518,10 +534,12 @@ function renderizarPlanosEServicos(planosComServicos) {
             data-plano-nome="${plano.nomePlano || ''}"
             data-cod-servico="${codServico}"
             data-tempo="${tempoServ}"
+            data-saldo-restante="${saldoRestante}"
             data-raw-serv="${rawJson}"
             ${isChecked}
+            ${isDesabilitado}
           >
-          <span>${iconTipo} <strong>${sNome}</strong> ${sessaoTxt ? `<small style="color: #0284c7; font-weight: 700;">${sessaoTxt}</small>` : ''}</span>
+          <span>${iconTipo} <strong>${sNome}</strong> ${sessaoTxt ? `<small style="color: ${isSaldoZerado ? '#94a3b8' : '#0284c7'}; font-weight: 700;">${sessaoTxt}</small>` : ''}</span>
         </label>
       `;
     });
@@ -538,7 +556,7 @@ function renderizarPlanosEServicos(planosComServicos) {
 
   modalAgendaListaServicos.innerHTML = html;
 
-  modalAgendaListaServicos.querySelectorAll("input[name='servico_agendar']").forEach(chk => {
+  modalAgendaListaServicos.querySelectorAll("input[name='servico_agendar']:not(:disabled)").forEach(chk => {
     chk.addEventListener("change", () => {
       atualizarRegraEDataSugerida();
     });
@@ -763,6 +781,56 @@ export function fecharModalAgendarProxima() {
 }
 
 /**
+ * Exibe o modal elegante de sucesso da finalização do agendamento
+ */
+function abrirModalSucesso(clienteNome, dataBr, nomeSala, planosAgendados) {
+  if (!modalAgendamentoSucesso) return;
+
+  if (modalSucessoSubtitulo) {
+    modalSucessoSubtitulo.textContent = `Sessão agendada com sucesso para ${clienteNome || 'a paciente'}.`;
+  }
+
+  if (modalSucessoResumoCard) {
+    let agendamentosHtml = "";
+    planosAgendados.forEach((p, idx) => {
+      const servs = p.servicos.map(s => s.nome.split("-")[0].trim()).join(", ");
+      agendamentosHtml += `
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; margin-top: ${idx > 0 ? '6px' : '0'};">
+          <div style="display: flex; justify-content: space-between; font-weight: 800; color: #0284c7; margin-bottom: 2px;">
+            <span>⏰ ${p.horarioInicio} às ${p.horarioFim}</span>
+            <span class="badge-count-pill" style="background: #e0f2fe; color: #0369a1; font-size: 10px;">${p.duracaoMin} min</span>
+          </div>
+          <div style="font-weight: 700; color: #0f172a; font-size: 12px; margin-bottom: 2px;">
+            ✨ ${servs}
+          </div>
+          <div style="font-size: 10.5px; color: #64748b;">
+            📦 ${p.nomePlano}
+          </div>
+        </div>
+      `;
+    });
+
+    modalSucessoResumoCard.innerHTML = `
+      <div style="margin-bottom: 6px;">
+        <strong style="color: #0f172a; font-size: 12.5px;">👤 ${clienteNome}</strong>
+        <div style="color: #64748b; font-size: 11px;">🗓️ Data: <strong>${dataBr}</strong> • 📍 Sala: <strong>${nomeSala}</strong></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        ${agendamentosHtml}
+      </div>
+    `;
+  }
+
+  modalAgendamentoSucesso.style.display = "flex";
+}
+
+btnFecharModalSucesso?.addEventListener("click", () => {
+  if (modalAgendamentoSucesso) {
+    modalAgendamentoSucesso.style.display = "none";
+  }
+});
+
+/**
  * Salva oficialmente o agendamento no Belle Software (validacao + edicaoagenda)
  */
 btnConfirmarAgendarProxima?.addEventListener("click", async () => {
@@ -778,7 +846,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
 
   const { planos, duracaoTotalMin } = calcularPlanosEServicosSelecionados();
   if (planos.length === 0) {
-    alert("⚠️ Selecione pelo menos uma área para agendar.");
+    alert("⚠️ Nenhuma área com saldo disponível selecionada para agendar.");
     return;
   }
 
@@ -869,7 +937,7 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
         forma: "p",
         servicos: p.servicosCompletos.map(s => ({
           codServico: s.cod_servico,
-          saldoRestante: s.saldo_atual || 1,
+          saldoRestante: Number(s.saldo_atual) || 1,
           nome: s.nome
         }))
       },
@@ -918,14 +986,8 @@ btnConfirmarAgendarProxima?.addEventListener("click", async () => {
       callbackSalvar(resultadosGravacao);
     }
 
-    if (planos.length > 1) {
-      const resumo = planos.map((p, i) => `${i + 1}º [${p.nomePlano}]: ${p.horarioInicio} às ${p.horarioFim}`).join("\n");
-      alert(`✅ ${planos.length} Agendamentos consecutivos salvos com SUCESSO no Belle Software!\n\n${resumo}`);
-    } else {
-      alert(`✅ Agendamento de ${currentAppAgendamento.clienteNome} salvo com SUCESSO no dia ${dataEscolhidaBr} às ${horaEscolhida} (Sala: ${nomeSalaAlvo})!`);
-    }
-
     fecharModalAgendarProxima();
+    abrirModalSucesso(currentAppAgendamento.clienteNome, dataEscolhidaBr, nomeSalaAlvo, planos);
   } else {
     alert("❌ Erro ao salvar agendamento no Belle. Verifique a conexão com o sistema.");
   }

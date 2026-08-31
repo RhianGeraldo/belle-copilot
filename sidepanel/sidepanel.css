@@ -673,6 +673,10 @@ label[for] {
 
 .agenda-sub-tabs {
   display: flex;
+  /* Quebra em duas linhas quando não couber. O painel lateral é estreito e, com
+     quatro abas de texto que não quebra, a última saía da área visível — parecia
+     que a aba não tinha sido criada. */
+  flex-wrap: wrap;
   background: #e2e8f0;
   padding: 3px;
   border-radius: 8px;
@@ -680,11 +684,13 @@ label[for] {
 }
 
 .sub-tab-item {
-  flex: 1;
+  /* base de 50%: 4 abas viram 2x2, 2 abas ficam em linha única */
+  flex: 1 1 calc(50% - 4px);
+  min-width: 0;
   background: transparent;
   border: none;
-  padding: 7px 8px;
-  font-size: 12px;
+  padding: 7px 6px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #475569;
   border-radius: 6px;
@@ -692,6 +698,8 @@ label[for] {
   transition: all 0.2s;
   text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sub-tab-item.active {

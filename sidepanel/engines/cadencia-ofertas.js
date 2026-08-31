@@ -1,7 +1,12 @@
 /**
  * BELLE COPILOT - MOTOR DE CADÊNCIA CLÍNICA & CROSS-SELL
  * Prescreve ofertas inteligentes e scripts verbais para a aplicadora baseados na sessão da cliente.
+ *
+ * A sugestão de novas áreas vem do cruzamento real do mapa corporal
+ * (engines/cross-sell.js), não mais de comparações de texto fixas.
  */
+
+import { analisarOportunidades } from './cross-sell.js';
 
 export function extrairNumeroSessaoArea(nomeArea, historicoLaser = [], saldoServicos = [], app = null) {
   // 1. Prioridade: lbServ nativo do agendamento (ex: "AXILAS (P) - depilação a laser - 15/40")
@@ -81,7 +86,6 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
     ? app.arrServ.map(s => s.nome) 
     : [app.procedimento || "Depilação a Laser"];
 
-  const todasAreasTexto = procs.join(" ").toLowerCase();
   const primeiraArea = procs[0] || "Tratamento";
   const { sessaoAtual, totalSessoes } = extrairNumeroSessaoArea(primeiraArea, historicoLaser, saldoServicos, app);
 
@@ -112,32 +116,41 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
       secundaria: "✨ Iniciar Nova Região a Laser: Desconto especial de cliente fiel para novas áreas corporais."
     });
   } else {
-    // Fase Intermediária: Expansão de Áreas (Cross-sell inteligente)
-    let sugestaoCross = "Virilha Completa + Perianal";
-    let scriptCross = `“${primeiroNome}, olha como os pelos da sua ${primeiraArea.split(' - ')[0]} já reduziram bastante! Já que você está amando a liberdade do laser, vamos aproveitar hoje para iniciar também a virilha ou buço com nosso combo especial?”`;
+    // Fase Intermediária: expansão guiada pelo mapa de áreas da cliente.
+    // A análise sabe o que ela já trata e devolve a vizinha que falta, a região
+    // quase completa e o outro serviço aplicável na área que ela já faz.
+    const analise = analisarOportunidades({
+      servicosContratados: saldoServicos,
+      servicosHoje: app.arrServ || [],
+      historicoAreas: historicoLaser,
+      clienteNome: app.clienteNome || "",
+      limite: 3
+    });
 
-    if (todasAreasTexto.includes("virilha") && !todasAreasTexto.includes("perianal")) {
-      sugestaoCross = "Perianal a Laser (Combo Íntimo)";
-      scriptCross = `“${primeiroNome}, como você já faz Virilha, vamos aproveitar para fechar o combo íntimo completo com o Perianal a Laser hoje? A aplicação leva só 2 minutinhos!”`;
-    } else if (todasAreasTexto.includes("virilha") && !todasAreasTexto.includes("perna")) {
-      sugestaoCross = "Meia Perna a Laser (Membros Inferiores)";
-      scriptCross = `“${primeiroNome}, já que você está super adaptada ao laser na região íntima, que tal se livrar de vez da lâmina nas pernas também com a Meia Perna a Laser?”`;
-    } else if (todasAreasTexto.includes("meia perna") && !todasAreasTexto.includes("coxa")) {
-      sugestaoCross = "Coxas a Laser (Pernas 100% Completas)";
-      scriptCross = `“${primeiroNome}, suas meias pernas estão ficando perfeitas! Vamos estender o tratamento para as coxas para ter as pernas 100% lisinhas e uniformes?”`;
-    } else if (todasAreasTexto.includes("axila") && !todasAreasTexto.includes("buço") && !todasAreasTexto.includes("rosto")) {
-      sugestaoCross = "Buço / Queixo a Laser (Facial Express)";
-      scriptCross = `“${primeiroNome}, a aplicação de Buço a Laser é super rápida, leva menos de 3 minutos e elimina os pelinhos que incomodam na maquiagem. Vamos fazer hoje?”`;
-    }
+    const principal = analise.oportunidades[0];
+    const secundaria = analise.oportunidades[1];
+
+    let sugestaoCross = principal
+      ? `${principal.servicoNome} — ${principal.areaNome}`
+      : "Novas áreas a laser";
+    let scriptCross = principal
+      ? principal.script
+      : `“${primeiroNome}, já que você está amando o resultado do laser, que tal aproveitarmos para iniciar uma nova região com condição de cliente ativa?”`;
+    const motivoCross = principal
+      ? principal.motivo
+      : "Cliente já vê redução significativa de pelos e confia na eficácia do laser.";
+    const alternativa = secundaria
+      ? `➕ ${secundaria.servicoNome} — ${secundaria.areaNome}: ${secundaria.motivo}`
+      : "🖤 Black Peel a Laser: peeling de carbono para efeito porcelana e controle de oleosidade.";
 
     ofertas.push({
       badge: `Sessão ${sessaoAtual}/${totalSessoes}`,
       fase: `FASE INTERMEDIÁRIA (${sessaoAtual}ª SESSÃO • ${pctConcluido}%): EXPANSÃO DE ÁREAS`,
       destaque: "👉 O QUE VOCÊ DEVE OFERTAR HOJE:",
       ofertaPrincipal: sugestaoCross,
-      motivo: "Cliente já vê redução significativa de pelos e confia na eficácia do laser. É a melhor janela de oportunidade para adicionar áreas complementares com condição especial de combo.",
+      motivo: motivoCross,
       script: scriptCross,
-      secundaria: "🖤 Black Peel a Laser: Peeling de carbono para efeito porcelana e controle de oleosidade."
+      secundaria: alternativa
     });
   }
 

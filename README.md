@@ -23,6 +23,7 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - **Validação de Evolução Clínica**: Trava de segurança para impedir finalização sem registro de evolução nas áreas atendidas.
    - **Transição Automática de Fila**: Ao finalizar os atendimentos da cliente atual, abre automaticamente a próxima cliente com status `Aguardando`.
    - **Ofertas & Cadência Clínica** (`engines/cadencia-ofertas.js`): dentro da própria ficha de atendimento, prescreve a oferta do dia conforme a fase do tratamento (inicial, expansão de áreas ou reta final), com motivo clínico e script verbal pronto para a aplicadora.
+   - **Cruzamento de áreas** (`engines/catalogo-areas.js` + `engines/cross-sell.js`): mapa de **7 serviços**, **10 regiões** e **40 áreas** corporais. Compara o que a cliente já trata com o mapa completo e devolve a área vizinha que falta (faixa de barba sem o mento, meia perna sem a coxa), a região quase fechada, e o outro serviço aplicável na área que ela já faz (clareamento na axila que ela depila).
 
 4. **Sucesso do Cliente (CS / Pós-Laser 24h & 3 Dias)**:
    - Acompanhamento automático de clientes com status **Atendido / Finalizado** em 24h (ontem) e 3 dias pós-procedimento.

@@ -286,45 +286,52 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
               const targetMonthIndex = m - 1; // 0 a 11
               const targetDay = d;
 
-              function tentarClicarDatePicker() {
-                // 1. Se o popover não estiver aberto, procura o botão de data na barra superior
-                const datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
-                if (!datepickerPanel || datepickerPanel.offsetParent === null) {
-                  const allButtons = document.querySelectorAll('button, .p-button, [class*="data"], [class*="date"], .header-data, [aria-haspopup="dialog"], [aria-haspopup="true"], .titulo-agenda-data, .current-date');
-                  let triggerBtn = null;
+              function executarNavegacaoPassoAPasso() {
+                let stepCount = 0;
+                const maxSteps = 40;
 
-                  for (const b of allButtons) {
-                    const txt = (b.textContent || "").trim();
-                    if (
-                      txt.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/) ||
-                      txt.match(/\b\d{1,2}\s+de\s+[a-z]+/i) ||
-                      txt.match(/hoje|domingo|segunda|terça|terca|quarta|quinta|sexta|sábado|sabado/i) ||
-                      b.querySelector('.pi-calendar, [class*="calendar"]') ||
-                      b.classList.contains("data-atual")
-                    ) {
-                      if (b.offsetParent !== null && !b.closest('.p-datepicker')) {
-                        triggerBtn = b;
-                        break;
+                function step() {
+                  stepCount++;
+                  if (stepCount > maxSteps) {
+                    console.warn("[BelleCopilot Injected] Limite de passos atingido.");
+                    return;
+                  }
+
+                  // 1. Abre popover se fechado
+                  const datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
+                  if (!datepickerPanel || datepickerPanel.offsetParent === null) {
+                    const allButtons = document.querySelectorAll('button, .p-button, [class*="data"], [class*="date"], .header-data, [aria-haspopup="dialog"], [aria-haspopup="true"], .titulo-agenda-data, .current-date');
+                    let triggerBtn = null;
+
+                    for (const b of allButtons) {
+                      const txt = (b.textContent || "").trim();
+                      if (
+                        txt.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/) ||
+                        txt.match(/\b\d{1,2}\s+de\s+[a-z]+/i) ||
+                        txt.match(/hoje|domingo|segunda|terça|terca|quarta|quinta|sexta|sábado|sabado/i) ||
+                        b.querySelector('.pi-calendar, [class*="calendar"]') ||
+                        b.classList.contains("data-atual")
+                      ) {
+                        if (b.offsetParent !== null && !b.closest('.p-datepicker')) {
+                          triggerBtn = b;
+                          break;
+                        }
                       }
+                    }
+
+                    if (triggerBtn) {
+                      console.log("[BelleCopilot Injected] 🖱️ Abrindo popover do datepicker...");
+                      triggerBtn.click();
+                      setTimeout(step, 90);
+                      return;
                     }
                   }
 
-                  if (triggerBtn) {
-                    console.log("[BelleCopilot Injected] 🖱️ Clicando no botão trigger da data:", triggerBtn);
-                    triggerBtn.click();
-                    triggerBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                  }
-                }
-
-                let tentativas = 0;
-                const navegarEClicar = () => {
-                  tentativas++;
-
-                  // 2. Navegação de Mês/Ano no cabeçalho do PrimeNG
+                  // 2. Lê mês e ano atuais do cabeçalho do PrimeNG
                   const monthBtn = document.querySelector('.p-datepicker-select-month, [aria-label="Choose Month"]');
                   const yearBtn = document.querySelector('.p-datepicker-select-year, [aria-label="Choose Year"]');
-                  const nextBtn = document.querySelector('.p-datepicker-next-button, [aria-label="Next Month"], p-button[styleclass*="p-datepicker-next-button"] button');
-                  const prevBtn = document.querySelector('.p-datepicker-prev-button, [aria-label="Previous Month"], p-button[styleclass*="p-datepicker-prev-button"] button');
+                  const nextBtn = document.querySelector('.p-datepicker-next-button, [aria-label="Next Month"], p-button[styleclass*="p-datepicker-next-button"] button, p-button.p-datepicker-next-button button');
+                  const prevBtn = document.querySelector('.p-datepicker-prev-button, [aria-label="Previous Month"], p-button[styleclass*="p-datepicker-prev-button"] button, p-button.p-datepicker-prev-button button');
 
                   if (monthBtn && yearBtn) {
                     const currentYear = parseInt(yearBtn.textContent.trim(), 10) || targetYear;
@@ -338,24 +345,29 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                     }
 
                     if (currentMonthIndex !== -1 && !isNaN(currentYear)) {
-                      const diffMonths = (targetYear - currentYear) * 12 + (targetMonthIndex - currentMonthIndex);
-                      if (diffMonths > 0 && nextBtn) {
-                        for (let i = 0; i < diffMonths; i++) {
+                      // Se ainda não estamos no mês/ano alvo, avança ou volta 1 mês por vez e aguarda renderização
+                      if (currentYear < targetYear || (currentYear === targetYear && currentMonthIndex < targetMonthIndex)) {
+                        console.log(`[BelleCopilot Injected] ⏩ Avançando mês (Atual: Mês ${currentMonthIndex + 1}/${currentYear} -> Alvo: ${targetMonthIndex + 1}/${targetYear})...`);
+                        if (nextBtn) {
                           nextBtn.click();
-                          nextBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                          setTimeout(step, 80);
+                          return;
                         }
-                      } else if (diffMonths < 0 && prevBtn) {
-                        for (let i = 0; i < Math.abs(diffMonths); i++) {
+                      } else if (currentYear > targetYear || (currentYear === targetYear && currentMonthIndex > targetMonthIndex)) {
+                        console.log(`[BelleCopilot Injected] ⏪ Voltando mês (Atual: Mês ${currentMonthIndex + 1}/${currentYear} -> Alvo: ${targetMonthIndex + 1}/${targetYear})...`);
+                        if (prevBtn) {
                           prevBtn.click();
-                          prevBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                          setTimeout(step, 80);
+                          return;
                         }
                       }
                     }
                   }
 
-                  // 3. Procura a célula exata da data
+                  // 3. Mês e Ano corretos no calendário! Busca a célula do dia alvo
+                  const targetDataDate = `${targetYear}-${targetMonthIndex}-${targetDay}`;
                   const possiveisDatas = [
-                    `${targetYear}-${targetMonthIndex}-${targetDay}`,
+                    targetDataDate,
                     `${targetYear}-${m}-${targetDay}`,
                     `${targetYear}-${String(targetMonthIndex).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`,
                     `${targetYear}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
@@ -371,17 +383,17 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                   }
 
                   if (!cell) {
-                    const daySpans = document.querySelectorAll('.p-datepicker-day-cell:not(.p-datepicker-other-month) .p-datepicker-day, .p-datepicker-day:not(.p-datepicker-other-month)');
-                    for (const sp of daySpans) {
+                    const validDayCells = document.querySelectorAll('tbody tr td:not(.p-datepicker-other-month) .p-datepicker-day, tbody tr td:not(.p-datepicker-other-month)');
+                    for (const sp of validDayCells) {
                       if (sp.textContent.trim() === String(targetDay)) {
-                        cell = sp;
+                        cell = sp.classList.contains('p-datepicker-day') ? sp : (sp.querySelector('.p-datepicker-day') || sp);
                         break;
                       }
                     }
                   }
 
                   if (cell) {
-                    console.log(`[BelleCopilot Injected] ✅ Célula da data encontrada: ${targetIso}! Disparando clique...`);
+                    console.log(`[BelleCopilot Injected] ✅ Célula do dia ${targetDay} encontrada na grade! Clicando...`, cell);
                     cell.click();
                     cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
                     cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
@@ -392,18 +404,16 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                       parentTd.click();
                       parentTd.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
                     }
-                    return true;
+                    return;
                   }
 
-                  if (tentativas < 12) {
-                    setTimeout(navegarEClicar, 70);
-                  }
-                };
+                  setTimeout(step, 90);
+                }
 
-                setTimeout(navegarEClicar, 50);
+                step();
               }
 
-              tentarClicarDatePicker();
+              executarNavegacaoPassoAPasso();
             }
           });
         } catch (err) {

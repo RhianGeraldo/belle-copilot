@@ -157,18 +157,14 @@
     return response;
   };
 
-  const MESES_PT = [
-    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
-  ];
-
-  function normalizarTexto(str) {
-    return (str || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-  }
+  const MESES_MAP = {
+    "janeiro": 0, "jan": 0, "fevereiro": 1, "fev": 1,
+    "marco": 2, "março": 2, "mar": 2, "abril": 3, "abr": 3,
+    "maio": 4, "mai": 4, "junho": 5, "jun": 5,
+    "julho": 6, "jul": 6, "agosto": 7, "ago": 7,
+    "setembro": 8, "set": 8, "outubro": 9, "out": 9,
+    "novembro": 10, "nov": 10, "dezembro": 11, "dez": 11
+  };
 
   function selecionarDataNoPrimeNGBelle(dataIso) {
     if (!dataIso || !/^\d{4}-\d{2}-\d{2}$/.test(dataIso)) return false;
@@ -177,24 +173,27 @@
     const targetMonthIndex = m - 1; // 0 a 11
     const targetDay = d;
 
-    console.log(`[Belle Interceptor] 🎯 Clicando no PrimeNG Datepicker: Dia ${targetDay}, Mês ${targetMonthIndex + 1}, Ano ${targetYear}`);
+    console.log(`[Belle Interceptor] 🎯 Iniciando navegação passo a passo: Dia ${targetDay}, Mês ${targetMonthIndex + 1}, Ano ${targetYear}`);
 
-    // 1. Se o popover não estiver aberto, clica no botão .data-atual do topo do Belle
-    let datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
-    if (!datepickerPanel || datepickerPanel.offsetParent === null) {
-      const trigger = document.querySelector('.data-atual, button.data-atual, [class*="data-atual"], .titulo-agenda-data, .header-data, [aria-label*="Choose Date"]');
-      if (trigger) {
-        console.log("[Belle Interceptor] 🖱️ Abrindo popover do datepicker (.data-atual)...");
-        trigger.click();
-        trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    let stepCount = 0;
+    const maxSteps = 40;
+
+    function step() {
+      stepCount++;
+      if (stepCount > maxSteps) return;
+
+      // 1. Se o popover não estiver aberto, clica no trigger da data
+      let datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
+      if (!datepickerPanel || datepickerPanel.offsetParent === null) {
+        const trigger = document.querySelector('.data-atual, button.data-atual, [class*="data-atual"], .titulo-agenda-data, .header-data, [aria-label*="Choose Date"]');
+        if (trigger) {
+          trigger.click();
+          setTimeout(step, 90);
+          return;
+        }
       }
-    }
 
-    let tentativas = 0;
-    const tentarNavegarEClicar = () => {
-      tentativas++;
-
-      // 2. Navegação de Mês/Ano no cabeçalho do PrimeNG
+      // 2. Lê mês e ano do cabeçalho do PrimeNG
       const monthBtn = document.querySelector('.p-datepicker-select-month, [aria-label="Choose Month"]');
       const yearBtn = document.querySelector('.p-datepicker-select-year, [aria-label="Choose Year"]');
       const nextBtn = document.querySelector('.p-datepicker-next-button, [aria-label="Next Month"], p-button.p-datepicker-next-button button');
@@ -202,26 +201,36 @@
 
       if (monthBtn && yearBtn) {
         const currentYear = parseInt(yearBtn.textContent.trim(), 10) || targetYear;
-        const monthTxt = normalizarTexto(monthBtn.textContent.trim());
-        const currentMonthIndex = MESES_PT.findIndex(nm => monthTxt.includes(nm));
+        const monthTxt = (monthBtn.textContent || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        let currentMonthIndex = -1;
+        for (const [nome, idx] of Object.entries(MESES_MAP)) {
+          if (monthTxt.includes(nome)) {
+            currentMonthIndex = idx;
+            break;
+          }
+        }
 
         if (currentMonthIndex !== -1 && !isNaN(currentYear)) {
-          const diffMonths = (targetYear - currentYear) * 12 + (targetMonthIndex - currentMonthIndex);
-          if (diffMonths > 0 && nextBtn) {
-            for (let i = 0; i < diffMonths; i++) {
+          if (currentYear < targetYear || (currentYear === targetYear && currentMonthIndex < targetMonthIndex)) {
+            if (nextBtn) {
               nextBtn.click();
+              setTimeout(step, 80);
+              return;
             }
-          } else if (diffMonths < 0 && prevBtn) {
-            for (let i = 0; i < Math.abs(diffMonths); i++) {
+          } else if (currentYear > targetYear || (currentYear === targetYear && currentMonthIndex > targetMonthIndex)) {
+            if (prevBtn) {
               prevBtn.click();
+              setTimeout(step, 80);
+              return;
             }
           }
         }
       }
 
-      // 3. Busca a célula do dia alvo
+      // 3. Mês e Ano corretos no calendário! Busca célula do dia alvo
+      const targetDataDate = `${targetYear}-${targetMonthIndex}-${targetDay}`;
       const targetDataDates = [
-        `${targetYear}-${targetMonthIndex}-${targetDay}`,
+        targetDataDate,
         `${targetYear}-${m}-${targetDay}`,
         `${targetYear}-${String(targetMonthIndex).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`,
         `${targetYear}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
@@ -236,32 +245,35 @@
         }
       }
 
-      // Fallback: procura pelo número do dia na grade do mês atual
       if (!cell) {
-        const daySpans = document.querySelectorAll('.p-datepicker-day-cell:not(.p-datepicker-other-month) .p-datepicker-day, .p-datepicker-day:not(.p-datepicker-other-month)');
+        const daySpans = document.querySelectorAll('tbody tr td:not(.p-datepicker-other-month) .p-datepicker-day, tbody tr td:not(.p-datepicker-other-month)');
         for (const sp of daySpans) {
           if (sp.textContent.trim() === String(targetDay)) {
-            cell = sp;
+            cell = sp.classList.contains('p-datepicker-day') ? sp : (sp.querySelector('.p-datepicker-day') || sp);
             break;
           }
         }
       }
 
       if (cell) {
-        console.log(`[Belle Interceptor] ✅ Célula da data ${dataIso} encontrada no PrimeNG! Disparando clique...`);
+        console.log(`[Belle Interceptor] ✅ Célula da data ${dataIso} encontrada no PrimeNG! Clicando...`);
         cell.click();
         cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
         cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
         cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+        const parentTd = cell.closest('td');
+        if (parentTd) {
+          parentTd.click();
+          parentTd.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        }
         return true;
       }
 
-      if (tentativas < 8) {
-        setTimeout(tentarNavegarEClicar, 60);
-      }
-    };
+      setTimeout(step, 90);
+    }
 
-    setTimeout(tentarNavegarEClicar, 40);
+    step();
   }
 
   // 3. Ouvinte de comandos de navegação de data (disparados pelo Copilot)

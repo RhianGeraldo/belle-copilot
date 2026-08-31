@@ -411,7 +411,14 @@ export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso
   const authTok = token || state.currentToken || "";
   if (!authTok) return { registros: [], total: 0 };
 
-  const { limitePorPagina = 100, maxRegistros = 400, status = "" } = opcoes;
+  const {
+    limitePorPagina = 100,
+    maxRegistros = 400,
+    status = "",
+    somenteSaldo = "0",   // "1" pede ao Belle só quem ainda tem sessão em aberto
+    vencidos = "0",
+    tpDt = "0"            // tipo de data do filtro dtIni/dtFim
+  } = opcoes;
 
   const montarUrl = (offset) => {
     const params = new URLSearchParams({
@@ -422,11 +429,11 @@ export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso
       status: status || "",
       origem: "Ambos",
       tpPlan: "", pfCmp: "", ckClass: "1", rating: "0", nomePlan: "", ord: "", cres: "0",
-      vencidos: "0", tpDt: "0", codCamp: "", indicacao: "", ckFinan: "0",
+      vencidos: String(vencidos), tpDt: String(tpDt), codCamp: "", indicacao: "", ckFinan: "0",
       somenteCortesia: "0", valorIni: "0", valorFim: "0", contrato: "",
       limit: String(limitePorPagina),
       offset: String(offset),
-      somenteSaldo: "0",
+      somenteSaldo: String(somenteSaldo),
       estabGeral: "1"
     });
     return `https://app.bellesoftware.com.br/api/release/controller/Plano/v1.0/vendasplanos?${params.toString()}`;

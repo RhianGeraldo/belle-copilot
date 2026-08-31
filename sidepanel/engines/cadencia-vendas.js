@@ -249,3 +249,122 @@ export function rankingPorVendedora(itens = []) {
     .map(r => ({ ...r, conversao: r.total ? Math.round((r.aprovados / r.total) * 100) : 0 }))
     .sort((a, b) => b.valorAprovado - a.valorAprovado);
 }
+
+/* =========================================================
+   PLANOS VENCENDO COM SALDO
+   A cliente já pagou e ainda tem sessão para usar. Se o plano vencer assim,
+   ela perde o que comprou e a clínica perde a recompra — é o resgate de maior
+   retorno e menor esforço do funil, e ainda ocupa cadeira na agenda.
+   ATENÇÃO À JANELA: um plano de validade 24 meses que vence agora foi vendido
+   há dois anos, então essa fila precisa varrer bem mais para trás que o resgate
+   de orçamento (que olha a data da proposta).
+   ========================================================= */
+
+/** Dias até a data informada. Negativo = já venceu. */
+export function diasAte(dataTxt) {
+  const d = dataOrcamentoParaDate(dataTxt);
+  if (!d) return null;
+  const hoje = new Date();
+  const a = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const b = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((b - a) / 86400000);
+}
+
+export function urgenciaVencimento(diasRestantes) {
+  if (diasRestantes === null) return null;
+  if (diasRestantes < 0)  return { nivel: "vencido",  rotulo: "Já vencido",        cor: "#b91c1c", ordem: 0 };
+  if (diasRestantes <= 15) return { nivel: "critico",  rotulo: "Vence em 15 dias",  cor: "#b91c1c", ordem: 1 };
+  if (diasRestantes <= 30) return { nivel: "alerta",   rotulo: "Vence em 30 dias",  cor: "#b45309", ordem: 2 };
+  if (diasRestantes <= 60) return { nivel: "atencao",  rotulo: "Vence em 60 dias",  cor: "#a16207", ordem: 3 };
+  return { nivel: "tranquilo", rotulo: "Vence em 90 dias", cor: "#0369a1", ordem: 4 };
+}
+
+export function gerarScriptVencimento(item) {
+  const primeiroNome = (item.clienteNome || "Cliente").trim().split(/\s+/)[0];
+  const plano = (item.nomePlano || "seu pacote").replace(/^\d+\s*-\s*/, "").trim();
+  const sessoes = item.saldoSessoes;
+  const txtSessoes = sessoes === 1 ? "1 sessão" : `${sessoes} sessões`;
+
+  if (item.diasParaVencer < 0) {
+    return `Oi ${primeiroNome}! 💙 Vi aqui no seu cadastro que ficaram ${txtSessoes} do seu ${plano} sem uso, e a validade do pacote encerrou em ${item.validadeAte}. Antes de arquivar, queria muito falar com você: consegue vir usar? Vou verificar com a gerência a possibilidade de liberar essas sessões para você. Me responde aqui que eu corro atrás 🙏`;
+  }
+
+  if (item.diasParaVencer <= 15) {
+    return `${primeiroNome}, atenção! ⏰ Você ainda tem ${txtSessoes} do seu ${plano} e o pacote vence em ${item.validadeAte} — faltam ${item.diasParaVencer} dia(s). Não quero que você perca o que já pagou! Me diz os melhores dias e horários que eu encaixo você na agenda ainda esta semana 💙`;
+  }
+
+  if (item.diasParaVencer <= 30) {
+    return `Oi ${primeiroNome}! 💙 Passando para lembrar que restam ${txtSessoes} do seu ${plano}, e a validade vai até ${item.validadeAte}. Dá tempo tranquilo de concluir, mas nossa agenda enche no fim do mês. Quer que eu já deixe seus horários reservados?`;
+  }
+
+  return `Oi ${primeiroNome}! Tudo bem? 💙 Você ainda tem ${txtSessoes} para usar do seu ${plano} (validade até ${item.validadeAte}). Vamos aproveitar e já deixar programado? Me fala sua preferência de dia e horário que eu organizo tudo para você.`;
+}
+
+/**
+ * Monta a fila de planos pagos com sessão sobrando e validade próxima.
+ * `horizonteDias` = quantos dias à frente entram no alerta.
+ * `incluirVencidos` traz também os que já passaram da validade (recuperáveis por cortesia).
+ */
+export function prepararPlanosVencendo(registros = [], horizonteDias = 90, incluirVencidos = true) {
+  const itens = [];
+
+  (Array.isArray(registros) ? registros : []).forEach(r => {
+    // Só plano pago: orçamento não aprovado não tem sessão a perder.
+    if (classificarFila(r) !== "aprovado") return;
+
+    const saldo = r.saldo === null || r.saldo === undefined || r.saldo === "" ? 0 : Number(r.saldo);
+    if (!Number.isFinite(saldo) || saldo <= 0) return;
+
+    const dias = diasAte(r.dtValPlano);
+    if (dias === null) return;
+    if (dias > horizonteDias) return;
+    if (dias < 0 && !incluirVencidos) return;
+
+    const item = {
+      codOrcamento: r.cod_orcamento,
+      codCliente: r.cod_paciente,
+      clienteNome: (r.nom_paciente || "Cliente").trim(),
+      telefone: r.celular || "",
+      nomePlano: r.nomePlano || "Plano",
+      valorFinal: valorParaNumero(r.preco_final),
+      vendedora: (r.nom_usuario || "").trim(),
+      dataProposta: r.dtProp || "",
+      validadeAte: r.dtValPlano || "",
+      validadeMeses: r.validade || null,
+      saldoSessoes: saldo,
+      diasParaVencer: dias,
+      urgencia: urgenciaVencimento(dias),
+      fila: "vencendo",
+      idUnico: `venc_${r.cod_orcamento}`
+    };
+
+    // Valor aproximado em risco: o que a cliente pagou, rateado pelas sessões não usadas.
+    // `saldo` é o que resta; sem o total de sessões vendidas, usamos o valor do plano
+    // como teto e sinalizamos que é estimativa.
+    item.valorEmRisco = item.valorFinal;
+    item.script = gerarScriptVencimento(item);
+    itens.push(item);
+  });
+
+  // Mais urgente primeiro; empatou, quem tem mais sessão a perder.
+  return itens.sort((a, b) => {
+    const ua = a.urgencia?.ordem ?? 9;
+    const ub = b.urgencia?.ordem ?? 9;
+    if (ua !== ub) return ua - ub;
+    if (a.diasParaVencer !== b.diasParaVencer) return a.diasParaVencer - b.diasParaVencer;
+    return b.saldoSessoes - a.saldoSessoes;
+  });
+}
+
+export function calcularKpisVencimento(itens = []) {
+  const vencidos = itens.filter(i => i.diasParaVencer < 0);
+  const criticos = itens.filter(i => i.diasParaVencer >= 0 && i.diasParaVencer <= 15);
+  return {
+    clientes: new Set(itens.map(i => i.codCliente)).size,
+    planos: itens.length,
+    sessoesEmRisco: itens.reduce((a, i) => a + (i.saldoSessoes || 0), 0),
+    valorEmRisco: itens.reduce((a, i) => a + (i.valorEmRisco || 0), 0),
+    qtdVencidos: vencidos.length,
+    qtdCriticos: criticos.length
+  };
+}

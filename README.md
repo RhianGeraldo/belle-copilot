@@ -36,6 +36,7 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - Duas filas de trabalho separadas: **🔥 Aguardando** (link de pagamento gerado — cadência D+0/D+1/D+3) e **💬 Pendente** (orçamento apresentado — D+1/D+3/D+7/D+15/D+30), além de Suspenso.
    - Cada card traz a etapa da cadência vencendo hoje, script pronto de WhatsApp, valor, desconto, consultora responsável e controle diário de "contatada".
    - Ranking por consultora: fechados, taxa de conversão e valor ainda em aberto.
+   - **⏳ Planos vencendo com saldo**: clientes que já pagaram e ainda têm sessões a usar, com a validade se aproximando. Varre 30 meses de vendas (validade de 24 meses exige olhar bem para trás), classifica por urgência (vencido / 15 / 30 / 60 / 90 dias) e mostra as **sessões em risco**. O script aqui não vende — agenda.
 
 ---
 

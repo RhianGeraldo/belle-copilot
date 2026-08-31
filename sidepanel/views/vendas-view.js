@@ -15,11 +15,15 @@ import {
   prepararOrcamentos,
   calcularKpisVendas,
   rankingPorVendedora,
+  prepararPlanosVencendo,
+  calcularKpisVencimento,
   formatarReal,
   numeroWhatsapp
 } from '../engines/cadencia-vendas.js';
 
-const JANELA_DIAS = 90;
+const JANELA_DIAS = 90;          // resgate de orçamento: olha a data da proposta
+const JANELA_VENCIMENTO_MESES = 30; // planos vencendo: validade de 24 meses exige varrer bem mais atrás
+const HORIZONTE_VENCIMENTO_DIAS = 90;
 
 // Elementos
 const vendasKpiFaturamento = document.getElementById("vendas-kpi-faturamento");
@@ -36,6 +40,10 @@ const vendasRanking = document.getElementById("vendas-ranking");
 const badgeVendasTotal = document.getElementById("badge-vendas-total");
 
 let orcamentos = [];
+let planosVencendo = [];
+let kpisVencimento = null;
+let carregandoVencendo = false;
+let sessaoVencendo = null;
 let kpis = null;
 let filtroFila = "aguardando";
 let termoBusca = "";
@@ -47,7 +55,8 @@ const ROTULO_FILA = {
   aguardando: { titulo: "🔥 Aguardando pagamento", cor: "#b45309" },
   pendente:   { titulo: "💬 Orçamento pendente",   cor: "#0369a1" },
   suspenso:   { titulo: "⏸️ Suspenso",              cor: "#6d28d9" },
-  aprovado:   { titulo: "✅ Aprovado",              cor: "#15803d" }
+  aprovado:   { titulo: "✅ Aprovado",              cor: "#15803d" },
+  vencendo:   { titulo: "⏳ Vencendo com saldo",    cor: "#b91c1c" }
 };
 
 function escaparHtml(txt = "") {
@@ -136,6 +145,57 @@ export async function carregarVendas(forcar = false) {
   }
 }
 
+/**
+ * Carrega os planos pagos com sessão sobrando e validade próxima.
+ * Consulta própria e bem mais larga que a do resgate: quem vence hoje foi vendido
+ * há cerca de dois anos, então filtrar pela data da proposta dos últimos 90 dias
+ * não encontraria ninguém.
+ */
+export async function carregarPlanosVencendo(forcar = false) {
+  if (carregandoVencendo) return;
+
+  const token = state.currentToken;
+  if (!token) return;
+
+  const chaveSessao = `${state.currentCodEstab}|${token}`;
+  if (!forcar && planosVencendo.length > 0 && sessaoVencendo === chaveSessao) return;
+
+  carregandoVencendo = true;
+  if (loadingVendas) loadingVendas.style.display = "flex";
+
+  try {
+    const hoje = new Date();
+    const inicio = new Date(hoje);
+    inicio.setMonth(hoje.getMonth() - JANELA_VENCIMENTO_MESES);
+
+    // `somenteSaldo: "1"` pede ao Belle apenas quem ainda tem sessão em aberto,
+    // o que reduz muito o volume dessa varredura longa.
+    const { registros, total } = await buscarVendasPlanosPeriodoApi(
+      token, dataLocalIso(inicio), dataLocalIso(hoje),
+      { somenteSaldo: "1", limitePorPagina: 100, maxRegistros: 1000 }
+    );
+
+    planosVencendo = prepararPlanosVencendo(registros, HORIZONTE_VENCIMENTO_DIAS, true);
+    kpisVencimento = calcularKpisVencimento(planosVencendo);
+    sessaoVencendo = chaveSessao;
+
+    console.log(
+      `[Vendas] ⏳ Planos vencendo: ${registros.length} registro(s) varridos em ${JANELA_VENCIMENTO_MESES} meses ` +
+      `(${total} no período) → ${planosVencendo.length} plano(s) pago(s) com saldo vencendo em até ${HORIZONTE_VENCIMENTO_DIAS} dias ` +
+      `(${kpisVencimento.sessoesEmRisco} sessões em risco, ${kpisVencimento.qtdVencidos} já vencido(s)).`
+    );
+
+    if (registros.length > 0 && planosVencendo.length === 0) {
+      console.log("[Vendas] ℹ️ Nenhum plano dentro do horizonte de vencimento. Se você espera ver clientes aqui, o filtro somenteSaldo=1 pode não estar sendo aplicado pelo Belle — me avise.");
+    }
+  } catch (err) {
+    console.error("[Vendas] Erro ao carregar planos vencendo:", err);
+  } finally {
+    carregandoVencendo = false;
+    if (loadingVendas) loadingVendas.style.display = "none";
+  }
+}
+
 function atualizarKpis() {
   if (!kpis) return;
 
@@ -151,7 +211,7 @@ function atualizarKpis() {
       (kpis.descontoMedio ? ` • desconto médio ${kpis.descontoMedio}%` : "");
   }
 
-  const aResgatar = kpis.qtdAguardando + kpis.qtdPendente;
+  const aResgatar = kpis.qtdAguardando + kpis.qtdPendente + planosVencendo.length;
   if (badgeVendasTotal) {
     badgeVendasTotal.textContent = aResgatar;
     badgeVendasTotal.style.display = aResgatar > 0 ? "inline-block" : "none";
@@ -163,7 +223,8 @@ function atualizarKpis() {
       aguardando: kpis.qtdAguardando,
       pendente: kpis.qtdPendente,
       suspenso: kpis.qtdSuspenso,
-      aprovado: kpis.qtdAprovado
+      aprovado: kpis.qtdAprovado,
+      vencendo: planosVencendo.length
     }[fila];
     const span = btn.querySelector(".vendas-filter-count");
     if (span && cont !== undefined) span.textContent = cont;
@@ -190,10 +251,91 @@ function renderizarRanking() {
   `).join("");
 }
 
+function renderizarFilaVencendo() {
+  const k = kpisVencimento;
+
+  if (planosVencendo.length === 0) {
+    vendasCards.style.display = "none";
+    if (vendasEmptyState) {
+      vendasEmptyState.style.display = "block";
+      vendasEmptyState.textContent = carregandoVencendo
+        ? "Procurando planos com saldo a vencer..."
+        : `Nenhum plano pago com sessão sobrando vencendo nos próximos ${HORIZONTE_VENCIMENTO_DIAS} dias. 🎉`;
+    }
+    return;
+  }
+
+  let lista = planosVencendo;
+  if (termoBusca) {
+    const t = termoBusca.toLowerCase();
+    lista = lista.filter(o =>
+      o.clienteNome.toLowerCase().includes(t) ||
+      o.nomePlano.toLowerCase().includes(t) ||
+      String(o.codCliente).includes(t)
+    );
+  }
+
+  if (vendasEmptyState) vendasEmptyState.style.display = "none";
+  vendasCards.style.display = "flex";
+
+  const resumo = k ? `
+    <div class="vencendo-resumo">
+      <strong>⏳ ${k.sessoesEmRisco} sessões já pagas</strong> em risco, de ${k.clientes} cliente(s)
+      ${k.qtdVencidos > 0 ? ` • <span style="color:#b91c1c;font-weight:700;">${k.qtdVencidos} já vencido(s)</span>` : ""}
+      ${k.qtdCriticos > 0 ? ` • ${k.qtdCriticos} vencendo em 15 dias` : ""}
+    </div>` : "";
+
+  vendasCards.innerHTML = resumo + lista.map(o => {
+    const contatado = contatadosSet.has(o.idUnico);
+    const wpp = numeroWhatsapp(o.telefone);
+    const linkWpp = wpp ? `https://wa.me/${wpp}?text=${encodeURIComponent(o.script)}` : "";
+    const u = o.urgencia || {};
+    const prazo = o.diasParaVencer < 0
+      ? `venceu há ${Math.abs(o.diasParaVencer)} dia(s)`
+      : o.diasParaVencer === 0 ? "vence hoje" : `faltam ${o.diasParaVencer} dia(s)`;
+
+    return `
+      <div class="vendas-card ${contatado ? "vendas-card-feito" : ""}" style="border-left-color: ${u.cor || "#b91c1c"};" data-id="${escaparHtml(o.idUnico)}">
+        <div class="vendas-card-topo">
+          <div class="vendas-card-cli">
+            <strong class="vendas-card-nome">👤 ${escaparHtml(o.clienteNome)}</strong>
+            <span class="vendas-card-meta">
+              Validade ${escaparHtml(o.validadeAte)} • ${prazo}
+              ${o.vendedora ? ` • 🧑‍💼 ${escaparHtml(o.vendedora)}` : ""}
+            </span>
+          </div>
+          <span class="vencendo-sessoes" title="Sessões já pagas que a cliente ainda não usou">
+            ${o.saldoSessoes}<small>${o.saldoSessoes === 1 ? " sessão" : " sessões"}</small>
+          </span>
+        </div>
+
+        <div class="vendas-card-plano">💎 ${escaparHtml(o.nomePlano)}</div>
+
+        <span class="vendas-etapa-tag" style="background: ${u.cor || "#b91c1c"}18; color: ${u.cor || "#b91c1c"};">
+          ⏰ ${escaparHtml(u.rotulo || "Vencendo")}
+        </span>
+        <div class="vendas-card-foco">🎯 Cliente já pagou. O objetivo aqui não é vender — é colocar essas sessões na agenda antes da validade acabar.</div>
+
+        <div class="vendas-card-script">${escaparHtml(o.script)}</div>
+
+        <div class="vendas-card-acoes">
+          ${linkWpp ? `<a href="${linkWpp}" target="_blank" rel="noopener" class="btn-vendas-wpp">💬 WhatsApp</a>` : `<span class="vendas-sem-tel">sem telefone</span>`}
+          <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}">📋 Copiar</button>
+          <button class="btn-vendas-feito" data-id="${escaparHtml(o.idUnico)}">${contatado ? "✅ Contatada" : "☑️ Marcar feito"}</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
 export function renderizarVendas() {
   if (!vendasCards) return;
   atualizarKpis();
   renderizarRanking();
+
+  if (filtroFila === "vencendo") {
+    renderizarFilaVencendo();
+    return;
+  }
 
   let lista = orcamentos.filter(o => o.fila === filtroFila);
 
@@ -284,7 +426,13 @@ export function renderizarVendas() {
 }
 
 export function inicializarVendasView() {
-  btnRefreshVendas?.addEventListener("click", () => carregarVendas(true));
+  btnRefreshVendas?.addEventListener("click", async () => {
+    await carregarVendas(true);
+    if (filtroFila === "vencendo") {
+      await carregarPlanosVencendo(true);
+      renderizarVendas();
+    }
+  });
 
   vendasInputBusca?.addEventListener("input", (e) => {
     termoBusca = e.target.value.trim();
@@ -292,9 +440,15 @@ export function inicializarVendasView() {
   });
 
   document.querySelectorAll(".vendas-filter-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       filtroFila = btn.getAttribute("data-fila") || "aguardando";
       renderizarVendas();
+
+      // A fila de vencimento tem consulta própria (30 meses) e só é buscada sob demanda.
+      if (filtroFila === "vencendo" && planosVencendo.length === 0) {
+        await carregarPlanosVencendo();
+        renderizarVendas();
+      }
     });
   });
 

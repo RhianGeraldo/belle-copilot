@@ -3418,3 +3418,32 @@ label[for] {
   color: #94a3b8;
   font-style: italic;
 }
+
+/* === PLANOS VENCENDO COM SALDO === */
+.vencendo-resumo {
+  font-size: 11.5px;
+  color: #7f1d1d;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.vencendo-sessoes {
+  font-size: 17px;
+  font-weight: 800;
+  color: #b91c1c;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.vencendo-sessoes small {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  display: block;
+  text-align: right;
+  margin-top: 1px;
+}

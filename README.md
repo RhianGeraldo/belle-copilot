@@ -31,7 +31,7 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - Controle de contato diário ("Marcar como Feito") com persistência local.
 
 5. **Vendas & Resgate de Orçamentos (Funil Comercial)**:
-   - Sub-aba no módulo Comercial alimentada pelo `vendasplanos` dos **últimos 90 dias**.
+   - Sub-aba no módulo Comercial alimentada pelo `vendasplanos`. A janela ignora os orçamentos recentes (ainda em negociação com a consultora): **data final = hoje − 30 dias**, e daí **3 meses para trás**.
    - KPIs do funil: aprovado no período, **valor parado a resgatar**, taxa de conversão, ticket médio, desconto médio e cortesias.
    - Duas filas de trabalho separadas: **🔥 Aguardando** (link de pagamento gerado — cadência D+0/D+1/D+3) e **💬 Pendente** (orçamento apresentado — D+1/D+3/D+7/D+15/D+30), além de Suspenso.
    - Cada card traz a etapa da cadência vencendo hoje, script pronto de WhatsApp, valor, desconto, consultora responsável e controle diário de "contatada".

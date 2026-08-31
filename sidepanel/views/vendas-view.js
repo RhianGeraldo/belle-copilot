@@ -21,7 +21,19 @@ import {
   formatarReal
 } from '../engines/cadencia-vendas.js';
 
-const JANELA_DIAS = 90;          // resgate de orçamento: olha a data da proposta
+/*
+ * Janela do resgate de orçamentos.
+ *
+ * A fila não olha os orçamentos recentes: eles ainda estão em negociação normal com a
+ * consultora. O recorte começa depois de uma carência e volta três meses a partir dali.
+ *
+ *   data final   = hoje − 30 dias
+ *   data inicial = data final − 3 meses
+ *
+ * Ex.: hoje 01/08/2026 → final 01/07/2026 → inicial 01/04/2026.
+ */
+const DIAS_CARENCIA = 30;
+const MESES_JANELA = 3;
 const JANELA_VENCIMENTO_MESES = 30; // planos vencendo: validade de 24 meses exige varrer bem mais atrás
 const HORIZONTE_VENCIMENTO_DIAS = 90;
 
@@ -66,6 +78,32 @@ function escaparHtml(txt = "") {
 function dataLocalIso(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+function dataBrCurta(iso = "") {
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+/** Subtrai meses de calendário, sem estourar para o mês seguinte (31/07 − 3 = 30/04). */
+function subtrairMeses(data, meses) {
+  const d = new Date(data.getFullYear(), data.getMonth(), data.getDate());
+  const diaOriginal = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - meses);
+  const ultimoDiaDoMes = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(diaOriginal, ultimoDiaDoMes));
+  return d;
+}
+
+/** Recorte de datas da fila de resgate: [final − 3 meses, hoje − 30 dias]. */
+function janelaDeResgate() {
+  const hoje = new Date();
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - DIAS_CARENCIA);
+  const inicio = subtrairMeses(fim, MESES_JANELA);
+  return { inicioIso: dataLocalIso(inicio), fimIso: dataLocalIso(fim) };
+}
+
+let janelaAtual = janelaDeResgate();
 
 function chaveContatados() {
   return `vendas_contatados_${state.currentCodEstab || "0"}_${dataLocalIso()}`;
@@ -121,19 +159,18 @@ export async function carregarVendas(forcar = false) {
   try {
     await carregarContatados();
 
-    const hoje = new Date();
-    const inicio = new Date(hoje);
-    inicio.setDate(hoje.getDate() - JANELA_DIAS);
+    janelaAtual = janelaDeResgate();
 
     const { registros, total } = await buscarVendasPlanosPeriodoApi(
-      token, dataLocalIso(inicio), dataLocalIso(hoje)
+      token, janelaAtual.inicioIso, janelaAtual.fimIso
     );
 
     orcamentos = prepararOrcamentos(registros);
     kpis = calcularKpisVendas(orcamentos);
     ultimaSessao = chaveSessao;
 
-    console.log(`[Vendas] ✅ ${orcamentos.length} orçamento(s) nos últimos ${JANELA_DIAS} dias (${total} no período). ` +
+    console.log(`[Vendas] ✅ ${orcamentos.length} orçamento(s) de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} ` +
+      `— ${MESES_JANELA} meses encerrando ${DIAS_CARENCIA} dias atrás (${total} no período). ` +
       `Aguardando: ${kpis.qtdAguardando} • Pendente: ${kpis.qtdPendente} • Aprovado: ${kpis.qtdAprovado}`);
 
     renderizarVendas();
@@ -214,10 +251,11 @@ function atualizarKpis() {
   if (vendasResumoPeriodo) {
     // Contagem das filas todo mundo vê; desconto médio é indicador de margem.
     vendasResumoPeriodo.textContent = gerente
-      ? `${kpis.totalOrcamentos} orçamentos nos últimos ${JANELA_DIAS} dias • ` +
+      ? `${kpis.totalOrcamentos} orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
         `${kpis.qtdAprovado} aprovados • ${kpis.qtdAguardando} aguardando • ${kpis.qtdPendente} pendentes` +
         (kpis.descontoMedio ? ` • desconto médio ${kpis.descontoMedio}%` : "")
-      : `${kpis.qtdAguardando} aguardando pagamento • ${kpis.qtdPendente} orçamento(s) pendente(s) para retomar` +
+      : `Orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
+        `${kpis.qtdAguardando} aguardando pagamento • ${kpis.qtdPendente} pendente(s) para retomar` +
         (planosVencendo.length ? ` • ${planosVencendo.length} plano(s) vencendo com saldo` : "");
   }
 
@@ -375,7 +413,7 @@ export function renderizarVendas() {
       vendasEmptyState.style.display = "block";
       vendasEmptyState.textContent = termoBusca
         ? "Nenhum orçamento encontrado para essa busca."
-        : `Nenhum orçamento em "${ROTULO_FILA[filtroFila]?.titulo || filtroFila}" nos últimos ${JANELA_DIAS} dias.`;
+        : `Nenhum orçamento em "${ROTULO_FILA[filtroFila]?.titulo || filtroFila}" entre ${dataBrCurta(janelaAtual.inicioIso)} e ${dataBrCurta(janelaAtual.fimIso)}.`;
     }
     return;
   }

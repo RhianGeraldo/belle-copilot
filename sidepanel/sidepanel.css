@@ -3603,3 +3603,15 @@ label[for] {
   padding: 4px 8px;
   margin-top: 6px;
 }
+
+/* Identificação da cliente no card (código do Belle + telefone) */
+.vendas-card-identificacao {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #334155;
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+  user-select: all;            /* um clique já seleciona para copiar */
+  word-break: break-word;
+}

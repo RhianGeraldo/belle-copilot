@@ -27,6 +27,19 @@ function textoIdade(dias) {
   return `há ${dias} dias`;
 }
 
+/**
+ * Identificação e contato da cliente.
+ * Sem o botão de WhatsApp nos cards, o telefone precisa estar à vista — e o código
+ * é o que a operadora usa para achar a cliente no Belle.
+ */
+export function htmlIdentificacao(o) {
+  const partes = [];
+  if (o.codCliente) partes.push(`🆔 ${escaparHtml(String(o.codCliente))}`);
+  if (o.telefone) partes.push(`📱 ${escaparHtml(o.telefone)}`);
+  if (partes.length === 0) return "";
+  return `<span class="vendas-card-identificacao">${partes.join(" • ")}</span>`;
+}
+
 function seloEtapa(etapa) {
   if (!etapa) return "";
   if (etapa.atrasado) {
@@ -54,6 +67,7 @@ export function htmlCardOrcamento(o, { contatado = false, vemHoje = false } = {}
       <div class="vendas-card-topo">
         <div class="vendas-card-cli">
           <strong class="vendas-card-nome">👤 ${escaparHtml(o.clienteNome)}</strong>
+          ${htmlIdentificacao(o)}
           <span class="vendas-card-meta">
             Orçamento ${escaparHtml(String(o.codOrcamento))} • apresentado ${textoIdade(o.diasCorridos)}
             ${o.vendedora ? ` • 🧑‍💼 ${escaparHtml(o.vendedora)}` : ""}

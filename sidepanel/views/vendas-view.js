@@ -12,7 +12,7 @@
 import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
 import { ehGerente, aplicarVisibilidadeGerencial } from '../core/permissions.js';
-import { htmlCardOrcamento, escaparHtml } from '../components/card-orcamento.js';
+import { htmlCardOrcamento, htmlIdentificacao, escaparHtml } from '../components/card-orcamento.js';
 import {
   prepararOrcamentos,
   calcularKpisVendas,
@@ -347,6 +347,7 @@ function renderizarFilaVencendo() {
         <div class="vendas-card-topo">
           <div class="vendas-card-cli">
             <strong class="vendas-card-nome">👤 ${escaparHtml(o.clienteNome)}</strong>
+            ${htmlIdentificacao(o)}
             <span class="vendas-card-meta">
               Validade ${escaparHtml(o.validadeAte)} • ${prazo}
               ${o.vendedora ? ` • 🧑‍💼 ${escaparHtml(o.vendedora)}` : ""}

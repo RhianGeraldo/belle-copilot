@@ -303,15 +303,24 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("🚀 [BELLE COPILOT] Inicializando aplicação modular...");
 
   // Inicializa Módulos Principais (Agenda | Comercial)
+  // Primeira sub-aba de cada módulo. Trocar de módulo passa a cair sempre nela:
+  // antes `ativarModulo` só trocava o container e as sub-abas ficavam como estavam,
+  // então voltar ao Comercial reabria "Vendas & Resgate" com a barra dessincronizada.
+  const ABA_INICIAL_DO_MODULO = {
+    "module-agenda": "tab-agenda",
+    "module-comercial": "tab-comercial"
+  };
+
   const moduleNavBtns = document.querySelectorAll(".module-nav-btn");
   moduleNavBtns.forEach(btn => {
     btn.addEventListener("click", () => {
       const targetModule = btn.getAttribute("data-module");
-      if (targetModule) {
-        ativarModulo(targetModule);
-        if (targetModule === "module-comercial") {
-          renderizarPainelComercial();
-        }
+      if (!targetModule) return;
+
+      ativarAba(ABA_INICIAL_DO_MODULO[targetModule] || targetModule);
+
+      if (targetModule === "module-comercial") {
+        renderizarPainelComercial();
       }
     });
   });

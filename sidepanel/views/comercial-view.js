@@ -174,9 +174,8 @@ export function renderizarPainelComercial() {
 
         ${blocoSaldo}
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px dashed #e2e8f0;">
+        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #e2e8f0;">
           <span style="font-size: 11px; color: #475569;">Áreas: <strong>${escaparHtml(procs)}</strong></span>
-          <button class="btn-action-mini btn-comercial-consultar-ficha" data-app-id="${escaparHtml(String(app.id))}" style="font-size: 11px;">🔍 Ver Ficha</button>
         </div>
       </div>
     `;
@@ -331,13 +330,4 @@ export function inicializarComercialView() {
     }
   });
 
-  listaOportunidadesComercial?.addEventListener("click", (e) => {
-    const btnFicha = e.target.closest(".btn-comercial-consultar-ficha");
-    if (!btnFicha) return;
-
-    // Vai direto pelo agendamento clicado, sem passar por busca textual.
-    const appId = btnFicha.getAttribute("data-app-id");
-    const app = (state.appointmentsData || []).find(a => String(a.id) === String(appId));
-    if (app) consultarFichaPorApp(app);
-  });
 }

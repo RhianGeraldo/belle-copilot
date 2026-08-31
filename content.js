@@ -1,6 +1,46 @@
 // Belle Software - Content Script para o Auxiliar de Agenda (ISOLATED World)
 
 // =========================================================
+// 0. SESSAO ATIVA (token + unidade) CAPTURADA DO PROPRIO BELLE
+// O token NUNCA e lido do DOM: chega do interceptor por postMessage com origem validada
+// e fica apenas na memoria deste content script (mundo isolado da pagina).
+// =========================================================
+let tokenAtivoBelle = null;
+let lastInterceptedArrGrid = null;
+
+/**
+ * Unidade em que a usuaria esta logada, lida da URL do Belle (/u/{unidade}/...).
+ * ATENCAO: os campos "etb", "estabGeral" e "cod_clinica" das requisicoes NAO identificam
+ * a filial (o Belle envia "1" em todas). A URL e o cookie token_<unidade> sao as unicas
+ * fontes confiaveis, conforme doc 11.4 do mapeamento da API.
+ */
+function unidadeLogadaNaPagina() {
+  const match = window.location.pathname.match(/\/u\/(\d+)/);
+  return match ? match[1] : null;
+}
+
+// Le o token da unidade informada (o Belle particiona a sessao por unidade: token_1, token_3...)
+function lerTokenDaUnidade(etb) {
+  const etbStr = String(etb || "").trim();
+  if (!etbStr) return null;
+
+  try {
+    const cookieMatch = document.cookie.match(new RegExp(`(?:^|; )token_${etbStr}=([^;]*)`));
+    if (cookieMatch && cookieMatch[1]) {
+      const bruto = cookieMatch[1];
+      try { return decodeURIComponent(bruto); } catch (e) { return bruto; }
+    }
+  } catch (e) {}
+
+  try {
+    const ls = localStorage.getItem(`token_${etbStr}`);
+    if (ls && ls.length > 10) return ls;
+  } catch (e) {}
+
+  return null;
+}
+
+// =========================================================
 // 1. EXTRAÇÃO E NORMALIZAÇÃO DE DATAS DA PÁGINA
 // =========================================================
 function formatarParaIso(dataStr) {
@@ -108,6 +148,43 @@ function extrairDataAgendaPagina() {
   return null;
 }
 
+/**
+ * Descobre o codigo/login do usuario logado no Belle a partir do que a propria
+ * aplicacao guarda na pagina. Sem isso, `recuperar_dados/{codUsuario}` era chamado
+ * sempre com "master-admin" e nao retornava o perfil de outras operadoras.
+ */
+function descobrirCodUsuarioNaPagina() {
+  // 1. Chaves diretas de login no localStorage.
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^(login|usuario|user|cod_usuario|codusuario|nom_usuario)$/i.test(k)) continue;
+      const raw = (localStorage.getItem(k) || "").trim();
+      if (raw && raw.length >= 3 && raw.length <= 60 && !/\s/.test(raw) && !/^[\[{]/.test(raw)) {
+        return raw;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Objetos JSON de sessao/perfil guardados pela aplicacao.
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/usuario|user|login|perfil|sessao|session/i.test(k)) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw || !/^[\[{]/.test(raw.trim())) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+        const cod = obj?.cod_usuario || obj?.codUsuario || obj?.login || obj?.usuario;
+        if (cod && String(cod).trim().length >= 3) return String(cod).trim();
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  return null;
+}
+
 function extrairContextoPagina() {
   const result = {
     codEstab: 1,
@@ -125,6 +202,11 @@ function extrairContextoPagina() {
       result.codEstab = parseInt(matchEstab[1], 10);
     }
 
+    const codDescoberto = descobrirCodUsuarioNaPagina();
+    if (codDescoberto) {
+      result.codUsuario = codDescoberto;
+    }
+
     const userElement = document.querySelector(
       ".user-profile-name, .user-name, .header-user, #nomUsuario, .nome-usuario, .user-info-name"
     );
@@ -134,32 +216,25 @@ function extrairContextoPagina() {
 
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key) {
+      // Credenciais ficam fora do dump: o token vai apenas em result.auth, ja resolvido por unidade.
+      if (key && !/token|auth|senha|password/i.test(key)) {
         result.localStorage[key] = localStorage.getItem(key);
       }
     }
 
-    const tokenAttr = document.documentElement.getAttribute("data-belle-token");
-    let tokenFromStorage = null;
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith("token") || k.toLowerCase().includes("auth"))) {
-          const val = localStorage.getItem(k);
-          if (val && val.length > 10) {
-            tokenFromStorage = val;
-            break;
-          }
-        }
-      }
-    } catch(e) {}
+    // A unidade logada vem da URL da aba do Belle e e reportada SEMPRE, mesmo sem token:
+    // antes ela viajava apenas dentro de result.auth e, sem token, o painel caia no "1" fixo.
+    const unidadeAtiva = unidadeLogadaNaPagina() || String(result.codEstab || "1");
+    result.codEstab = unidadeAtiva;
 
-    const finalToken = tokenAttr || tokenFromStorage;
+    // Token da unidade logada. O cookie de sessao do Belle costuma ser HttpOnly (invisivel
+    // para document.cookie), entao o painel busca o token definitivo via chrome.cookies.
+    const finalToken = tokenAtivoBelle || lerTokenDaUnidade(unidadeAtiva);
     if (finalToken) {
       result.auth = {
         token: finalToken,
         user: result.codUsuario,
-        etb: result.codEstab
+        etb: unidadeAtiva
       };
     }
   } catch (e) {
@@ -824,7 +899,10 @@ async function executarRequisicaoSaldoVendaPlanoNaPagina(codOrc, codPlano, idGei
 
 function safeSendMessage(msg) {
   try {
-    chrome.runtime.sendMessage(msg, () => {
+    // Carimba a unidade de origem: o content script roda em todas as abas do Belle e o
+    // painel precisa descartar o que vier de uma filial diferente da que esta aberta.
+    const comOrigem = Object.assign({ unidade: unidadeLogadaNaPagina() }, msg);
+    chrome.runtime.sendMessage(comOrigem, () => {
       const _ = chrome.runtime.lastError;
     });
   } catch (e) {}
@@ -832,14 +910,20 @@ function safeSendMessage(msg) {
 
 // Ouve mensagens do interceptor de rede (interceptor.js rodando no MAIN world)
 window.addEventListener("message", (event) => {
-  if (event.source !== window || !event.data || event.data.type !== "BELLE_INTERCEPTED_HTTP") return;
+  // Só aceita mensagens da própria página do Belle (mesma origem). Sem isso, qualquer
+  // iframe de terceiro conseguiria injetar dados ou token falso no painel.
+  if (event.source !== window) return;
+  if (event.origin !== window.location.origin) return;
+  if (!event.data || event.data.type !== "BELLE_INTERCEPTED_HTTP") return;
 
   const { url, method, requestBody, response, status, token } = event.data;
 
   if (token) {
+    tokenAtivoBelle = token;
     safeSendMessage({
       action: "BELLE_TOKEN_CAPTURED",
-      token: token
+      token: token,
+      codEstab: unidadeLogadaNaPagina()
     });
   }
 
@@ -865,6 +949,7 @@ window.addEventListener("message", (event) => {
         url: url,
         method: method,
         requestBody: requestBody,
+        token: token || null,
         data: parsedJson
       });
     } else if ((url.includes("salas") || url.includes("gridsala")) && Array.isArray(parsedJson)) {

@@ -5,10 +5,21 @@
   window.__BELLE_LAST_AGENDA_DATA__ = null;
   window.__BELLE_LAST_AGENDA_REQUEST__ = null;
 
+  // Origem exata do Belle: as mensagens NUNCA vao para "*", senao qualquer iframe,
+  // script de terceiro ou outra extensao na pagina consegue ler a sessao do ERP.
+  const BELLE_ORIGIN = window.location.origin;
+
+  // Token vive apenas neste escopo fechado (nem window, nem DOM).
+  // A UNIDADE nao e derivada daqui: o Belle envia "etb=1" em todas as filiais (doc 11.4).
+  // Quem identifica a unidade logada e a URL /u/{unidade} lida pelo content script.
+  let authTokenAtivo = null;
+
   console.log("[Belle Agenda Assistant] Interceptor de rede ativo no contexto MAIN.");
 
   function dispatchInterceptedData(url, method, requestBody, response, status) {
     if (!url) return;
+    // Frame sem origem definida (sandbox) nao e a aplicacao do Belle: nada e publicado.
+    if (!BELLE_ORIGIN || BELLE_ORIGIN === "null") return;
     if (status < 200 || status >= 300) return;
 
     let parsed = response;
@@ -62,8 +73,8 @@
         response: parsed,
         status: status,
         date: detectedDate,
-        token: window.__BELLE_AUTH_TOKEN__ || null
-      }, "*");
+        token: authTokenAtivo
+      }, BELLE_ORIGIN);
     }
   }
 
@@ -73,11 +84,10 @@
   const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
 
   XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
-    if (header && header.toLowerCase() === "authorization" && value) {
-      window.__BELLE_AUTH_TOKEN__ = value;
-      try {
-        document.documentElement.setAttribute("data-belle-token", value);
-      } catch(e) {}
+    const nome = header ? String(header).toLowerCase() : "";
+    if (nome === "authorization" && value) {
+      // Guarda apenas em memoria do interceptor e repassa pelo postMessage com origem fixa.
+      authTokenAtivo = value;
     }
     return origSetHeader.apply(this, arguments);
   };

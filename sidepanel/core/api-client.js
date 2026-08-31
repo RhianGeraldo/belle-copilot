@@ -3,7 +3,7 @@
  * Cliente HTTP autônomo e de alta performance com cache para os endpoints do Belle Software.
  */
 
-import { state, getFromCache, setInCache, saldoPlanosCache, laserParamsCache, getServicosCache, servicosCatalogoCache, turnosValidosCache, arvoreSalasCache } from './state.js';
+import { state, getFromCache, setInCache, arrGridDaUnidade, saldoPlanosCache, laserParamsCache, getServicosCache, servicosCatalogoCache, turnosValidosCache, arvoreSalasCache } from './state.js';
 
 export function montarArrGridDeGridSala(gridSalas, codEstab = "1") {
   if (!Array.isArray(gridSalas) || gridSalas.length === 0) return [];
@@ -201,43 +201,71 @@ export async function buscarServicosCatalogoApi(token, codEstab = "1") {
   return [];
 }
 
-export async function buscarAgendaApi(token, dataAgenda, arrGrid, codEstab = "1") {
+/**
+ * Consulta a agenda de uma data.
+ *
+ * `herdarFiltrosDaPagina` (padrão true) clona o payload que o Belle acabou de enviar,
+ * espelhando a tela da operadora — é o que a Agenda do Dia quer.
+ *
+ * Consultas que NÃO são a tela atual (o Sucesso do Cliente busca D-1 e D-3) precisam
+ * passar `false`: o payload da página carrega os filtros de visualização e o modo de
+ * grade (`tpAgenda`, `verTodas`, `finaliz`, `codCli`...) daquele momento, que podem
+ * simplesmente esconder os atendimentos finalizados que o CS procura.
+ */
+export async function buscarAgendaApi(token, dataAgenda, arrGrid, codEstab = "1", opcoes = {}) {
+  const { herdarFiltrosDaPagina = true } = opcoes;
   const authTok = token || state.currentToken || "";
   if (!authTok) return [];
 
   const dataFormatada = dataAgenda || state.currentDataAgenda || new Date().toISOString().split("T")[0];
-  const gridArray = (Array.isArray(arrGrid) && arrGrid.length > 0) 
-    ? arrGrid 
-    : (state.lastInterceptedArrGrid || montarArrGridDeGridSala(state.currentSalas, codEstab));
+  const estabAlvo = String(codEstab || state.currentCodEstab || "1");
+  // `etb` é replicado exatamente como o Belle envia (a filial é definida pelo token).
+  const etbPayload = String(state.lastInterceptedAgendaPayload?.etb || estabAlvo || "1");
 
-  const payload = {
-    tp: "0",
-    canc: false,
-    finan: false,
-    codCli: "",
-    finaliz: false,
-    corInad: "#e19999",
-    arrGrid: gridArray,
-    semFinan: false,
-    tpAgenda: "sala",
-    dtAgenda: `${dataFormatada}, 00:00:00`,
-    corAgenda: "ct",
-    semFinaliz: false,
-    destacarInad: "1",
-    destacarPendCont: 1,
-    corPendContrato: "#6b86dd",
-    corAgendSemQuest: "#e1d783",
-    destacarNaoPreencQuest: 1,
-    verTodas: 1,
-    exibir_pc_agenda: "1",
-    destacarNomeInad: "1",
-    teleatendimento: 0,
-    etb: String(codEstab || state.currentCodEstab || "1")
-  };
+  let payload;
+  if (herdarFiltrosDaPagina && state.lastInterceptedAgendaPayload && typeof state.lastInterceptedAgendaPayload === "object") {
+    // Clona o payload idêntico enviado pelo Belle Software para a agenda do dia
+    payload = JSON.parse(JSON.stringify(state.lastInterceptedAgendaPayload));
+    payload.dtAgenda = `${dataFormatada}, 00:00:00`;
+    payload.etb = etbPayload;
+    if (Array.isArray(arrGrid) && arrGrid.length > 0) {
+      payload.arrGrid = arrGrid;
+    }
+  } else {
+    const gridArray = (Array.isArray(arrGrid) && arrGrid.length > 0) 
+      ? arrGrid 
+      // Só reaproveita o grid em memória se ele foi obtido NESTA unidade.
+      : (arrGridDaUnidade(estabAlvo) || montarArrGridDeGridSala(state.currentSalas, estabAlvo));
+
+    payload = {
+      tp: "0",
+      canc: false,
+      finan: false,
+      codCli: "",
+      finaliz: false,
+      corInad: "#e19999",
+      arrGrid: gridArray,
+      semFinan: false,
+      tpAgenda: "sala",
+      dtAgenda: `${dataFormatada}, 00:00:00`,
+      corAgenda: "ct",
+      semFinaliz: false,
+      destacarInad: "1",
+      destacarPendCont: 1,
+      corPendContrato: "#6b86dd",
+      corAgendSemQuest: "#e1d783",
+      destacarNaoPreencQuest: 1,
+      verTodas: 1,
+      exibir_pc_agenda: "1",
+      destacarNomeInad: "1",
+      teleatendimento: 0,
+      etb: etbPayload
+    };
+  }
 
   try {
     const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/agendaapi?data=${dataFormatada}&estabGeral=1`;
-    console.log(`[AgendaAPI] 📤 Disparando consulta autônoma da agenda: ${dataFormatada}`);
+    console.log(`[AgendaAPI] 📤 Agenda ${dataFormatada} | unidade #${estabAlvo} | etb=${payload.etb} | modo=${payload.tpAgenda} | ${Array.isArray(payload.arrGrid) ? payload.arrGrid.length : 0} recurso(s)${herdarFiltrosDaPagina ? "" : " | payload próprio (sem filtros da tela)"}`);
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -441,7 +469,10 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
   const codConsulta = state.selectedAppointment?.codConsulta || state.selectedAppointment?.id || "";
 
   let salvosComSucesso = 0;
+  const falhas = [];
+
   for (const item of payloadArray) {
+    const nomeArea = item.nomeArea || item.area || "Área";
     try {
       const isRealizada = item.isRealizada !== false;
       const observacaoFinal = isRealizada
@@ -456,7 +487,8 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
         densidade: 0,
         cor: 0,
         espessura: 0,
-        energia: isRealizada ? String(item.energia || item.currentEnergia || "25") : "",
+        // Nunca aplica energia padrão: o valor gravado é exatamente o que a aplicadora definiu.
+        energia: isRealizada ? String(item.energia || item.currentEnergia || "") : "",
         frequencia: isRealizada ? String(item.frequencia || "0,8") : "",
         larguraPulso: isRealizada ? (item.pulso || item.largura_pulso || null) : null,
         qtdDisparos: isRealizada ? String(item.disparos || item.qtd_disparos || "200") : "0",
@@ -474,9 +506,16 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
         },
         body: JSON.stringify(payloadFormatado)
       });
-      if (res.ok) salvosComSucesso++;
+      if (res.ok) {
+        salvosComSucesso++;
+      } else {
+        const detalhe = await res.text().catch(() => "");
+        console.warn(`[Laser] ❌ Falha ao gravar a área "${nomeArea}": HTTP ${res.status}`, detalhe);
+        falhas.push({ area: nomeArea, erro: `HTTP ${res.status}` });
+      }
     } catch (err) {
-      console.warn("Erro ao salvar parâmetro individual:", err);
+      console.warn(`[Laser] ❌ Erro ao salvar a área "${nomeArea}":`, err);
+      falhas.push({ area: nomeArea, erro: err.message || "Falha de rede" });
     }
   }
 
@@ -486,10 +525,22 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
     laserParamsCache.delete(String(codCli));
   }
 
+  // Sucesso parcial NÃO é sucesso: se uma área falhou, o prontuário ficou incompleto e o
+  // atendimento não pode seguir para a finalização como se tudo tivesse sido registrado.
+  const sucessoTotal = salvosComSucesso === payloadArray.length;
+  if (!sucessoTotal) {
+    console.warn(`[Laser] ⚠️ Gravação parcial: ${salvosComSucesso} de ${payloadArray.length} área(s) registradas.`);
+  }
+
   return {
-    success: salvosComSucesso > 0,
+    success: sucessoTotal,
+    parcial: salvosComSucesso > 0 && !sucessoTotal,
     total: payloadArray.length,
-    salvos: salvosComSucesso
+    salvos: salvosComSucesso,
+    falhas: falhas,
+    error: sucessoTotal
+      ? null
+      : `${falhas.length} área(s) não gravada(s): ${falhas.map(f => f.area).join(", ")}`
   };
 }
 

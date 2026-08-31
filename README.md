@@ -7,7 +7,8 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
 ## 🌟 Principais Funcionalidades
 
 1. **Sincronização em Tempo Real (0ms)**:
-   - Captura instantânea de tokens e dados de sessão diretamente das requisições do Belle Software via interceptação `chrome.debugger` + content scripts.
+   - Captura instantânea de dados de sessão direto das requisições do Belle Software, por interceptação de `XMLHttpRequest`/`fetch` no MAIN world (`interceptor.js`) e repasse ao content script com validação de origem.
+   - Resolução da **unidade logada** e do usuário pelo próprio Belle (`recuperar_dados` + `estabelecimentos_do_usuario`), em `core/session.js`.
    - Sincronização automática de datas e salas selecionadas no calendário do Belle.
 
 2. **Visão da Agenda & KPIs**:
@@ -22,9 +23,11 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - **Validação de Evolução Clínica**: Trava de segurança para impedir finalização sem registro de evolução nas áreas atendidas.
    - **Transição Automática de Fila**: Ao finalizar os atendimentos da cliente atual, abre automaticamente a próxima cliente com status `Aguardando`.
 
-4. **Motor Comercial & Cadência de Ofertas**:
-   - Algoritmo inteligente baseado em regras clínicas e estágio de tratamento (`cadencia-ofertas.js`).
-   - Apresentação estruturada com oportunidade sugerida, motivo clínico e script verbal pronto para a aplicadora/recepção.
+4. **Sucesso do Cliente (CS / Pós-Laser 24h & 3 Dias)**:
+   - Acompanhamento automático de clientes com status **Atendido / Finalizado** em 24h (ontem) e 3 dias pós-procedimento.
+   - Pinned no "HOJE" real (independente da navegação manual de datas na agenda do Belle).
+   - Consolidação de múltiplas áreas tratadas pela mesma cliente em um único card com link direto do WhatsApp (`wa.me`) e script clínico pronto.
+   - Controle de contato diário ("Marcar como Feito") com persistência local.
 
 ---
 
@@ -46,8 +49,9 @@ belle-copilot/
     ├── sidepanel.html         # Estrutura visual HTML5
     ├── sidepanel.css          # Design system responsivo e moderno
     ├── main.js                # Orquestrador central e inicialização
-    ├── core/                  # Estado global, RBAC e cliente de API
+    ├── core/                  # Estado global, sessão, RBAC e cliente de API
     │   ├── state.js
+    │   ├── session.js          # Unidade logada + usuário ativo do Belle
     │   ├── permissions.js
     │   └── api-client.js
     ├── engines/               # Motores de regras clínicas e comerciais
@@ -57,10 +61,12 @@ belle-copilot/
     │   ├── agenda-view.js
     │   ├── atendimento-view.js
     │   ├── comercial-view.js
+    │   ├── cs-view.js
     │   └── config-view.js
     └── components/            # Modais e componentes reutilizáveis
         ├── modal-trava.js
-        └── modal-proximo.js
+        ├── modal-proximo.js
+        └── modal-agendar-proxima.js
 ```
 
 ---

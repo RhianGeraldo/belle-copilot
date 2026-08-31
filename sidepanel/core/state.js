@@ -8,7 +8,15 @@ export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos de cache
 export const state = {
   // Sessão e Identificação
   currentToken: "",
-  currentCodEstab: "1",
+  // Sem unidade padrão: ela é sempre resolvida da aba do Belle (core/session.js).
+  // O valor fixo "1" fazia o painel consultar a unidade #1 antes de descobrir a real.
+  currentCodEstab: "",
+  // Unidade da ABA do Belle cujo stream ao vivo o painel aceita (só quando ela confere
+  // com a unidade que autenticou; do contrário fica nula e o stream é ignorado).
+  unidadeAbaBelle: null,
+  // Unidade da URL da aba usada na última resolução de sessão — serve para detectar que a
+  // operadora trocou de filial sem re-sincronizar em laço quando URL e token divergem.
+  unidadeAbaResolvida: null,
   currentCodUsuario: "master-admin",
   currentUserName: "Master - Patrícia Karla",
   currentClinicaNome: "ESTETICA E LASER",
@@ -28,6 +36,10 @@ export const state = {
   ultimosRegistrosLaserCliente: [],
   lastSaldoServicosCache: [],
   lastInterceptedArrGrid: null,
+  // Unidade sob a qual o arrGrid acima foi obtido. O grid NÃO carrega essa informação:
+  // `cod_clinica` responde "1" em todas as filiais, então a unidade é registrada aqui.
+  arrGridUnidade: null,
+  lastInterceptedAgendaPayload: null,
   servicosCatalogo: [],
 
   // Filtros Ativos
@@ -57,6 +69,22 @@ export function getFromCache(map, key) {
 export function setInCache(map, key, data) {
   if (!map || !key || !data) return;
   map.set(key, { data: data, ts: Date.now() });
+}
+
+/**
+ * Define o grid de salas junto da unidade a que ele pertence.
+ * Sem esse par, um grid de outra filial passa despercebido e a agenda vem trocada.
+ */
+export function definirArrGrid(arrGrid, unidade) {
+  state.lastInterceptedArrGrid = (Array.isArray(arrGrid) && arrGrid.length > 0) ? arrGrid : null;
+  state.arrGridUnidade = state.lastInterceptedArrGrid ? String(unidade || "") : null;
+}
+
+/** O grid em memória é utilizável apenas se foi obtido na unidade informada. */
+export function arrGridDaUnidade(unidade) {
+  if (!Array.isArray(state.lastInterceptedArrGrid) || state.lastInterceptedArrGrid.length === 0) return null;
+  if (String(state.arrGridUnidade || "") !== String(unidade || "")) return null;
+  return state.lastInterceptedArrGrid;
 }
 
 export function limparCachesAtendimento() {

@@ -106,13 +106,16 @@
           </div>
         </section>
 
-        <!-- 3. Sub-Abas Internas da Agenda: Agenda do Dia e Atendimento -->
+        <!-- 3. Sub-Abas Internas da Agenda: Agenda do Dia, Atendimento e CS -->
         <nav class="agenda-sub-tabs" id="agenda-sub-tabs">
           <button class="sub-tab-item active" data-target="tab-agenda" id="tab-nav-agenda">
             📅 Agenda do Dia
           </button>
           <button class="sub-tab-item" data-target="tab-atendimento" id="tab-nav-atendimento">
             🩺 Atendimento
+          </button>
+          <button class="sub-tab-item" data-target="tab-cs" id="tab-nav-cs">
+            🤝 Sucesso do Cliente <span class="badge-tab-count" id="badge-cs-total" style="display: none;">0</span>
           </button>
         </nav>
       </div>
@@ -352,6 +355,95 @@
             ◀ Voltar para a Agenda
           </button>
         </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB 3: SUCESSO DO CLIENTE (CS / PÓS-LASER 24H E 3 DIAS)   -->
+    <!-- ========================================================= -->
+    <section id="tab-cs" class="tab-content">
+      <!-- Card Cabeçalho & KPIs de CS -->
+      <div class="card cs-header-card">
+        <div class="card-section-title-flex">
+          <div class="title-with-icon">
+            <span class="icon-bubble" style="background: #e0e7ff; color: #4338ca;">🤝</span>
+            <span style="font-weight: 800; color: #1e1b4b;">Sucesso do Cliente (CS Pós-Laser)</span>
+          </div>
+          <button id="btn-refresh-cs" class="btn-action-mini" title="Atualizar contatos de pós-atendimento">
+            🔄 Atualizar
+          </button>
+        </div>
+        <p style="font-size: 11px; color: #64748b; margin: 4px 0 8px 0;">
+          Acompanhamento automático dos clientes atendidos em <strong>24h</strong> (ontem) e <strong>3 dias</strong> após o procedimento.
+        </p>
+        <div class="cs-unidade-row">
+          <span id="cs-unidade-ativa" class="cs-unidade-tag">🏢 Carregando unidade...</span>
+        </div>
+
+        <!-- Mini Grid de KPIs CS -->
+        <div class="cs-kpi-grid">
+          <div class="cs-kpi-box">
+            <span class="cs-kpi-lbl">Total Atendidos</span>
+            <strong class="cs-kpi-val" id="cs-kpi-total">0</strong>
+          </div>
+          <div class="cs-kpi-box cs-kpi-box-24h">
+            <span class="cs-kpi-lbl">⚡ 24h Pendentes</span>
+            <strong class="cs-kpi-val" id="cs-kpi-24h">0</strong>
+          </div>
+          <div class="cs-kpi-box cs-kpi-box-3d">
+            <span class="cs-kpi-lbl">🌿 3 Dias Pendentes</span>
+            <strong class="cs-kpi-val" id="cs-kpi-3d">0</strong>
+          </div>
+          <div class="cs-kpi-box cs-kpi-box-feito">
+            <span class="cs-kpi-lbl">✅ Contatados Hoje</span>
+            <strong class="cs-kpi-val" id="cs-kpi-contatados">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Filtros e Busca Rápida de CS -->
+      <div class="cs-controls-card card">
+        <div class="cs-filter-bar">
+          <button class="cs-filter-btn active" data-filter="todos">
+            Todos (<span id="cs-filter-count-todos">0</span>)
+          </button>
+          <button class="cs-filter-btn btn-filter-24h" data-filter="24h">
+            ⚡ 24h / Ontem (<span id="cs-filter-count-24h">0</span>)
+          </button>
+          <button class="cs-filter-btn btn-filter-3d" data-filter="3d">
+            🌿 3 Dias (<span id="cs-filter-count-3d">0</span>)
+          </button>
+          <button class="cs-filter-btn btn-filter-contatados" data-filter="contatados">
+            ✅ Feitos (<span id="cs-filter-count-contatados">0</span>)
+          </button>
+        </div>
+
+        <div class="cs-search-box" style="margin-top: 8px;">
+          <input 
+            type="text" 
+            id="cs-input-busca" 
+            placeholder="🔍 Buscar cliente por nome, telefone ou área..." 
+            class="form-input cs-search-input"
+            style="width: 100%; font-size: 11.5px; padding: 6px 10px;"
+          >
+        </div>
+      </div>
+
+      <!-- Spinner de Carregamento de CS -->
+      <div id="loading-cs" class="spinner-container" style="display: none; margin: 16px 0;">
+        <div class="spinner"></div>
+        <span>Carregando clientes atendidos em 24h e 3 dias...</span>
+      </div>
+
+      <!-- Container dos Cards de Clientes CS -->
+      <div id="cs-cards-container" class="cs-cards-list">
+        <!-- Injetado dinamicamente via cs-view.js -->
+      </div>
+
+      <!-- Estado Vazio de CS -->
+      <div id="cs-empty-state" class="empty-state" style="display: none;">
+        <div class="empty-icon">🤝</div>
+        <p>Nenhum atendimento finalizado encontrado em 24h ou 3 dias atrás.</p>
       </div>
     </section>
     </div> <!-- Fim de tabs-scroll-container do módulo Agenda -->

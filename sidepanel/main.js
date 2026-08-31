@@ -3,7 +3,8 @@
  * Orquestrador central da extensão Belle Copilot Manifest V3.
  */
 
-import { state } from './core/state.js';
+import { state, definirArrGrid, arrGridDaUnidade } from './core/state.js';
+import { resolverSessaoBelle, aplicarSessaoNoEstado, mensagemEhDaUnidadeAtiva, obterAbaBelle, extrairUnidadeDaUrl } from './core/session.js';
 import { 
   buscarDadosUsuarioApi, 
   buscarEstabelecimentosApi, 
@@ -31,6 +32,11 @@ import {
   renderizarPainelComercial, 
   inicializarComercialView 
 } from './views/comercial-view.js';
+import { 
+  carregarSucessoCliente, 
+  renderizarCsView, 
+  inicializarCsView 
+} from './views/cs-view.js';
 import { inicializarConfigView } from './views/config-view.js';
 
 // Elementos de Identificação
@@ -69,7 +75,7 @@ export function ativarModulo(moduleId) {
 }
 
 export function ativarAba(targetId) {
-  if (targetId === "tab-agenda" || targetId === "tab-atendimento") {
+  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs") {
     ativarModulo("module-agenda");
     const subTabButtons = document.querySelectorAll(".sub-tab-item");
     subTabButtons.forEach(b => {
@@ -81,6 +87,9 @@ export function ativarAba(targetId) {
       if (tc.id === targetId) tc.classList.add("active");
       else tc.classList.remove("active");
     });
+    if (targetId === "tab-cs") {
+      renderizarCsView();
+    }
   } else if (targetId === "tab-comercial") {
     ativarModulo("module-comercial");
     const comTab = document.getElementById("tab-comercial");
@@ -102,28 +111,6 @@ export function aplicarLogoEmpresa(logoUrl) {
   if (headerAvatarFallback) headerAvatarFallback.style.display = "none";
 }
 
-async function safeSendMessageToTab(tabId, message) {
-  try {
-    return await chrome.tabs.sendMessage(tabId, message);
-  } catch (err) {
-    return null;
-  }
-}
-
-async function getBelleTab() {
-  try {
-    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (activeTabs.length > 0 && activeTabs[0].url && activeTabs[0].url.includes("bellesoftware.com.br")) {
-      return activeTabs[0];
-    }
-    const belleTabs = await chrome.tabs.query({ url: "*://app.bellesoftware.com.br/*" });
-    if (belleTabs.length > 0) return belleTabs[0];
-  } catch (e) {
-    console.warn("Erro ao buscar abas:", e);
-  }
-  return null;
-}
-
 export async function sincronizarSessao() {
   if (sessionStatus) {
     sessionStatus.innerHTML = '<span class="status-dot"></span> Conectando...';
@@ -131,46 +118,36 @@ export async function sincronizarSessao() {
   }
 
   try {
-    const belleTab = await getBelleTab();
-    let pageContext = null;
-    if (belleTab?.id) {
-      pageContext = await safeSendMessageToTab(belleTab.id, { action: "GET_BELLE_PAGE_CONTEXT" });
-    }
+    // 0. SESSÃO: pergunta ao próprio Belle quem está logado e em qual unidade.
+    //    O token é validado contra `estabelecimentos_do_usuario` e o perfil vem de
+    //    `recuperar_dados`. A filial no backend do Belle é definida pelo TOKEN
+    //    (etb/estabGeral/cod_clinica respondem "1" em todas as unidades).
+    const sessao = await resolverSessaoBelle();
+    const { unidadeAlterada } = aplicarSessaoNoEstado(sessao);
 
-    if (pageContext?.auth) {
-      state.currentToken = pageContext.auth.token || state.currentToken;
-      state.currentCodUsuario = pageContext.auth.user || state.currentCodUsuario;
-      state.currentCodEstab = String(pageContext.auth.etb || state.currentCodEstab || "1");
-    }
+    console.log(`[BelleCopilot] 🏢 Unidade logada: #${sessao.unidade || "?"} ${sessao.nomeUnidade ? `(${sessao.nomeUnidade})` : ""} | token: ${sessao.origemToken || "NÃO ENCONTRADO"}${sessao.validada ? " ✓ validado no Belle" : ""}`);
 
-    if (pageContext?.dataAgenda) {
-      state.currentDataAgenda = pageContext.dataAgenda;
+    if (sessao.dataAgenda) {
+      state.currentDataAgenda = sessao.dataAgenda;
       console.log(`[BelleCopilot] 📅 Data ativa detectada na página do Belle: ${state.currentDataAgenda}`);
     }
 
     if (!state.currentToken) {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: "GET_BELLE_COOKIES" }, resolve);
-      });
-
-      if (response?.cookies) {
-        const etbCookie = response.cookies.find(c => c.name === `token_${state.currentCodEstab}`);
-        const genericCookie = response.cookies.find(c => c.name === "token" || c.name === "authToken");
-        const found = etbCookie || genericCookie || response.cookies.find(c => c.name.startsWith("token_"));
-        if (found) {
-          state.currentToken = found.value;
-          const match = found.name.match(/token_(\d+)/);
-          if (match) state.currentCodEstab = match[1];
-        }
+      if (sessionStatus) {
+        sessionStatus.innerHTML = '<span class="status-dot"></span> Faça login no Belle';
+        sessionStatus.className = "status-offline";
       }
+      console.warn("[BelleCopilot] ⚠️ Nenhuma sessão do Belle encontrada nesta janela. Abra o Belle e clique em 🔄.");
     }
 
     if (state.currentToken) {
-      // 1. Dados do Usuário
-      const userData = await buscarDadosUsuarioApi(state.currentToken, state.currentCodUsuario);
+      // 1. USUÁRIO LOGADO (recuperar_dados). O perfil já vem resolvido da sessão;
+      //    só refaz a consulta se ela não tiver retornado.
+      const userData = sessao.usuario || await buscarDadosUsuarioApi(state.currentToken, state.currentCodUsuario);
+
       if (userData) {
         state.currentUserData = userData;
-        state.currentUserName = userData.nom_usuario || userData.nomeUsuario || "Master - Patrícia Karla";
+        state.currentUserName = userData.nom_usuario || userData.nomeUsuario || state.currentUserName;
         if (userDisplayName) userDisplayName.textContent = `👤 ${state.currentUserName}`;
 
         const grupo = (userData.grupos && userData.grupos[0]?.nome) ? userData.grupos[0].nome : (userData.cod_usuario || state.currentCodUsuario);
@@ -178,31 +155,44 @@ export async function sincronizarSessao() {
           userRoleDisplay.textContent = `🏷️ ${grupo}`;
           userRoleDisplay.title = `Grupo: ${grupo}`;
         }
-
-        const perfilDetectado = classificarPerfilUsuario(userData, state.currentCodUsuario);
-        state.currentUserOriginalRole = perfilDetectado;
-        aplicarVisualizacaoPorPerfil(perfilDetectado, {
-          onAtivarAba: ativarAba,
-          onRenderizarComercial: renderizarPainelComercial
-        });
-
-        if (sessionStatus) {
-          sessionStatus.innerHTML = '<span class="status-dot"></span> Conectado';
-          sessionStatus.className = "status-online";
-        }
+      } else {
+        console.warn(`[BelleCopilot] ⚠️ recuperar_dados não retornou o perfil de "${state.currentCodUsuario}". A extensão segue com a sessão validada.`);
       }
 
-      // 2. Estabelecimentos
-      const ests = await buscarEstabelecimentosApi(state.currentToken, state.currentCodEstab);
+      // O modo de visualização é aplicado mesmo sem perfil: sem isso o painel ficava
+      // sem navegação quando o recuperar_dados falhava.
+      const perfilDetectado = classificarPerfilUsuario(userData, state.currentCodUsuario);
+      state.currentUserOriginalRole = perfilDetectado;
+      aplicarVisualizacaoPorPerfil(perfilDetectado, {
+        onAtivarAba: ativarAba,
+        onRenderizarComercial: renderizarPainelComercial
+      });
+
+      if (sessionStatus) {
+        sessionStatus.innerHTML = '<span class="status-dot"></span> Conectado';
+        sessionStatus.className = "status-online";
+      }
+
+      // 2. UNIDADES DO USUÁRIO (estabelecimentos_do_usuario). Já vêm da validação da sessão.
+      const ests = (Array.isArray(sessao.estabelecimentos) && sessao.estabelecimentos.length > 0)
+        ? sessao.estabelecimentos
+        : await buscarEstabelecimentosApi(state.currentToken, state.currentCodEstab);
+
       if (Array.isArray(ests) && ests.length > 0) {
         state.currentEstabelecimentos = ests;
-        const ativo = ests.find(e => e.cod == state.currentCodEstab) || ests.find(e => e.padrao == 1) || ests[0];
+        // Rótulo estritamente da unidade consultada: o antigo fallback (padrão / primeira
+        // da lista) exibia o nome de uma clínica diferente da que estava sendo carregada.
+        const ativo = ests.find(e => String(e.cod) === String(state.currentCodEstab));
+
         if (ativo) {
           state.currentClinicaNome = ativo.nome;
           if (unidadeDisplay) {
             unidadeDisplay.textContent = `🏢 ${ativo.nome}`;
             unidadeDisplay.title = `${ativo.nome} - CNPJ: ${ativo.cnpj || 'N/A'} (${ativo.uf || ''})`;
           }
+        } else if (unidadeDisplay) {
+          unidadeDisplay.textContent = `🏢 Unidade #${state.currentCodEstab}`;
+          unidadeDisplay.title = "Unidade não encontrada na lista do usuário logado.";
         }
       }
 
@@ -210,13 +200,13 @@ export async function sincronizarSessao() {
       const gridSalas = await buscarGridSalaApi(state.currentToken, state.currentCodEstab);
       if (Array.isArray(gridSalas) && gridSalas.length > 0) {
         state.currentSalas = gridSalas;
-        state.lastInterceptedArrGrid = montarArrGridDeGridSala(gridSalas, state.currentCodEstab);
+        definirArrGrid(montarArrGridDeGridSala(gridSalas, state.currentCodEstab), state.currentCodEstab);
         renderizarSalasFiltro(state.currentSalas);
       }
 
       // 4. Carrega a Agenda Autônoma do Dia
       if (loadingAgenda) loadingAgenda.style.display = "flex";
-      const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, state.lastInterceptedArrGrid, state.currentCodEstab);
+      const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab);
       if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
         state.appointmentsData = processarItensAgenda(rawAgenda);
         sincronizarSalasComAgendamentos(state.appointmentsData);
@@ -232,6 +222,11 @@ export async function sincronizarSessao() {
           if (agendaEmptyState) agendaEmptyState.style.display = "block";
         }
       }
+
+      // 5. Carrega o Pós-Atendimento do Sucesso do Cliente (CS 24h e 3 Dias)
+      //    Recarga forçada quando a unidade mudou: o CS nunca pode reaproveitar
+      //    clientes atendidos em outra filial.
+      carregarSucessoCliente(unidadeAlterada);
     }
   } catch (err) {
     console.warn("Erro ao sincronizar sessão:", err);
@@ -256,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Inicializa Sub-Abas da Agenda (Agenda do Dia | Atendimento)
+  // Inicializa Sub-Abas da Agenda (Agenda do Dia | Atendimento | Sucesso do Cliente)
   const subTabButtons = document.querySelectorAll(".sub-tab-item");
   subTabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -293,6 +288,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   inicializarComercialView();
 
+  inicializarCsView();
+
   inicializarConfigView({
     onAtivarAba: ativarAba,
     onRecarregarTudo: () => sincronizarSessao()
@@ -302,22 +299,81 @@ document.addEventListener("DOMContentLoaded", () => {
   sincronizarSessao();
 });
 
+// Re-sincroniza o painel quando a aba ativa do Belle passa a ser outra unidade.
+let timerResync = null;
+function agendarResyncDeUnidade(motivo) {
+  if (timerResync) clearTimeout(timerResync);
+  timerResync = setTimeout(async () => {
+    timerResync = null;
+    const aba = await obterAbaBelle();
+    const unidadeAba = extrairUnidadeDaUrl(aba?.url);
+    // Compara com a unidade de aba usada na ÚLTIMA resolução (e não com a unidade que
+    // autenticou): quando as duas divergem, comparar com a unidade final re-sincronizaria
+    // sem parar a cada mensagem da página.
+    if (unidadeAba && String(unidadeAba) !== String(state.unidadeAbaResolvida || "")) {
+      console.log(`[BelleCopilot] 🔁 Unidade da aba mudou para #${unidadeAba} (${motivo}). Re-sincronizando o painel.`);
+      sincronizarSessao();
+    }
+  }, 400);
+}
+
+chrome.tabs.onActivated.addListener(() => agendarResyncDeUnidade("troca de aba"));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url && String(tab?.url || "").includes("bellesoftware.com.br")) {
+    agendarResyncDeUnidade("navegação no Belle");
+  }
+});
+
 // Listener de Eventos em Tempo Real interceptados do Belle Software
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  // Descarta o que vier de uma aba do Belle logada em OUTRA unidade: o content script roda
+  // em todas as abas e uma segunda filial aberta contaminava agenda, atendimento e CS.
+  if (!mensagemEhDaUnidadeAtiva(sender)) {
+    // Descarte sempre visível no console: um filtro silencioso já derrubou a agenda ao vivo
+    // e o clique em agendamento sem deixar rastro.
+    console.warn(`[BelleCopilot] 🚫 Mensagem "${msg.action}" ignorada: veio de uma aba do Belle em outra unidade (${sender?.tab?.url || "origem desconhecida"}); o painel acompanha a unidade #${state.unidadeAbaBelle}.`);
+    // Se a aba que falou é a que está em foco, a operadora trocou de unidade: o painel a segue.
+    if (sender?.tab?.active) agendarResyncDeUnidade("mensagem da aba em foco");
+    return;
+  }
+
   if (msg.action === "BELLE_LIVE_AGENDA_CAPTURED" && Array.isArray(msg.data)) {
     console.log(`[BelleCopilot] 📥 Recebidos ${msg.data.length} agendamentos ao vivo da página do Belle!`);
     
-    // Sincroniza a data detectada no corpo da requisição ou nos agendamentos
-    if (msg.date) {
-      state.currentDataAgenda = msg.date;
-    } else if (msg.requestBody) {
+    if (msg.token) {
+      state.currentToken = msg.token;
+    }
+
+    // A mensagem já foi validada como sendo da unidade ativa, então o payload real do
+    // Belle pode ser aproveitado integralmente para replicar consultas de outras datas.
+    if (msg.requestBody) {
       try {
         const bodyObj = typeof msg.requestBody === 'string' ? JSON.parse(msg.requestBody) : msg.requestBody;
-        if (bodyObj && bodyObj.dtAgenda) {
-          const matchIso = bodyObj.dtAgenda.match(/^(\d{4}-\d{2}-\d{2})/);
-          if (matchIso) state.currentDataAgenda = matchIso[0];
+        if (bodyObj && typeof bodyObj === 'object') {
+          state.lastInterceptedAgendaPayload = bodyObj;
+
+          if (Array.isArray(bodyObj.arrGrid) && bodyObj.arrGrid.length > 0) {
+            // Grid real da unidade logada, carimbado com a unidade de origem.
+            definirArrGrid(bodyObj.arrGrid, state.currentCodEstab);
+            if (bodyObj.arrGrid[0]?.nom_clinica) {
+              state.currentClinicaNome = bodyObj.arrGrid[0].nom_clinica;
+              if (unidadeDisplay) unidadeDisplay.textContent = `🏢 ${state.currentClinicaNome}`;
+            }
+          }
+
+          // `bodyObj.etb` e `arrGrid[].cod_clinica` NÃO são lidos de propósito: o Belle
+          // responde "1" neles em todas as filiais, e usá-los jogava o painel para a
+          // unidade #1 mesmo com a usuária logada em outra.
         }
       } catch (e) {}
+    }
+
+    // Data ativa: prioriza a detectada na requisição, depois o payload, depois os registros.
+    if (msg.date) {
+      state.currentDataAgenda = msg.date;
+    } else if (state.lastInterceptedAgendaPayload?.dtAgenda) {
+      const matchIso = String(state.lastInterceptedAgendaPayload.dtAgenda).match(/^(\d{4}-\d{2}-\d{2})/);
+      if (matchIso) state.currentDataAgenda = matchIso[0];
     } else if (msg.data.length > 0 && msg.data[0].dt_consulta) {
       state.currentDataAgenda = msg.data[0].dt_consulta;
     }
@@ -332,12 +388,15 @@ chrome.runtime.onMessage.addListener((msg) => {
     renderizarAgenda();
     renderizarPainelComercial();
     atualizarKpis();
+
+    // O CS acompanha a mesma unidade da agenda (sem recarga forçada: a unidade não mudou aqui).
+    carregarSucessoCliente();
   } else if (msg.action === "BELLE_DATE_SELECTED" && msg.data) {
     if (msg.data !== state.currentDataAgenda) {
       state.currentDataAgenda = msg.data;
       console.log(`[BelleCopilot] 📅 Data alterada no Belle para: ${state.currentDataAgenda}`);
       if (loadingAgenda) loadingAgenda.style.display = "flex";
-      buscarAgendaApi(state.currentToken, state.currentDataAgenda, state.lastInterceptedArrGrid, state.currentCodEstab).then(rawAgenda => {
+      buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab).then(rawAgenda => {
         if (Array.isArray(rawAgenda)) {
           state.appointmentsData = processarItensAgenda(rawAgenda);
           sincronizarSalasComAgendamentos(state.appointmentsData);
@@ -354,15 +413,14 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   } else if (msg.action === "BELLE_LIVE_SALAS_CAPTURED" && Array.isArray(msg.data)) {
     state.currentSalas = msg.data;
-    if (msg.codEstab) {
-      state.currentCodEstab = String(msg.codEstab);
-    }
     if (msg.data.length > 0) {
       if (msg.data[0].nom_clinica) {
         state.currentClinicaNome = msg.data[0].nom_clinica;
         if (unidadeDisplay) unidadeDisplay.textContent = `🏢 ${state.currentClinicaNome}`;
       }
-      state.lastInterceptedArrGrid = montarArrGridDeGridSala(msg.data, state.currentCodEstab);
+      // `msg.codEstab` (etb da query) e `cod_clinica` são "1" em todas as filiais: a unidade
+      // continua sendo a da aba do Belle, já validada na entrada do listener.
+      definirArrGrid(montarArrGridDeGridSala(msg.data, state.currentCodEstab), state.currentCodEstab);
     }
     renderizarSalasFiltro(state.currentSalas);
   } else if (msg.action === "BELLE_LIVE_ATENDIMENTO_CAPTURED" && msg.codConsulta) {
@@ -418,7 +476,14 @@ chrome.runtime.onMessage.addListener((msg) => {
   } else if (msg.action === "BELLE_LIVE_PARAMETROS_EMPRESA_CAPTURED" && msg.data?.logo_empresa) {
     aplicarLogoEmpresa(msg.data.logo_empresa);
   } else if (msg.action === "BELLE_TOKEN_CAPTURED" && msg.token) {
-    if (msg.token && msg.token !== state.currentToken) {
+    // Só aceita token cuja aba de origem está na MESMA unidade do painel (msg.codEstab vem
+    // da URL /u/{unidade}, não do etb). Sem isso, uma segunda aba do Belle em outra filial
+    // trocava o token do painel e a agenda/CS passavam a responder pela unidade errada.
+    if (msg.codEstab && String(msg.codEstab) !== String(state.currentCodEstab)) {
+      console.warn(`[BelleCopilot] 🚫 Token da unidade #${msg.codEstab} ignorado (painel está na #${state.currentCodEstab}).`);
+      return;
+    }
+    if (msg.token !== state.currentToken) {
       state.currentToken = msg.token;
       console.log("[BelleCopilot] 🔑 Token de autorização sincronizado da aba!");
     }

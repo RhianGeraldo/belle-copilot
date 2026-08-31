@@ -16,7 +16,8 @@ import { atualizarOfertasSugeridasAtendimento } from '../engines/cadencia-oferta
 import { 
   extrairParametrosAnterioresDaArea, 
   coletarParametrosDosFormularios, 
-  verificarEvolucaoParametros 
+  verificarEvolucaoParametros,
+  verificarParametrosObrigatorios 
 } from '../engines/laser-safety.js';
 import { abrirModalTravaEvolucao } from '../components/modal-trava.js';
 import { abrirModalProximoAgendamento } from '../components/modal-proximo.js';
@@ -249,9 +250,14 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sNome = s.nome || `Área #${idx + 1}`;
     const areaFormatada = `${sCod} - ${sNome}`;
 
-    const prev = extrairParametrosAnterioresDaArea(sNome, historico);
+    const prev = extrairParametrosAnterioresDaArea(sNome, historico, sCod);
 
-    const energiaNum = parseFloat(prev.energia) || 25;
+    // Sem registro anterior DESTA área a energia fica em branco: a aplicadora define o
+    // valor da sessão de hoje. Nada é herdado de outra região do corpo.
+    const energiaAnterior = parseFloat(prev.energia);
+    const temEnergiaAnterior = Number.isFinite(energiaAnterior) && energiaAnterior > 0;
+    const energiaValor = temEnergiaAnterior ? energiaAnterior : "";
+    const energiaOrig = temEnergiaAnterior ? energiaAnterior : 0;
     const freqNum = parseFloat(String(prev.frequencia || "0.8").replace(",", ".")) || 0.8;
     const disparosNum = parseInt(prev.disparos, 10) || 200;
 
@@ -263,7 +269,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
            data-area-formatada="${areaFormatada}"
            data-orig-fototipo="${prev.fototipo}"
            data-orig-modo="${prev.modo}"
-           data-orig-energia="${energiaNum}"
+           data-orig-energia="${energiaOrig}"
            data-orig-frequencia="${freqNum}"
            data-orig-disparos="${disparosNum}"
            data-orig-obs=""
@@ -287,6 +293,19 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 
         <!-- SEÇÃO QUANDO REALIZADA (Padrão) -->
         <div class="param-section-realizada">
+          ${!temEnergiaAnterior ? `
+            <div class="param-sem-historico-alert">
+              <span class="param-sem-historico-icon">🛡️</span>
+              <div class="param-sem-historico-text">
+                <strong>Sem registro anterior desta área para esta cliente.</strong><br>
+                Defina a <strong>energia (J)</strong> conforme a avaliação de hoje. Nenhum parâmetro foi herdado de outra área.
+              </div>
+            </div>
+          ` : `
+            <div class="param-historico-ref">
+              📌 Última aplicação registrada nesta área: <strong>${energiaValor}J</strong>${prev.areaHistorico ? ` • ${prev.areaHistorico}` : ''}
+            </div>
+          `}
           <div class="param-fields-grid">
             <div class="param-field">
               <label>Fototipo:</label>
@@ -313,7 +332,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
               <label>Energia (J):</label>
               <div class="param-stepper-wrap">
                 <button type="button" class="btn-param-step" data-delta="-1">−</button>
-                <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaNum}">
+                <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
                 <button type="button" class="btn-param-step" data-delta="1">+</button>
               </div>
             </div>
@@ -351,7 +370,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
               <span class="obs-pill" data-text="Pelos grossos">💥 Pelos grossos</span>
               <span class="obs-pill" data-text="Sem intercorrências">✅ Sem intercorrências</span>
             </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]} ${energiaNum}J • Boa tolerância" value="">
+            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]}${temEnergiaAnterior ? ` ${energiaValor}J` : ''} • Boa tolerância" value="">
           </div>
         </div>
 
@@ -396,7 +415,24 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 }
 
 export async function salvarParametrosLaserDireto(parametros) {
-  if (!btnSalvarParametrosLaser) return;
+  if (!btnSalvarParametrosLaser) return { success: false, error: "Formulário indisponível" };
+
+  // Bloqueio clínico: área realizada sem energia definida não vai para o prontuário.
+  const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametros);
+  if (possuiPendencia) {
+    const nomes = areasSemEnergia.map(a => a.nomeArea || a.area).join(", ");
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-error";
+      atendStatusSalvarLaser.textContent = `Informe a energia (J) aplicada hoje em: ${nomes}.`;
+    }
+    document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
+      if (!(parseFloat(inp.value) > 0)) inp.classList.add("param-input-erro");
+    });
+    return { success: false, bloqueado: true, error: `Energia não informada em: ${nomes}` };
+  }
+
+  document.querySelectorAll(".param-energia.param-input-erro").forEach(inp => inp.classList.remove("param-input-erro"));
 
   btnSalvarParametrosLaser.disabled = true;
   btnSalvarParametrosLaser.textContent = "⏳ Gravando no Belle...";
@@ -440,11 +476,18 @@ export async function salvarParametrosLaserDireto(parametros) {
   } else {
     btnSalvarParametrosLaser.disabled = false;
     btnSalvarParametrosLaser.textContent = "💾 Salvar Parâmetros (Todas as Áreas)";
+    btnSalvarParametrosLaser.style.background = "";
     if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
       atendStatusSalvarLaser.className = "param-save-status status-error";
-      atendStatusSalvarLaser.textContent = `Erro ao salvar: ${res.error || 'Falha na requisição'}. Tente novamente.`;
+      // Gravação parcial precisa ficar explícita: parte do prontuário não foi registrada.
+      atendStatusSalvarLaser.textContent = res.parcial
+        ? `Gravação incompleta: ${res.salvos} de ${res.total} área(s) salvas. Não gravadas: ${(res.falhas || []).map(f => f.area).join(", ")}. Tente novamente.`
+        : `Erro ao salvar: ${res.error || 'Falha na requisição'}. Tente novamente.`;
     }
   }
+
+  return res;
 }
 
 export async function executarFluxoFinalizacaoAtendimento(app) {
@@ -454,6 +497,22 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
   const areasRealizadas = parametrosParaSalvar.filter(p => p.isRealizada !== false);
   const areasNaoRealizadas = parametrosParaSalvar.filter(p => p.isRealizada === false);
   const areasParaRemover = areasNaoRealizadas.filter(p => p.removerDoAgendamento !== false);
+
+  // Trava antes de tocar no agendamento: área realizada sem energia não pode ser finalizada.
+  const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametrosParaSalvar);
+  if (possuiPendencia) {
+    const nomes = areasSemEnergia.map(a => a.nomeArea || a.area).join(", ");
+    document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
+      if (!(parseFloat(inp.value) > 0)) inp.classList.add("param-input-erro");
+    });
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-error";
+      atendStatusSalvarLaser.textContent = `Informe a energia (J) aplicada hoje em: ${nomes}.`;
+    }
+    alert(`Não é possível finalizar: informe a energia (J) aplicada hoje em ${nomes}.`);
+    return;
+  }
 
   const { possuiSemEvolucao, areasSemEvolucao } = verificarEvolucaoParametros(parametrosParaSalvar);
 
@@ -489,7 +548,23 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
 
     // 2. Salva parâmetros do laser (disparos nas realizadas e notas de intercorrência nas não realizadas)
     if (parametrosParaSalvar.length > 0) {
-      await salvarParametrosLaserDireto(parametrosParaSalvar);
+      const resSalvar = await salvarParametrosLaserDireto(parametrosParaSalvar);
+
+      // Só finaliza a consulta se TODAS as áreas entraram no prontuário. Encerrar com
+      // gravação parcial deixaria a sessão debitada sem a evolução clínica correspondente.
+      if (!resSalvar || !resSalvar.success) {
+        if (btnAtendFinalizar) {
+          btnAtendFinalizar.disabled = false;
+          btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+        }
+        const areasFalhas = (resSalvar?.falhas || []).map(f => f.area).join(", ");
+        alert(
+          resSalvar?.parcial
+            ? `Atendimento NÃO finalizado.\n\nApenas ${resSalvar.salvos} de ${resSalvar.total} área(s) foram gravadas no prontuário.\nNão gravadas: ${areasFalhas}\n\nTente salvar novamente antes de finalizar.`
+            : `Atendimento NÃO finalizado.\n\nOs parâmetros do laser não puderam ser gravados no prontuário${areasFalhas ? ` (${areasFalhas})` : ""}.\nVerifique a conexão e tente novamente.`
+        );
+        return;
+      }
     }
 
     // 3. Finaliza oficialmente a consulta no Belle

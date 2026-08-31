@@ -166,71 +166,133 @@
     console.log("[Belle Interceptor] 🧭 Navegando data na interface do Belle:", dataIso, dataBr);
 
     try {
-      // 1. Atualiza inputs de data nativos e com ng-model / datepicker
-      const dateInputs = document.querySelectorAll(
-        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"], input[placeholder*="DD/MM"]'
-      );
-      dateInputs.forEach(inp => {
-        if (inp.type === "date") {
-          inp.value = dataIso;
-        } else {
-          inp.value = dataBr || dataIso;
-        }
-        inp.dispatchEvent(new Event("input", { bubbles: true }));
-        inp.dispatchEvent(new Event("change", { bubbles: true }));
-      });
+      const [y, m, d] = dataIso.split("-").map(Number);
+      const dtObj = new Date(y, m - 1, d);
+      const dataBrFormatada = dataBr || `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
 
-      // 2. jQuery Datepicker se disponível
+      // A. FullCalendar (v3, v4, v5, v6)
       if (window.jQuery || window.$) {
         const $ = window.jQuery || window.$;
-        try {
-          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, input[name*="data"], input[name*="dt"]').datepicker('setDate', dataBr || dataIso);
-          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, input[name*="data"], input[name*="dt"]').trigger('change');
-        } catch (e) {}
+        try { $('#calendar, #agenda, .fc, [ui-calendar], [id*="calendar"], [id*="agenda"]').fullCalendar('gotoDate', dataIso); } catch (e) {}
+        try { $('#calendar, #agenda, .fc, [ui-calendar], [id*="calendar"], [id*="agenda"]').fullCalendar('gotoDate', dtObj); } catch (e) {}
       }
 
-      // 3. AngularJS scope se disponível
+      const fcElements = document.querySelectorAll('.fc, #calendar, #agenda, [id*="calendar"], [id*="agenda"], [class*="fc-"]');
+      fcElements.forEach(el => {
+        try {
+          if (el._calendar && typeof el._calendar.gotoDate === "function") el._calendar.gotoDate(dataIso);
+          if (el.__fullCalendar && typeof el.__fullCalendar.gotoDate === "function") el.__fullCalendar.gotoDate(dataIso);
+        } catch (e) {}
+      });
+
+      if (window.calendar && typeof window.calendar.gotoDate === "function") {
+        try { window.calendar.gotoDate(dataIso); } catch (e) {}
+      }
+      if (window.scheduler && typeof window.scheduler.setCurrentView === "function") {
+        try { window.scheduler.setCurrentView(dtObj); } catch (e) {}
+      }
+
+      // B. AngularJS (Deep scope and rootScope inspection)
       if (window.angular) {
-        const els = document.querySelectorAll('[ng-controller], [ng-app], #dtAgenda, #dataAgenda, input[ng-model*="data"], input[ng-model*="dt"], body');
-        for (const el of els) {
+        const allAngularEls = document.querySelectorAll('[ng-controller], [ng-app], [ui-view], [ng-view], #calendar, #agenda, #dtAgenda, #dataAgenda, input[ng-model*="data"], input[ng-model*="dt"], body');
+        allAngularEls.forEach(el => {
           try {
             const scope = window.angular.element(el).scope();
             if (scope) {
-              if (scope.dtAgenda !== undefined) scope.dtAgenda = dataIso;
-              if (scope.dataAgenda !== undefined) scope.dataAgenda = dataIso;
-              if (scope.data !== undefined && typeof scope.data === "string") scope.data = dataIso;
-              if (scope.filtro && typeof scope.filtro === "object") {
-                if (scope.filtro.dtAgenda !== undefined) scope.filtro.dtAgenda = dataIso;
-                if (scope.filtro.data !== undefined) scope.filtro.data = dataIso;
-              }
-              if (typeof scope.buscarAgenda === "function") scope.buscarAgenda();
-              else if (typeof scope.pesquisar === "function") scope.pesquisar();
-              else if (typeof scope.carregarAgenda === "function") scope.carregarAgenda();
-              else if (typeof scope.atualizar === "function") scope.atualizar();
+              let alterou = false;
+              ['dtAgenda', 'dataAgenda', 'data', 'dt_agenda', 'data_agenda', 'dtConsulta', 'dataConsulta'].forEach(k => {
+                if (scope[k] !== undefined) {
+                  scope[k] = (typeof scope[k] === 'object' && scope[k] instanceof Date) ? dtObj : dataIso;
+                  alterou = true;
+                }
+              });
 
-              if (scope.$applyAsync) scope.$applyAsync();
-              else if (scope.$apply) scope.$apply();
+              if (scope.filtro && typeof scope.filtro === 'object') {
+                ['dtAgenda', 'dataAgenda', 'data', 'dt', 'data_agenda', 'dt_agenda'].forEach(k => {
+                  if (scope.filtro[k] !== undefined) {
+                    scope.filtro[k] = (typeof scope.filtro[k] === 'object' && scope.filtro[k] instanceof Date) ? dtObj : dataIso;
+                    alterou = true;
+                  }
+                });
+              }
+
+              if (scope.vm && typeof scope.vm === 'object') {
+                ['dtAgenda', 'dataAgenda', 'data', 'dt_agenda', 'data_agenda'].forEach(k => {
+                  if (scope.vm[k] !== undefined) {
+                    scope.vm[k] = (typeof scope.vm[k] === 'object' && scope.vm[k] instanceof Date) ? dtObj : dataIso;
+                    alterou = true;
+                  }
+                });
+                if (scope.vm.filtro && typeof scope.vm.filtro === 'object') {
+                  ['dtAgenda', 'dataAgenda', 'data', 'dt'].forEach(k => {
+                    if (scope.vm.filtro[k] !== undefined) {
+                      scope.vm.filtro[k] = dataIso;
+                      alterou = true;
+                    }
+                  });
+                }
+                ['buscarAgenda', 'carregarAgenda', 'buscar', 'pesquisar', 'carregar', 'consultar', 'consultarAgenda', 'filtrar'].forEach(fn => {
+                  if (typeof scope.vm[fn] === 'function') {
+                    try { scope.vm[fn](dataIso); } catch (e) {}
+                  }
+                });
+              }
+
+              ['buscarAgenda', 'carregarAgenda', 'buscar', 'pesquisar', 'carregar', 'consultar', 'consultarAgenda', 'filtrar', 'getAgenda'].forEach(fn => {
+                if (typeof scope[fn] === 'function') {
+                  try { scope[fn](dataIso); } catch (e) {}
+                }
+              });
+
+              const rootScope = scope.$root || scope;
+              if (rootScope && typeof rootScope.$broadcast === "function") {
+                rootScope.$broadcast("MUDOU_DATA_AGENDA", dataIso);
+                rootScope.$broadcast("CARREGAR_AGENDA", dataIso);
+                rootScope.$broadcast("BUSCAR_AGENDA", dataIso);
+                rootScope.$broadcast("agenda:changeDate", dataIso);
+              }
+
+              if (alterou) {
+                if (scope.$applyAsync) scope.$applyAsync();
+                else if (scope.$apply) scope.$apply();
+              }
             }
           } catch(e) {}
-        }
+        });
       }
 
-      // 4. FullCalendar ou DHTMLX Scheduler se disponível
-      if (window.calendar && typeof window.calendar.gotoDate === "function") {
-        window.calendar.gotoDate(dataIso);
-      }
-      if (window.scheduler && typeof window.scheduler.setCurrentView === "function") {
-        const [y, m, d] = dataIso.split("-").map(Number);
-        window.scheduler.setCurrentView(new Date(y, m - 1, d));
+      // C. Inputs e Datepickers no DOM
+      const dateInputs = document.querySelectorAll(
+        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, #data, #txtData, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"], input[placeholder*="DD/MM"], input[placeholder*="dd/mm"], .hasDatepicker'
+      );
+      dateInputs.forEach(inp => {
+        try {
+          if (inp.type === "date") {
+            inp.value = dataIso;
+          } else {
+            inp.value = dataBrFormatada;
+          }
+          inp.dispatchEvent(new Event("input", { bubbles: true }));
+          inp.dispatchEvent(new Event("change", { bubbles: true }));
+          inp.dispatchEvent(new Event("blur", { bubbles: true }));
+        } catch (e) {}
+      });
+
+      if (window.jQuery || window.$) {
+        const $ = window.jQuery || window.$;
+        try {
+          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data, input[name*="data"], input[name*="dt"], .hasDatepicker').datepicker('setDate', dataBrFormatada);
+          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data, input[name*="data"], input[name*="dt"], .hasDatepicker').trigger('change');
+        } catch (e) {}
       }
 
-      // 5. Clica no botão pesquisar/buscar da agenda se existir
-      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, #btn-pesquisar, button[ng-click*="buscar"], button[ng-click*="pesquisar"], .btn-search, .btn-buscar');
+      // D. Botões de busca / pesquisa
+      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, #btn-pesquisar, button[ng-click*="buscar"], button[ng-click*="pesquisar"], .btn-search, .btn-buscar, button[type="submit"]');
       if (btnBuscar) {
         btnBuscar.click();
       }
 
-      // 6. Atualiza atributo no documentElement
+      // E. Atualiza atributo global
       document.documentElement.setAttribute("data-belle-agenda-date", dataIso);
     } catch (err) {
       console.warn("[Belle Interceptor] Erro ao alterar data na página:", err);

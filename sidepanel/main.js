@@ -247,22 +247,37 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
   ativarModulo("module-agenda");
   ativarAba("tab-agenda");
 
-  // 1. Notifica a aba do Belle Software para atualizar a data na tela principal do Belle
+  // 1. Notifica e navega a aba principal do Belle Software
   try {
     const belleTab = await getBelleTab();
     if (belleTab?.id) {
-      safeSendMessageToTab(belleTab.id, {
-        action: "BELLE_NAVIGATE_DATE_IN_PAGE",
-        dataIso: dataIso,
-        dataBr: dataBr
-      });
-      // Foca na aba do Belle para visualização imediata da grade
+      const estab = String(state.currentCodEstab || "1");
+      const targetUrl = `https://app.bellesoftware.com.br/u/${estab}/agenda?data=${dataIso}`;
+
+      // Foca na aba e na janela do navegador
       if (chrome.tabs && chrome.tabs.update) {
         chrome.tabs.update(belleTab.id, { active: true });
       }
+      if (belleTab.windowId && chrome.windows && chrome.windows.update) {
+        chrome.windows.update(belleTab.windowId, { focused: true });
+      }
+
+      // Envia comando in-page para tentar troca imediata via DOM/FullCalendar/Angular
+      try {
+        await safeSendMessageToTab(belleTab.id, {
+          action: "BELLE_NAVIGATE_DATE_IN_PAGE",
+          dataIso: dataIso,
+          dataBr: dataBr
+        });
+      } catch (e) {}
+
+      // Redireciona a aba do Belle para a agenda com a data selecionada
+      if (chrome.tabs && chrome.tabs.update) {
+        chrome.tabs.update(belleTab.id, { url: targetUrl });
+      }
     }
   } catch (e) {
-    console.warn("Erro ao enviar comando de data para aba do Belle:", e);
+    console.warn("Erro ao navegar aba do Belle:", e);
   }
 
   // 2. Atualiza a timeline interna do Sidepanel

@@ -704,6 +704,15 @@ label[for] {
   display: none;
 }
 
+/* Rede de segurança: aba marcada como ativa aparece mesmo sem regra própria por ID.
+   As regras específicas abaixo (que definem scroll e layout de cada aba) continuam
+   valendo por virem depois. Sem isso, criar uma aba nova e esquecer de listar o ID
+   deixava a tela em branco sem nenhum erro no console. */
+.tab-content.active {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Botão de Agendar Próxima Sessão no Card da Agenda */
 .btn-agendar-proxima-card {
   margin-top: 6px;
@@ -810,6 +819,8 @@ label[for] {
 /* Tab 2 (Atendimento), Tab 3 (CS) & Tab 4 (Config): Scroll vertical completo */
 #tab-atendimento.active,
 #tab-cs.active,
+#tab-comercial.active,
+#tab-vendas.active,
 #tab-config.active {
   display: flex;
   flex-direction: column;
@@ -824,18 +835,24 @@ label[for] {
   scrollbar-color: #cbd5e1 transparent;
 }
 
+#tab-comercial.active::-webkit-scrollbar,
+#tab-vendas.active::-webkit-scrollbar,
 #tab-atendimento.active::-webkit-scrollbar,
 #tab-cs.active::-webkit-scrollbar,
 #tab-config.active::-webkit-scrollbar {
   width: 5px;
 }
 
+#tab-comercial.active::-webkit-scrollbar-track,
+#tab-vendas.active::-webkit-scrollbar-track,
 #tab-atendimento.active::-webkit-scrollbar-track,
 #tab-cs.active::-webkit-scrollbar-track,
 #tab-config.active::-webkit-scrollbar-track {
   background: transparent;
 }
 
+#tab-comercial.active::-webkit-scrollbar-thumb,
+#tab-vendas.active::-webkit-scrollbar-thumb,
 #tab-atendimento.active::-webkit-scrollbar-thumb,
 #tab-cs.active::-webkit-scrollbar-thumb,
 #tab-config.active::-webkit-scrollbar-thumb {

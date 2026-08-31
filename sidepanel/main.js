@@ -262,7 +262,7 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
         chrome.windows.update(belleTab.windowId, { focused: true });
       }
 
-      // Envia comando in-page para tentar troca imediata via DOM/FullCalendar/Angular
+      // Envia comando in-page para simular clique no Datepicker da agenda do Belle
       try {
         await safeSendMessageToTab(belleTab.id, {
           action: "BELLE_NAVIGATE_DATE_IN_PAGE",
@@ -271,9 +271,12 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
         });
       } catch (e) {}
 
-      // Redireciona a aba do Belle para a agenda com a data selecionada
-      if (chrome.tabs && chrome.tabs.update) {
-        chrome.tabs.update(belleTab.id, { url: targetUrl });
+      // Se não estiver na tela da agenda, redireciona para a rota da agenda
+      const tabUrl = belleTab.url || "";
+      if (!tabUrl.includes("/agenda")) {
+        if (chrome.tabs && chrome.tabs.update) {
+          chrome.tabs.update(belleTab.id, { url: targetUrl });
+        }
       }
     }
   } catch (e) {

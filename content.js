@@ -595,38 +595,84 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return `${d}/${m}/${y}`;
     })(dataIso);
 
-    console.log("[Agenda Assistant] 🧭 Repassando comando para navegar data no Belle:", dataIso, dataBr);
+    console.log("[Agenda Assistant] 🧭 Disparando clique na data no PrimeNG do Belle:", dataIso, dataBr);
 
-    // Repassa para o interceptor no MAIN world
+    // 1. Repassa para o interceptor no MAIN world (execução no contexto da página)
     window.postMessage({
       type: "BELLE_NAVIGATE_DATE_MAIN",
       dataIso: dataIso,
       dataBr: dataBr
     }, "*");
 
-    // Também dispara no DOM isolado caso os inputs estejam acessíveis
+    // 2. Também tenta no contexto Isolated
     try {
-      const dateInputs = document.querySelectorAll(
-        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"]'
-      );
-      dateInputs.forEach(inp => {
-        if (inp.type === "date") {
-          inp.value = dataIso;
-        } else {
-          inp.value = dataBr;
-        }
-        inp.dispatchEvent(new Event("input", { bubbles: true }));
-        inp.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-
-      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, button[ng-click*="buscar"], button[ng-click*="pesquisar"]');
-      if (btnBuscar) btnBuscar.click();
+      selecionarDataNoPrimeNGContent(dataIso);
     } catch(e) {}
 
     sendResponse({ success: true });
     return true;
   }
 });
+
+function selecionarDataNoPrimeNGContent(dataIso) {
+  if (!dataIso || !/^\d{4}-\d{2}-\d{2}$/.test(dataIso)) return;
+  const [y, m, d] = dataIso.split("-").map(Number);
+  const targetYear = y;
+  const targetMonthIndex = m - 1;
+  const targetDay = d;
+
+  let datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
+  if (!datepickerPanel || datepickerPanel.offsetParent === null) {
+    const trigger = document.querySelector('.data-atual, button.data-atual, [class*="data-atual"], .titulo-agenda-data, .header-data, [aria-label*="Choose Date"]');
+    if (trigger) {
+      trigger.click();
+    }
+  }
+
+  let tentativas = 0;
+  const tentar = () => {
+    tentativas++;
+    const targetDataDates = [
+      `${targetYear}-${targetMonthIndex}-${targetDay}`,
+      `${targetYear}-${m}-${targetDay}`,
+      `${targetYear}-${String(targetMonthIndex).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`,
+      `${targetYear}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
+    ];
+
+    let cell = null;
+    for (const dd of targetDataDates) {
+      const found = document.querySelector(`.p-datepicker-day[data-date="${dd}"], [data-date="${dd}"]`);
+      if (found && !found.closest('.p-datepicker-other-month')) {
+        cell = found;
+        break;
+      }
+    }
+
+    if (!cell) {
+      const daySpans = document.querySelectorAll('.p-datepicker-day-cell:not(.p-datepicker-other-month) .p-datepicker-day, .p-datepicker-day:not(.p-datepicker-other-month)');
+      for (const sp of daySpans) {
+        if (sp.textContent.trim() === String(targetDay)) {
+          cell = sp;
+          break;
+        }
+      }
+    }
+
+    if (cell) {
+      cell.click();
+      cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return;
+    }
+
+    if (tentativas < 8) {
+      setTimeout(tentar, 60);
+    }
+  };
+
+  setTimeout(tentar, 40);
+}
 
 // Consulta parâmetros gerais da empresa (logo_empresa, configurações)
 async function executarConsultaParametrosEmpresaNaPagina(codEstab) {

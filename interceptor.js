@@ -157,6 +157,113 @@
     return response;
   };
 
+  const MESES_PT = [
+    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+  ];
+
+  function normalizarTexto(str) {
+    return (str || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  function selecionarDataNoPrimeNGBelle(dataIso) {
+    if (!dataIso || !/^\d{4}-\d{2}-\d{2}$/.test(dataIso)) return false;
+    const [y, m, d] = dataIso.split("-").map(Number);
+    const targetYear = y;
+    const targetMonthIndex = m - 1; // 0 a 11
+    const targetDay = d;
+
+    console.log(`[Belle Interceptor] 🎯 Clicando no PrimeNG Datepicker: Dia ${targetDay}, Mês ${targetMonthIndex + 1}, Ano ${targetYear}`);
+
+    // 1. Se o popover não estiver aberto, clica no botão .data-atual do topo do Belle
+    let datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
+    if (!datepickerPanel || datepickerPanel.offsetParent === null) {
+      const trigger = document.querySelector('.data-atual, button.data-atual, [class*="data-atual"], .titulo-agenda-data, .header-data, [aria-label*="Choose Date"]');
+      if (trigger) {
+        console.log("[Belle Interceptor] 🖱️ Abrindo popover do datepicker (.data-atual)...");
+        trigger.click();
+        trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      }
+    }
+
+    let tentativas = 0;
+    const tentarNavegarEClicar = () => {
+      tentativas++;
+
+      // 2. Navegação de Mês/Ano no cabeçalho do PrimeNG
+      const monthBtn = document.querySelector('.p-datepicker-select-month, [aria-label="Choose Month"]');
+      const yearBtn = document.querySelector('.p-datepicker-select-year, [aria-label="Choose Year"]');
+      const nextBtn = document.querySelector('.p-datepicker-next-button, [aria-label="Next Month"], p-button.p-datepicker-next-button button');
+      const prevBtn = document.querySelector('.p-datepicker-prev-button, [aria-label="Previous Month"], p-button.p-datepicker-prev-button button');
+
+      if (monthBtn && yearBtn) {
+        const currentYear = parseInt(yearBtn.textContent.trim(), 10) || targetYear;
+        const monthTxt = normalizarTexto(monthBtn.textContent.trim());
+        const currentMonthIndex = MESES_PT.findIndex(nm => monthTxt.includes(nm));
+
+        if (currentMonthIndex !== -1 && !isNaN(currentYear)) {
+          const diffMonths = (targetYear - currentYear) * 12 + (targetMonthIndex - currentMonthIndex);
+          if (diffMonths > 0 && nextBtn) {
+            for (let i = 0; i < diffMonths; i++) {
+              nextBtn.click();
+            }
+          } else if (diffMonths < 0 && prevBtn) {
+            for (let i = 0; i < Math.abs(diffMonths); i++) {
+              prevBtn.click();
+            }
+          }
+        }
+      }
+
+      // 3. Busca a célula do dia alvo
+      const targetDataDates = [
+        `${targetYear}-${targetMonthIndex}-${targetDay}`,
+        `${targetYear}-${m}-${targetDay}`,
+        `${targetYear}-${String(targetMonthIndex).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`,
+        `${targetYear}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
+      ];
+
+      let cell = null;
+      for (const dd of targetDataDates) {
+        const found = document.querySelector(`.p-datepicker-day[data-date="${dd}"], [data-date="${dd}"]`);
+        if (found && !found.closest('.p-datepicker-other-month')) {
+          cell = found;
+          break;
+        }
+      }
+
+      // Fallback: procura pelo número do dia na grade do mês atual
+      if (!cell) {
+        const daySpans = document.querySelectorAll('.p-datepicker-day-cell:not(.p-datepicker-other-month) .p-datepicker-day, .p-datepicker-day:not(.p-datepicker-other-month)');
+        for (const sp of daySpans) {
+          if (sp.textContent.trim() === String(targetDay)) {
+            cell = sp;
+            break;
+          }
+        }
+      }
+
+      if (cell) {
+        console.log(`[Belle Interceptor] ✅ Célula da data ${dataIso} encontrada no PrimeNG! Disparando clique...`);
+        cell.click();
+        cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
+      }
+
+      if (tentativas < 8) {
+        setTimeout(tentarNavegarEClicar, 60);
+      }
+    };
+
+    setTimeout(tentarNavegarEClicar, 40);
+  }
+
   // 3. Ouvinte de comandos de navegação de data (disparados pelo Copilot)
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.type !== "BELLE_NAVIGATE_DATE_MAIN") return;
@@ -166,133 +273,10 @@
     console.log("[Belle Interceptor] 🧭 Navegando data na interface do Belle:", dataIso, dataBr);
 
     try {
-      const [y, m, d] = dataIso.split("-").map(Number);
-      const dtObj = new Date(y, m - 1, d);
-      const dataBrFormatada = dataBr || `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+      // 1. Simula clique no PrimeNG Datepicker da interface do Belle
+      selecionarDataNoPrimeNGBelle(dataIso);
 
-      // A. FullCalendar (v3, v4, v5, v6)
-      if (window.jQuery || window.$) {
-        const $ = window.jQuery || window.$;
-        try { $('#calendar, #agenda, .fc, [ui-calendar], [id*="calendar"], [id*="agenda"]').fullCalendar('gotoDate', dataIso); } catch (e) {}
-        try { $('#calendar, #agenda, .fc, [ui-calendar], [id*="calendar"], [id*="agenda"]').fullCalendar('gotoDate', dtObj); } catch (e) {}
-      }
-
-      const fcElements = document.querySelectorAll('.fc, #calendar, #agenda, [id*="calendar"], [id*="agenda"], [class*="fc-"]');
-      fcElements.forEach(el => {
-        try {
-          if (el._calendar && typeof el._calendar.gotoDate === "function") el._calendar.gotoDate(dataIso);
-          if (el.__fullCalendar && typeof el.__fullCalendar.gotoDate === "function") el.__fullCalendar.gotoDate(dataIso);
-        } catch (e) {}
-      });
-
-      if (window.calendar && typeof window.calendar.gotoDate === "function") {
-        try { window.calendar.gotoDate(dataIso); } catch (e) {}
-      }
-      if (window.scheduler && typeof window.scheduler.setCurrentView === "function") {
-        try { window.scheduler.setCurrentView(dtObj); } catch (e) {}
-      }
-
-      // B. AngularJS (Deep scope and rootScope inspection)
-      if (window.angular) {
-        const allAngularEls = document.querySelectorAll('[ng-controller], [ng-app], [ui-view], [ng-view], #calendar, #agenda, #dtAgenda, #dataAgenda, input[ng-model*="data"], input[ng-model*="dt"], body');
-        allAngularEls.forEach(el => {
-          try {
-            const scope = window.angular.element(el).scope();
-            if (scope) {
-              let alterou = false;
-              ['dtAgenda', 'dataAgenda', 'data', 'dt_agenda', 'data_agenda', 'dtConsulta', 'dataConsulta'].forEach(k => {
-                if (scope[k] !== undefined) {
-                  scope[k] = (typeof scope[k] === 'object' && scope[k] instanceof Date) ? dtObj : dataIso;
-                  alterou = true;
-                }
-              });
-
-              if (scope.filtro && typeof scope.filtro === 'object') {
-                ['dtAgenda', 'dataAgenda', 'data', 'dt', 'data_agenda', 'dt_agenda'].forEach(k => {
-                  if (scope.filtro[k] !== undefined) {
-                    scope.filtro[k] = (typeof scope.filtro[k] === 'object' && scope.filtro[k] instanceof Date) ? dtObj : dataIso;
-                    alterou = true;
-                  }
-                });
-              }
-
-              if (scope.vm && typeof scope.vm === 'object') {
-                ['dtAgenda', 'dataAgenda', 'data', 'dt_agenda', 'data_agenda'].forEach(k => {
-                  if (scope.vm[k] !== undefined) {
-                    scope.vm[k] = (typeof scope.vm[k] === 'object' && scope.vm[k] instanceof Date) ? dtObj : dataIso;
-                    alterou = true;
-                  }
-                });
-                if (scope.vm.filtro && typeof scope.vm.filtro === 'object') {
-                  ['dtAgenda', 'dataAgenda', 'data', 'dt'].forEach(k => {
-                    if (scope.vm.filtro[k] !== undefined) {
-                      scope.vm.filtro[k] = dataIso;
-                      alterou = true;
-                    }
-                  });
-                }
-                ['buscarAgenda', 'carregarAgenda', 'buscar', 'pesquisar', 'carregar', 'consultar', 'consultarAgenda', 'filtrar'].forEach(fn => {
-                  if (typeof scope.vm[fn] === 'function') {
-                    try { scope.vm[fn](dataIso); } catch (e) {}
-                  }
-                });
-              }
-
-              ['buscarAgenda', 'carregarAgenda', 'buscar', 'pesquisar', 'carregar', 'consultar', 'consultarAgenda', 'filtrar', 'getAgenda'].forEach(fn => {
-                if (typeof scope[fn] === 'function') {
-                  try { scope[fn](dataIso); } catch (e) {}
-                }
-              });
-
-              const rootScope = scope.$root || scope;
-              if (rootScope && typeof rootScope.$broadcast === "function") {
-                rootScope.$broadcast("MUDOU_DATA_AGENDA", dataIso);
-                rootScope.$broadcast("CARREGAR_AGENDA", dataIso);
-                rootScope.$broadcast("BUSCAR_AGENDA", dataIso);
-                rootScope.$broadcast("agenda:changeDate", dataIso);
-              }
-
-              if (alterou) {
-                if (scope.$applyAsync) scope.$applyAsync();
-                else if (scope.$apply) scope.$apply();
-              }
-            }
-          } catch(e) {}
-        });
-      }
-
-      // C. Inputs e Datepickers no DOM
-      const dateInputs = document.querySelectorAll(
-        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, #data, #txtData, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"], input[placeholder*="DD/MM"], input[placeholder*="dd/mm"], .hasDatepicker'
-      );
-      dateInputs.forEach(inp => {
-        try {
-          if (inp.type === "date") {
-            inp.value = dataIso;
-          } else {
-            inp.value = dataBrFormatada;
-          }
-          inp.dispatchEvent(new Event("input", { bubbles: true }));
-          inp.dispatchEvent(new Event("change", { bubbles: true }));
-          inp.dispatchEvent(new Event("blur", { bubbles: true }));
-        } catch (e) {}
-      });
-
-      if (window.jQuery || window.$) {
-        const $ = window.jQuery || window.$;
-        try {
-          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data, input[name*="data"], input[name*="dt"], .hasDatepicker').datepicker('setDate', dataBrFormatada);
-          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data, input[name*="data"], input[name*="dt"], .hasDatepicker').trigger('change');
-        } catch (e) {}
-      }
-
-      // D. Botões de busca / pesquisa
-      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, #btn-pesquisar, button[ng-click*="buscar"], button[ng-click*="pesquisar"], .btn-search, .btn-buscar, button[type="submit"]');
-      if (btnBuscar) {
-        btnBuscar.click();
-      }
-
-      // E. Atualiza atributo global
+      // 2. Atualiza atributo global de data
       document.documentElement.setAttribute("data-belle-agenda-date", dataIso);
     } catch (err) {
       console.warn("[Belle Interceptor] Erro ao alterar data na página:", err);

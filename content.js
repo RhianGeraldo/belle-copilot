@@ -586,6 +586,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
+
+  if (request.action === "BELLE_NAVIGATE_DATE_IN_PAGE") {
+    const dataIso = request.dataIso;
+    const dataBr = request.dataBr || (function(iso) {
+      if (!iso) return "";
+      const [y, m, d] = iso.split("-");
+      return `${d}/${m}/${y}`;
+    })(dataIso);
+
+    console.log("[Agenda Assistant] 🧭 Repassando comando para navegar data no Belle:", dataIso, dataBr);
+
+    // Repassa para o interceptor no MAIN world
+    window.postMessage({
+      type: "BELLE_NAVIGATE_DATE_MAIN",
+      dataIso: dataIso,
+      dataBr: dataBr
+    }, "*");
+
+    // Também dispara no DOM isolado caso os inputs estejam acessíveis
+    try {
+      const dateInputs = document.querySelectorAll(
+        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"]'
+      );
+      dateInputs.forEach(inp => {
+        if (inp.type === "date") {
+          inp.value = dataIso;
+        } else {
+          inp.value = dataBr;
+        }
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, button[ng-click*="buscar"], button[ng-click*="pesquisar"]');
+      if (btnBuscar) btnBuscar.click();
+    } catch(e) {}
+
+    sendResponse({ success: true });
+    return true;
+  }
 });
 
 // Consulta parâmetros gerais da empresa (logo_empresa, configurações)

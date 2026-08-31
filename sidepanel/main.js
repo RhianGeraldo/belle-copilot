@@ -239,14 +239,33 @@ export async function sincronizarSessao() {
   }
 }
 
-export async function navegarParaDataAgenda(dataIso) {
+export async function navegarParaDataAgenda(dataIso, dataBr) {
   if (!dataIso) return;
-  console.log(`[BelleCopilot] 📅 Navegando para data da agenda: ${dataIso}`);
+  console.log(`[BelleCopilot] 📅 Navegando para data da agenda: ${dataIso} (${dataBr || ''})`);
   state.currentDataAgenda = dataIso;
   
   ativarModulo("module-agenda");
   ativarAba("tab-agenda");
 
+  // 1. Notifica a aba do Belle Software para atualizar a data na tela principal do Belle
+  try {
+    const belleTab = await getBelleTab();
+    if (belleTab?.id) {
+      safeSendMessageToTab(belleTab.id, {
+        action: "BELLE_NAVIGATE_DATE_IN_PAGE",
+        dataIso: dataIso,
+        dataBr: dataBr
+      });
+      // Foca na aba do Belle para visualização imediata da grade
+      if (chrome.tabs && chrome.tabs.update) {
+        chrome.tabs.update(belleTab.id, { active: true });
+      }
+    }
+  } catch (e) {
+    console.warn("Erro ao enviar comando de data para aba do Belle:", e);
+  }
+
+  // 2. Atualiza a timeline interna do Sidepanel
   const loadingAgendaEl = document.getElementById("loading-agenda");
   const agendaTimelineEl = document.getElementById("agenda-timeline-container");
   const agendaEmptyEl = document.getElementById("agenda-empty-state");
@@ -276,8 +295,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Configura modal de agendamento com callback de navegação
   configurarModalAgendarProxima({
-    onVerNaAgenda: (dataIso) => {
-      navegarParaDataAgenda(dataIso);
+    onVerNaAgenda: (dataIso, dataBr) => {
+      navegarParaDataAgenda(dataIso, dataBr);
     }
   });
 

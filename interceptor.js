@@ -156,4 +156,84 @@
     } catch (e) {}
     return response;
   };
+
+  // 3. Ouvinte de comandos de navegação de data (disparados pelo Copilot)
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || !event.data || event.data.type !== "BELLE_NAVIGATE_DATE_MAIN") return;
+    const { dataIso, dataBr } = event.data;
+    if (!dataIso) return;
+
+    console.log("[Belle Interceptor] 🧭 Navegando data na interface do Belle:", dataIso, dataBr);
+
+    try {
+      // 1. Atualiza inputs de data nativos e com ng-model / datepicker
+      const dateInputs = document.querySelectorAll(
+        'input[type="date"], input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, #data_agenda, input[name*="data"], input[name*="dt"], input[ng-model*="data"], input[ng-model*="dt"], input[placeholder*="DD/MM"]'
+      );
+      dateInputs.forEach(inp => {
+        if (inp.type === "date") {
+          inp.value = dataIso;
+        } else {
+          inp.value = dataBr || dataIso;
+        }
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      // 2. jQuery Datepicker se disponível
+      if (window.jQuery || window.$) {
+        const $ = window.jQuery || window.$;
+        try {
+          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, input[name*="data"], input[name*="dt"]').datepicker('setDate', dataBr || dataIso);
+          $('input.datepicker, input.date-picker, #dtAgenda, #dataAgenda, input[name*="data"], input[name*="dt"]').trigger('change');
+        } catch (e) {}
+      }
+
+      // 3. AngularJS scope se disponível
+      if (window.angular) {
+        const els = document.querySelectorAll('[ng-controller], [ng-app], #dtAgenda, #dataAgenda, input[ng-model*="data"], input[ng-model*="dt"], body');
+        for (const el of els) {
+          try {
+            const scope = window.angular.element(el).scope();
+            if (scope) {
+              if (scope.dtAgenda !== undefined) scope.dtAgenda = dataIso;
+              if (scope.dataAgenda !== undefined) scope.dataAgenda = dataIso;
+              if (scope.data !== undefined && typeof scope.data === "string") scope.data = dataIso;
+              if (scope.filtro && typeof scope.filtro === "object") {
+                if (scope.filtro.dtAgenda !== undefined) scope.filtro.dtAgenda = dataIso;
+                if (scope.filtro.data !== undefined) scope.filtro.data = dataIso;
+              }
+              if (typeof scope.buscarAgenda === "function") scope.buscarAgenda();
+              else if (typeof scope.pesquisar === "function") scope.pesquisar();
+              else if (typeof scope.carregarAgenda === "function") scope.carregarAgenda();
+              else if (typeof scope.atualizar === "function") scope.atualizar();
+
+              if (scope.$applyAsync) scope.$applyAsync();
+              else if (scope.$apply) scope.$apply();
+            }
+          } catch(e) {}
+        }
+      }
+
+      // 4. FullCalendar ou DHTMLX Scheduler se disponível
+      if (window.calendar && typeof window.calendar.gotoDate === "function") {
+        window.calendar.gotoDate(dataIso);
+      }
+      if (window.scheduler && typeof window.scheduler.setCurrentView === "function") {
+        const [y, m, d] = dataIso.split("-").map(Number);
+        window.scheduler.setCurrentView(new Date(y, m - 1, d));
+      }
+
+      // 5. Clica no botão pesquisar/buscar da agenda se existir
+      const btnBuscar = document.querySelector('#btnBuscar, #btnPesquisar, #btn-buscar, #btn-pesquisar, button[ng-click*="buscar"], button[ng-click*="pesquisar"], .btn-search, .btn-buscar');
+      if (btnBuscar) {
+        btnBuscar.click();
+      }
+
+      // 6. Atualiza atributo no documentElement
+      document.documentElement.setAttribute("data-belle-agenda-date", dataIso);
+    } catch (err) {
+      console.warn("[Belle Interceptor] Erro ao alterar data na página:", err);
+    }
+  });
 })();

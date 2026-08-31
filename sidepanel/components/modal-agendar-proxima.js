@@ -51,6 +51,7 @@ const btnVerNaAgendaSucesso = document.getElementById("btn-ver-na-agenda-sucesso
 let callbackSalvar = null;
 let callbackVerNaAgenda = null;
 let ultimoDataIsoAgendada = "";
+let ultimoDataBrAgendada = "";
 let currentAppAgendamento = null;
 let tipoProcedimentoAtual = "depilacao";
 let debounceDisponibilidadeTimer = null;
@@ -886,6 +887,7 @@ export function fecharModalSucesso() {
 export function abrirModalSucesso(clienteNome, dataBr, dataIso, nomeSala, planosAgendados) {
   if (!modalAgendamentoSucesso) return;
   ultimoDataIsoAgendada = dataIso || "";
+  ultimoDataBrAgendada = dataBr || "";
 
   if (modalSucessoSubtitulo) {
     modalSucessoSubtitulo.innerHTML = `Sessão cadastrada com sucesso para <strong>${clienteNome || 'a cliente'}</strong> no Belle Software:`;
@@ -947,7 +949,7 @@ btnFecharModalSucesso?.addEventListener("click", () => {
 btnVerNaAgendaSucesso?.addEventListener("click", () => {
   fecharModalSucesso();
   if (typeof callbackVerNaAgenda === "function" && ultimoDataIsoAgendada) {
-    callbackVerNaAgenda(ultimoDataIsoAgendada);
+    callbackVerNaAgenda(ultimoDataIsoAgendada, ultimoDataBrAgendada);
   }
 });
 

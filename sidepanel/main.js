@@ -29,10 +29,7 @@ import {
   renderizarServicosComSaldo, 
   inicializarAtendimentoView 
 } from './views/atendimento-view.js';
-import { 
-  renderizarPainelComercial, 
-  inicializarComercialView 
-} from './views/comercial-view.js';
+import { inicializarComercialView } from './views/comercial-view.js';
 import { 
   carregarSucessoCliente, 
   renderizarCsView, 
@@ -97,19 +94,14 @@ export function ativarAba(targetId) {
       carregarOportunidades();
     }
   } else if (targetId === "tab-comercial" || targetId === "tab-vendas") {
+    // O módulo Comercial tem uma aba só; "tab-comercial" continua aceito como apelido.
     ativarModulo("module-comercial");
-
-    document.querySelectorAll("#comercial-sub-tabs .sub-tab-item").forEach(b => {
-      b.classList.toggle("active", b.getAttribute("data-target") === targetId);
-    });
     document.querySelectorAll("#module-comercial .tab-content").forEach(tc => {
-      tc.classList.toggle("active", tc.id === targetId);
+      tc.classList.toggle("active", tc.id === "tab-vendas");
     });
 
-    if (targetId === "tab-vendas") {
-      // O funil vive do vendasplanos (90 dias), não da agenda: carrega ao abrir a aba.
-      carregarVendas();
-    }
+    // O funil vive do vendasplanos, não da agenda: carrega ao abrir.
+    carregarVendas();
   } else if (targetId === "tab-config") {
     const tabConfig = document.getElementById("tab-config");
     if (tabConfig) {
@@ -223,7 +215,6 @@ export async function sincronizarSessao() {
       state.currentUserOriginalRole = perfilDetectado;
       aplicarVisualizacaoPorPerfil(perfilDetectado, {
         onAtivarAba: ativarAba,
-        onRenderizarComercial: renderizarPainelComercial
       });
 
       if (sessionStatus) {
@@ -282,7 +273,6 @@ export async function sincronizarSessao() {
         if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
         if (agendaEmptyState) agendaEmptyState.style.display = "none";
         renderizarAgenda();
-        renderizarPainelComercial();
         atualizarKpis();
       } else {
         if (loadingAgenda) loadingAgenda.style.display = "none";
@@ -308,7 +298,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // então voltar ao Comercial reabria "Vendas & Resgate" com a barra dessincronizada.
   const ABA_INICIAL_DO_MODULO = {
     "module-agenda": "tab-agenda",
-    "module-comercial": "tab-comercial"
+    "module-comercial": "tab-vendas"
   };
 
   const moduleNavBtns = document.querySelectorAll(".module-nav-btn");
@@ -318,10 +308,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!targetModule) return;
 
       ativarAba(ABA_INICIAL_DO_MODULO[targetModule] || targetModule);
-
-      if (targetModule === "module-comercial") {
-        renderizarPainelComercial();
-      }
     });
   });
 
@@ -339,7 +325,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const novoPerfil = e.target.value;
     aplicarVisualizacaoPorPerfil(novoPerfil, {
       onAtivarAba: ativarAba,
-      onRenderizarComercial: renderizarPainelComercial
     });
   });
 
@@ -482,7 +467,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     if (agendaEmptyState) agendaEmptyState.style.display = "none";
     
     renderizarAgenda();
-    renderizarPainelComercial();
     atualizarKpis();
 
     // O CS acompanha a mesma unidade da agenda (sem recarga forçada: a unidade não mudou aqui).
@@ -500,7 +484,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
           if (agendaEmptyState) agendaEmptyState.style.display = "none";
           renderizarAgenda();
-          renderizarPainelComercial();
           atualizarKpis();
         }
       }).catch(() => {

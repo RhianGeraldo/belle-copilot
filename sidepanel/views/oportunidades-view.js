@@ -15,8 +15,8 @@
 
 import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
-import { prepararOrcamentos, formatarReal } from '../engines/cadencia-vendas.js';
-import { htmlCardOrcamento, escaparHtml } from '../components/card-orcamento.js';
+import { prepararOrcamentos } from '../engines/cadencia-vendas.js';
+import { htmlCardOrcamento } from '../components/card-orcamento.js';
 
 const JANELA_DIAS = 30;
 const FILAS_DA_APLICADORA = ["aguardando", "pendente"];

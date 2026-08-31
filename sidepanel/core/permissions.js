@@ -84,7 +84,7 @@ export function aplicarVisibilidadeGerencial() {
   if (rankingVendas) rankingVendas.style.display = gerente ? "block" : "none";
 }
 
-export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba, onRenderizarComercial }) {
+export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba } = {}) {
   state.currentUserRole = perfil;
   console.log(`[PERFIL] 👤 Aplicando modo de visualização: ${perfil.toUpperCase()}`);
 
@@ -129,7 +129,6 @@ export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba, onRenderizar
     }
 
     if (typeof onAtivarAba === "function") onAtivarAba("tab-comercial");
-    if (typeof onRenderizarComercial === "function") onRenderizarComercial();
   } else {
     // 👑 Modo Gerente: Exibe barra superior com Módulos (Agenda | Comercial)
     if (mainModuleNav) mainModuleNav.style.display = "flex";
@@ -144,6 +143,5 @@ export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba, onRenderizar
     if (tabModuleAgenda) tabModuleAgenda.classList.add("active");
     if (tabModuleComercial) tabModuleComercial.classList.remove("active");
 
-    if (typeof onRenderizarComercial === "function") onRenderizarComercial();
   }
 }

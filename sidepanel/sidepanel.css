@@ -828,7 +828,6 @@ label[for] {
 #tab-atendimento.active,
 #tab-cs.active,
 #tab-oportunidades.active,
-#tab-comercial.active,
 #tab-vendas.active,
 #tab-config.active {
   display: flex;

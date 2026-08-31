@@ -3,7 +3,7 @@
  */
 
 import { state } from '../core/state.js';
-import { listarCache, limparCache, formatarIdade, TTL_CACHE } from '../core/cache-persistente.js';
+import { listarCache, limparCache, formatarIdade } from '../core/cache-persistente.js';
 
 const inputTokenManual = document.getElementById("input-token-manual");
 const inputCodEstab = document.getElementById("input-cod-estab");

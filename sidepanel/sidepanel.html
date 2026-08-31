@@ -488,95 +488,13 @@
     <!-- MÓDULO 2: COMERCIAL & VENDAS                             -->
     <!-- ========================================================= -->
     <div id="module-comercial" class="module-container" style="display: none;">
-      <!-- Sub-Abas do Comercial: Oportunidades do Dia (agenda) e Vendas & Resgate (vendasplanos) -->
-      <nav class="agenda-sub-tabs" id="comercial-sub-tabs">
-        <button class="sub-tab-item active" data-target="tab-comercial" id="tab-nav-comercial">
-          🎯 Oportunidades do Dia
-        </button>
-        <button class="sub-tab-item" data-target="tab-vendas" id="tab-nav-vendas">
-          💰 Vendas &amp; Resgate <span class="badge-tab-count" id="badge-vendas-total" style="display: none;">0</span>
-        </button>
-      </nav>
 
       <div class="tabs-scroll-container">
         <!-- TAB COMERCIAL: PAINEL DA CONSULTORA (OPORTUNIDADES DO DIA)-->
-        <section id="tab-comercial" class="tab-content active">
-          <!-- Card 1: Resumo do Funil Comercial do Dia -->
-          <div class="card comercial-kpi-card">
-            <div class="card-section-title-flex">
-              <div class="title-with-icon">
-                <span class="icon-bubble" style="background: #fef08a; color: #854d0e;">🎯</span>
-                <span style="font-weight: 800; color: #0f172a;">Painel da Consultora (Vendas do Dia)</span>
-              </div>
-              <span class="badge-count-pill" id="comercial-qtd-oportunidades" style="background: #fef9c3; color: #a16207;">0 oportunidades</span>
-            </div>
-            <p style="font-size: 11.5px; color: #64748b; margin-bottom: 10px;">
-              Acompanhamento estratégico de clientes do dia, renovações de pacotes e cross-sell.
-            </p>
-
-            <div class="comercial-kpi-grid">
-              <div class="com-kpi-box">
-                <span class="com-kpi-lbl">Reta Final (Renovação)</span>
-                <strong class="com-kpi-val" id="com-kpi-reta-final" style="color: #b45309;">0</strong>
-              </div>
-              <div class="com-kpi-box">
-                <span class="com-kpi-lbl">Aniversariantes</span>
-                <strong class="com-kpi-val" id="com-kpi-aniver" style="color: #db2777;">0</strong>
-              </div>
-              <div class="com-kpi-box">
-                <span class="com-kpi-lbl">Novas Áreas / Cross-sell</span>
-                <strong class="com-kpi-val" id="com-kpi-cross" style="color: #16a34a;">0</strong>
-              </div>
-            </div>
-          </div>
-
-          <!-- Card 2: Busca Rápida de Ficha & Saldo da Cliente -->
-          <div class="card">
-            <div class="card-section-title-flex">
-              <div class="title-with-icon">
-                <span class="icon-bubble">🔍</span>
-                <span>Consultar Ficha / Saldo da Paciente</span>
-              </div>
-            </div>
-            <div class="form-group" style="display: flex; gap: 6px; margin-bottom: 8px;">
-              <input 
-                type="text" 
-                id="input-busca-saldo-comercial" 
-                placeholder="Buscar por nome, telefone ou CPF..." 
-                class="form-input" 
-                style="flex: 1; font-size: 12px;"
-              >
-              <button id="btn-buscar-saldo-comercial" class="btn btn-primary" style="padding: 6px 12px; font-size: 11.5px;">
-                Buscar
-              </button>
-            </div>
-
-            <div id="loading-saldo-comercial" class="spinner-container" style="display: none; margin: 8px 0;">
-              <div class="spinner"></div>
-              <span>Consultando ficha financeira...</span>
-            </div>
-
-            <div id="resultado-saldo-comercial" style="margin-top: 8px; display: none;"></div>
-          </div>
-
-          <!-- Card 3: Lista de Oportunidades do Dia -->
-          <div class="card">
-            <div class="card-section-title-flex">
-              <div class="title-with-icon">
-                <span class="icon-bubble" style="background: #e0f2fe; color: #0369a1;">📋</span>
-                <span>Oportunidades de Vendas de Hoje</span>
-              </div>
-              <span class="badge-count-pill" id="com-badge-total-opp">0</span>
-            </div>
-
-            <div id="lista-oportunidades-comercial" class="comercial-opp-list">
-              <div style="font-size: 11px; color: #64748b; padding: 6px;">Nenhuma oportunidade gerada ainda para hoje.</div>
-            </div>
-          </div>
-        </section>
+        
       
         <!-- SUB-ABA: VENDAS & RESGATE DE ORÇAMENTOS (vendasplanos, últimos 90 dias) -->
-        <section id="tab-vendas" class="tab-content">
+        <section id="tab-vendas" class="tab-content active">
           <!-- KPIs do funil -->
           <div class="card">
             <div class="card-section-title-flex">
@@ -631,6 +549,34 @@
 
             <div id="vendas-empty-state" style="display: none; font-size: 11.5px; color: #64748b; padding: 10px 4px;"></div>
             <div id="vendas-cards-container" class="vendas-cards"></div>
+          </div>
+        
+          <div class="card">
+            <div class="card-section-title-flex">
+              <div class="title-with-icon">
+                <span class="icon-bubble">🔍</span>
+                <span>Consultar Ficha / Saldo da Paciente</span>
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; gap: 6px; margin-bottom: 8px;">
+              <input 
+                type="text" 
+                id="input-busca-saldo-comercial" 
+                placeholder="Buscar por nome, telefone ou CPF..." 
+                class="form-input" 
+                style="flex: 1; font-size: 12px;"
+              >
+              <button id="btn-buscar-saldo-comercial" class="btn btn-primary" style="padding: 6px 12px; font-size: 11.5px;">
+                Buscar
+              </button>
+            </div>
+
+            <div id="loading-saldo-comercial" class="spinner-container" style="display: none; margin: 8px 0;">
+              <div class="spinner"></div>
+              <span>Consultando ficha financeira...</span>
+            </div>
+
+            <div id="resultado-saldo-comercial" style="margin-top: 8px; display: none;"></div>
           </div>
         </section>
       </div>

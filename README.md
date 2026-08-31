@@ -30,6 +30,13 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - Consolidação de múltiplas áreas tratadas pela mesma cliente em um único card com link direto do WhatsApp (`wa.me`) e script clínico pronto.
    - Controle de contato diário ("Marcar como Feito") com persistência local.
 
+5. **Vendas & Resgate de Orçamentos (Funil Comercial)**:
+   - Sub-aba no módulo Comercial alimentada pelo `vendasplanos` dos **últimos 90 dias**.
+   - KPIs do funil: aprovado no período, **valor parado a resgatar**, taxa de conversão, ticket médio, desconto médio e cortesias.
+   - Duas filas de trabalho separadas: **🔥 Aguardando** (link de pagamento gerado — cadência D+0/D+1/D+3) e **💬 Pendente** (orçamento apresentado — D+1/D+3/D+7/D+15/D+30), além de Suspenso.
+   - Cada card traz a etapa da cadência vencendo hoje, script pronto de WhatsApp, valor, desconto, consultora responsável e controle diário de "contatada".
+   - Ranking por consultora: fechados, taxa de conversão e valor ainda em aberto.
+
 ---
 
 ## 📁 Estrutura do Projeto
@@ -53,16 +60,19 @@ belle-copilot/
     ├── core/                  # Estado global, sessão, RBAC e cliente de API
     │   ├── state.js
     │   ├── session.js          # Unidade logada + usuário ativo do Belle
+    │   ├── cache-persistente.js # Cache de cadastro em chrome.storage.local
     │   ├── permissions.js
     │   └── api-client.js
     ├── engines/               # Motores de regras clínicas e comerciais
     │   ├── cadencia-ofertas.js
+    │   ├── cadencia-vendas.js  # Filas de resgate e cadência de follow-up
     │   └── laser-safety.js
     ├── views/                 # Módulos de visualização
     │   ├── agenda-view.js
     │   ├── atendimento-view.js
     │   ├── comercial-view.js
     │   ├── cs-view.js
+    │   ├── vendas-view.js
     │   └── config-view.js
     └── components/            # Modais e componentes reutilizáveis
         ├── modal-trava.js

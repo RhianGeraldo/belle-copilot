@@ -453,6 +453,16 @@
     <!-- MÓDULO 2: COMERCIAL & VENDAS                             -->
     <!-- ========================================================= -->
     <div id="module-comercial" class="module-container" style="display: none;">
+      <!-- Sub-Abas do Comercial: Oportunidades do Dia (agenda) e Vendas & Resgate (vendasplanos) -->
+      <nav class="agenda-sub-tabs" id="comercial-sub-tabs">
+        <button class="sub-tab-item active" data-target="tab-comercial" id="tab-nav-comercial">
+          🎯 Oportunidades do Dia
+        </button>
+        <button class="sub-tab-item" data-target="tab-vendas" id="tab-nav-vendas">
+          💰 Vendas &amp; Resgate <span class="badge-tab-count" id="badge-vendas-total" style="display: none;">0</span>
+        </button>
+      </nav>
+
       <div class="tabs-scroll-container">
         <!-- TAB COMERCIAL: PAINEL DA CONSULTORA (OPORTUNIDADES DO DIA)-->
         <section id="tab-comercial" class="tab-content active">
@@ -527,6 +537,64 @@
             <div id="lista-oportunidades-comercial" class="comercial-opp-list">
               <div style="font-size: 11px; color: #64748b; padding: 6px;">Nenhuma oportunidade gerada ainda para hoje.</div>
             </div>
+          </div>
+        </section>
+      
+        <!-- SUB-ABA: VENDAS & RESGATE DE ORÇAMENTOS (vendasplanos, últimos 90 dias) -->
+        <section id="tab-vendas" class="tab-content">
+          <!-- KPIs do funil -->
+          <div class="card">
+            <div class="card-section-title-flex">
+              <div class="title-with-icon">
+                <span class="icon-bubble" style="background: #dcfce7; color: #166534;">💰</span>
+                <span style="font-weight: 800; color: #0f172a;">Funil de Vendas &amp; Resgate</span>
+              </div>
+              <button id="btn-refresh-vendas" class="btn-action-mini" title="Recarregar orçamentos">🔄 Atualizar</button>
+            </div>
+            <p id="vendas-resumo-periodo" style="font-size: 11px; color: #64748b; margin: 4px 0 10px 0;">
+              Carregando orçamentos dos últimos 90 dias...
+            </p>
+
+            <div class="vendas-kpi-grid">
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">Aprovado no período</span>
+                <strong class="vendas-kpi-val" id="vendas-kpi-faturamento" style="color: #15803d;">—</strong>
+              </div>
+              <div class="vendas-kpi-box vendas-kpi-destaque">
+                <span class="vendas-kpi-lbl">💸 Parado (a resgatar)</span>
+                <strong class="vendas-kpi-val" id="vendas-kpi-aberto" style="color: #b45309;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">Conversão</span>
+                <strong class="vendas-kpi-val" id="vendas-kpi-conversao">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">Ticket médio</span>
+                <strong class="vendas-kpi-val" id="vendas-kpi-ticket">—</strong>
+              </div>
+            </div>
+
+            <div id="vendas-ranking" class="vendas-ranking"></div>
+          </div>
+
+          <!-- Filas de follow-up -->
+          <div class="card">
+            <div class="vendas-filtros">
+              <button class="vendas-filter-btn active" data-fila="aguardando">🔥 Aguardando <span class="vendas-filter-count">0</span></button>
+              <button class="vendas-filter-btn" data-fila="pendente">💬 Pendente <span class="vendas-filter-count">0</span></button>
+              <button class="vendas-filter-btn" data-fila="suspenso">⏸️ Suspenso <span class="vendas-filter-count">0</span></button>
+              <button class="vendas-filter-btn" data-fila="aprovado">✅ Aprovado <span class="vendas-filter-count">0</span></button>
+            </div>
+
+            <input type="text" id="vendas-input-busca" class="form-input" placeholder="🔍 Buscar por cliente, plano ou consultora..." style="margin-bottom: 8px;">
+
+            <div id="loading-vendas" class="loading-box" style="display: none;">
+              <div class="spinner"></div>
+              <span>Carregando orçamentos...</span>
+            </div>
+
+            <div id="vendas-empty-state" style="display: none; font-size: 11.5px; color: #64748b; padding: 10px 4px;"></div>
+            <div id="vendas-cards-container" class="vendas-cards"></div>
           </div>
         </section>
       </div>

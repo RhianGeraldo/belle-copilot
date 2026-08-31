@@ -39,6 +39,7 @@ import {
   inicializarCsView 
 } from './views/cs-view.js';
 import { inicializarConfigView } from './views/config-view.js';
+import { carregarVendas, inicializarVendasView } from './views/vendas-view.js';
 
 // Elementos de Identificação
 const userDisplayName = document.getElementById("user-display-name");
@@ -91,10 +92,20 @@ export function ativarAba(targetId) {
     if (targetId === "tab-cs") {
       renderizarCsView();
     }
-  } else if (targetId === "tab-comercial") {
+  } else if (targetId === "tab-comercial" || targetId === "tab-vendas") {
     ativarModulo("module-comercial");
-    const comTab = document.getElementById("tab-comercial");
-    if (comTab) comTab.classList.add("active");
+
+    document.querySelectorAll("#comercial-sub-tabs .sub-tab-item").forEach(b => {
+      b.classList.toggle("active", b.getAttribute("data-target") === targetId);
+    });
+    document.querySelectorAll("#module-comercial .tab-content").forEach(tc => {
+      tc.classList.toggle("active", tc.id === targetId);
+    });
+
+    if (targetId === "tab-vendas") {
+      // O funil vive do vendasplanos (90 dias), não da agenda: carrega ao abrir a aba.
+      carregarVendas();
+    }
   } else if (targetId === "tab-config") {
     const tabConfig = document.getElementById("tab-config");
     if (tabConfig) {
@@ -339,6 +350,8 @@ document.addEventListener("DOMContentLoaded", () => {
   inicializarComercialView();
 
   inicializarCsView();
+
+  inicializarVendasView();
 
   inicializarConfigView({
     onAtivarAba: ativarAba,

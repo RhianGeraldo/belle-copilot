@@ -399,6 +399,66 @@ export async function buscarParametrosLaserApi(token, codCliente, codEstab = "1"
   return [];
 }
 
+/**
+ * Lista os orçamentos/vendas de planos de um período (funil comercial).
+ *
+ * Réplica exata da chamada que o Belle faz na tela "venda-plano", só que com `limit`
+ * maior: o painel precisa do período inteiro de uma vez para montar as filas de resgate.
+ * As datas vão como `YYYY-MM-DDT03:00:00.000Z` (meia-noite de Brasília), igual ao Belle.
+ * Pagina sozinho enquanto houver registros além do limite.
+ */
+export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso, opcoes = {}) {
+  const authTok = token || state.currentToken || "";
+  if (!authTok) return { registros: [], total: 0 };
+
+  const { limitePorPagina = 100, maxRegistros = 400, status = "" } = opcoes;
+
+  const montarUrl = (offset) => {
+    const params = new URLSearchParams({
+      dtIni: `${dataIniIso}T03:00:00.000Z`,
+      dtFim: `${dataFimIso}T03:00:00.000Z`,
+      codEstab: ETB_FIXO_GRADE,
+      codCliente: "", codVendedor: "", codOrc: "",
+      status: status || "",
+      origem: "Ambos",
+      tpPlan: "", pfCmp: "", ckClass: "1", rating: "0", nomePlan: "", ord: "", cres: "0",
+      vencidos: "0", tpDt: "0", codCamp: "", indicacao: "", ckFinan: "0",
+      somenteCortesia: "0", valorIni: "0", valorFim: "0", contrato: "",
+      limit: String(limitePorPagina),
+      offset: String(offset),
+      somenteSaldo: "0",
+      estabGeral: "1"
+    });
+    return `https://app.bellesoftware.com.br/api/release/controller/Plano/v1.0/vendasplanos?${params.toString()}`;
+  };
+
+  const todos = [];
+  let total = 0;
+
+  try {
+    for (let offset = 0; offset < maxRegistros; offset += limitePorPagina) {
+      const res = await fetch(montarUrl(offset), {
+        method: "GET",
+        headers: { "authorization": authTok, "accept": "application/json, text/plain, */*" }
+      });
+      if (!res.ok) break;
+
+      const data = await res.json();
+      const pagina = Array.isArray(data?.registros) ? data.registros : (Array.isArray(data) ? data : []);
+      total = Number(data?.qtdRegistros) || total || pagina.length;
+
+      todos.push(...pagina);
+      if (pagina.length < limitePorPagina || todos.length >= total) break;
+    }
+
+    console.log(`[Vendas] 📥 ${todos.length} orçamento(s) de ${dataIniIso} a ${dataFimIso} (total no período: ${total}).`);
+  } catch (e) {
+    console.warn("[Vendas] Erro ao consultar vendasplanos do período:", e);
+  }
+
+  return { registros: todos, total: total || todos.length };
+}
+
 export async function buscarVendasPlanosClienteApi(token, codCliente, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   if (!authTok || !codCliente) return [];

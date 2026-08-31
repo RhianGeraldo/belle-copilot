@@ -3100,3 +3100,65 @@ label[for] {
   background: #ffe4e6;
   border-color: #fecdd3;
 }
+
+/* === INVENTÁRIO DO CACHE LOCAL (ABA DE CONFIGURAÇÕES) === */
+.cache-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  margin-bottom: 6px;
+}
+
+.cache-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+  background: #16a34a;
+}
+
+.cache-item.cache-vencido .cache-item-dot { background: #f59e0b; }
+.cache-item.cache-ausente .cache-item-dot { background: #cbd5e1; }
+.cache-item.cache-ausente { opacity: 0.72; }
+
+.cache-item-info { flex: 1; min-width: 0; }
+
+.cache-item-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+  display: block;
+}
+
+.cache-item-resumo {
+  font-size: 10.5px;
+  color: #475569;
+  display: block;
+  margin-top: 1px;
+  word-break: break-word;
+}
+
+.cache-item-meta {
+  font-size: 10px;
+  color: #94a3b8;
+  display: block;
+  margin-top: 2px;
+}
+
+.cache-item-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.cache-item.cache-vencido .cache-item-tag { background: #fef3c7; color: #92400e; }
+.cache-item.cache-ausente .cache-item-tag { background: #f1f5f9; color: #64748b; }

@@ -5,6 +5,7 @@
 
 import { state, definirArrGrid, arrGridDaUnidade } from './core/state.js';
 import { resolverSessaoBelle, aplicarSessaoNoEstado, mensagemEhDaUnidadeAtiva, obterAbaBelle, extrairUnidadeDaUrl, nomeDaUnidadeAtiva } from './core/session.js';
+import { lerCache, gravarCache } from './core/cache-persistente.js';
 import { 
   buscarDadosUsuarioApi, 
   buscarEstabelecimentosApi, 
@@ -111,6 +112,44 @@ export function aplicarLogoEmpresa(logoUrl) {
   if (headerAvatarFallback) headerAvatarFallback.style.display = "none";
 }
 
+/**
+ * Pinta usuário, unidade e salas com o que ficou guardado da última sessão desta unidade,
+ * antes de qualquer requisição. A rede confirma logo em seguida e sobrescreve.
+ */
+async function pintarCabecalhoDoCache(unidade) {
+  if (!unidade) return false;
+
+  const [usuario, unidadeCache, salas] = await Promise.all([
+    lerCache("usuario", unidade),
+    lerCache("unidade", unidade),
+    lerCache("salas", unidade)
+  ]);
+
+  if (usuario?.dados) {
+    state.currentUserData = usuario.dados;
+    state.currentUserName = usuario.dados.nom_usuario || state.currentUserName;
+    if (userDisplayName) userDisplayName.textContent = `👤 ${state.currentUserName}`;
+    const grupo = usuario.dados.grupos?.[0]?.nome || usuario.dados.cod_usuario || "";
+    if (userRoleDisplay && grupo) userRoleDisplay.textContent = `🏷️ ${grupo}`;
+  }
+
+  if (unidadeCache?.dados) {
+    state.currentUnidadeDados = unidadeCache.dados;
+    state.currentClinicaNome = unidadeCache.dados.nome || state.currentClinicaNome;
+    if (unidadeCache.dados.id_geinfo) state.currentIdGeinfo = String(unidadeCache.dados.id_geinfo);
+    if (unidadeDisplay) unidadeDisplay.textContent = `🏢 ${state.currentClinicaNome}`;
+  }
+
+  if (Array.isArray(salas?.dados) && salas.dados.length > 0) {
+    state.currentSalas = salas.dados;
+    renderizarSalasFiltro(state.currentSalas);
+  }
+
+  const achou = Boolean(usuario?.dados || unidadeCache?.dados);
+  if (achou) console.log(`[BelleCopilot] 💾 Cabeçalho pintado do cache local da unidade #${unidade}.`);
+  return achou;
+}
+
 export async function sincronizarSessao() {
   if (sessionStatus) {
     sessionStatus.innerHTML = '<span class="status-dot"></span> Conectando...';
@@ -118,7 +157,11 @@ export async function sincronizarSessao() {
   }
 
   try {
-    // 0. SESSÃO: pergunta ao próprio Belle quem está logado e em qual unidade.
+    // 0. Cache primeiro: a tela aparece preenchida enquanto a rede confirma.
+    const abaBelle = await obterAbaBelle();
+    await pintarCabecalhoDoCache(extrairUnidadeDaUrl(abaBelle?.url));
+
+    // 1. SESSÃO: pergunta ao próprio Belle quem está logado e em qual unidade.
     //    O token é validado contra `estabelecimentos_do_usuario` e o perfil vem de
     //    `recuperar_dados`. A filial no backend do Belle é definida pelo TOKEN
     //    (etb/estabGeral/cod_clinica respondem "1" em todas as unidades).
@@ -204,6 +247,7 @@ export async function sincronizarSessao() {
         state.currentSalas = gridSalas;
         definirArrGrid(montarArrGridDeGridSala(gridSalas, state.currentCodEstab), state.currentCodEstab);
         renderizarSalasFiltro(state.currentSalas);
+        gravarCache("salas", state.currentCodEstab, gridSalas);
       }
 
       // 4. Pós-atendimento (CS) em paralelo com a agenda do dia: ele tem sessão e grid
@@ -463,7 +507,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         nomePlano: msg.data.nomePlano || msg.data.nome_plano || "",
         codOrcamento: msg.data.cod_plano_paciente || msg.data.codOrc || msg.data.cod_orcamento || "",
         codPlano: msg.data.cod_plano || msg.data.codPlano || "",
-        idGeinfo: msg.data.id_geinfo || msg.data.idGeinfo || "114411",
+        idGeinfo: msg.data.id_geinfo || msg.data.idGeinfo || state.currentIdGeinfo || "",
         arrServ: Array.isArray(msg.data.servicos) ? msg.data.servicos.map(s => ({
           nome: s.nome || s.nom_servico,
           cod_servico: s.cod_servico || s.id

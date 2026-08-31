@@ -110,7 +110,7 @@ export function processarItensAgenda(rawItems) {
       nomePlano: item.nomePlano || item.nome_plano || "",
       codOrcamento: item.cod_plano_paciente || item.codOrc || item.cod_orcamento || "",
       codPlano: item.cod_plano || item.codPlano || "",
-      idGeinfo: item.id_geinfo || item.idGeinfo || (state.currentSalas?.[0]?.id_geinfo) || "114411"
+      idGeinfo: item.id_geinfo || item.idGeinfo || state.currentIdGeinfo || (state.currentSalas?.[0]?.id_geinfo) || ""
     };
   });
 }

@@ -129,7 +129,7 @@ export async function consultarFichaSaldoComercial(termoBusca) {
 
     let codOrc = matchApp?.codOrcamento || "";
     let codPlano = matchApp?.codPlano || "";
-    let idGeinfo = matchApp?.idGeinfo || "114411";
+    let idGeinfo = matchApp?.idGeinfo || state.currentIdGeinfo || "";
     let nomeCliente = matchApp?.clienteNome || termoBusca;
 
     let saldoData = null;

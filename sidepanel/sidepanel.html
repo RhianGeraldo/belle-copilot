@@ -570,6 +570,22 @@
           </button>
         </div>
 
+        <!-- Inventário do cache local -->
+        <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 11px; color: #475569;">💾 Dados guardados no cache local:</strong>
+            <div style="display: flex; gap: 6px;">
+              <button id="btn-atualizar-cache" class="btn-action-mini" style="font-size: 10px;">🔄 Atualizar</button>
+              <button id="btn-limpar-cache" class="btn-action-mini" style="font-size: 10px;">🗑️ Limpar</button>
+            </div>
+          </div>
+          <p style="font-size: 10px; color: #94a3b8; margin: 0 0 8px 0; line-height: 1.35;">
+            Só entram aqui dados de cadastro (usuário, unidade, salas, catálogo), para o painel abrir sem esperar a rede.
+            Agenda, saldos e parâmetros do laser <strong>nunca</strong> são guardados — e o token também não.
+          </p>
+          <div id="cache-lista"></div>
+        </div>
+
         <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <strong style="font-size: 11px; color: #475569;">📡 Diagnóstico da API (agendaapi):</strong>

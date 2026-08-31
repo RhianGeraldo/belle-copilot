@@ -19,6 +19,7 @@
 
 import { state, limparCachesAtendimento, definirArrGrid } from './state.js';
 import { buscarEstabelecimentosApi, buscarDadosUsuarioApi } from './api-client.js';
+import { lerCache, gravarCache } from './cache-persistente.js';
 
 /**
  * Nome da unidade ativa a partir de `estabelecimentos_do_usuario`.
@@ -29,16 +30,19 @@ import { buscarEstabelecimentosApi, buscarDadosUsuarioApi } from './api-client.j
  * Ou seja: casar `/u/{n}` contra `cod` não funciona — quando vem uma entrada só, ela É
  * a unidade aberta, e o que identifica a filial é o NOME.
  */
-export function nomeDaUnidadeAtiva(estabelecimentos, unidade) {
+export function unidadeAtivaDaLista(estabelecimentos, unidade) {
   if (!Array.isArray(estabelecimentos) || estabelecimentos.length === 0) return null;
 
-  // Uma entrada = a unidade da sessão atual.
-  if (estabelecimentos.length === 1) return estabelecimentos[0].nome || null;
+  // Uma entrada = a unidade da sessão atual (resposta relativa ao token).
+  if (estabelecimentos.length === 1) return estabelecimentos[0];
 
   // Várias entradas: tenta o código e cai para a padrão.
   const porCodigo = unidade ? estabelecimentos.find(e => String(e.cod) === String(unidade)) : null;
-  const padrao = estabelecimentos.find(e => e.padrao == 1);
-  return (porCodigo || padrao || null)?.nome || null;
+  return porCodigo || estabelecimentos.find(e => e.padrao == 1) || null;
+}
+
+export function nomeDaUnidadeAtiva(estabelecimentos, unidade) {
+  return unidadeAtivaDaLista(estabelecimentos, unidade)?.nome || null;
 }
 
 /** Unidade logada a partir da URL do Belle: /u/3/agenda -> "3" */
@@ -145,7 +149,11 @@ export async function resolverSessaoBelle() {
     codUsuario: codUsuario,
     usuario: null,
     estabelecimentos: [],
+    unidadeDados: null,
     nomeUnidade: null,
+    idGeinfo: null,
+    origemUsuario: "rede",
+    origemUnidade: "rede",
     validada: false
   };
 
@@ -154,34 +162,50 @@ export async function resolverSessaoBelle() {
     return sessao;
   }
 
-  // Valida contra o Belle: o token bom é o que responde a lista de estabelecimentos do usuário.
+  // Códigos de usuário a tentar: o descoberto na página, o configurado à mão, o padrão.
+  const candidatosUsuario = [contexto?.codUsuario, state.currentCodUsuario, "master-admin"]
+    .map(c => (c ? String(c).trim() : ""))
+    .filter((c, i, arr) => c && arr.indexOf(c) === i);
+
+  // ---------------------------------------------------------------------------
+  // 1ª REQUISIÇÃO: recuperar_dados — quem está logado no Belle.
+  // É ela que valida o token: se responde o perfil, aquela sessão é boa.
+  // ---------------------------------------------------------------------------
   for (const candidato of candidatos) {
-    const ests = await buscarEstabelecimentosApi(candidato.token, candidato.unidade || "1");
-    if (Array.isArray(ests) && ests.length > 0) {
-      sessao.token = candidato.token;
-      sessao.origemToken = candidato.origem;
-      sessao.estabelecimentos = ests;
-      sessao.validada = true;
-
-      // A unidade é a do TOKEN que autenticou — é ele que seleciona a filial no backend.
-      // A URL só entra quando o token não carrega unidade própria (cookie genérico).
-      // Assumir a unidade da URL usando o token de outra filial era exatamente o que
-      // fazia o painel rotular como #5 dados que vinham da #3.
-      const unidadeCandidata = candidato.unidade || unidadeUrl;
-
-      if (unidadeUrl && candidato.unidade && String(candidato.unidade) !== String(unidadeUrl)) {
-        console.warn(`[Sessão] ⚠️ A aba do Belle está em /u/${unidadeUrl}, mas quem autenticou foi a sessão da unidade #${candidato.unidade}. Seguindo a unidade do token para não misturar filiais.`);
+    for (const cod of candidatosUsuario) {
+      const perfil = await buscarDadosUsuarioApi(candidato.token, cod);
+      if (perfil && (perfil.nom_usuario || perfil.cod_usuario || perfil.login)) {
+        sessao.token = candidato.token;
+        sessao.origemToken = candidato.origem;
+        sessao.unidade = String(candidato.unidade || unidadeUrl || "1");
+        sessao.usuario = perfil;
+        sessao.codUsuario = perfil.cod_usuario || perfil.login || cod;
+        sessao.validada = true;
+        console.log(`[Sessão] 👤 Usuário logado no Belle: ${perfil.nom_usuario || sessao.codUsuario} (${sessao.codUsuario})`);
+        break;
       }
-      // A unidade é SEMPRE a da sessão aberta (URL / cookie do token). A lista de
-      // estabelecimentos serve apenas para NOMEAR a unidade — nunca para substituí-la.
-      sessao.unidade = String(unidadeCandidata ?? "1");
-      sessao.nomeUnidade = nomeDaUnidadeAtiva(ests, unidadeCandidata);
-      break;
+    }
+    if (sessao.validada) break;
+  }
+
+  // Se nenhum código de usuário serviu, ainda dá para validar o token pela unidade.
+  if (!sessao.validada) {
+    for (const candidato of candidatos) {
+      const ests = await buscarEstabelecimentosApi(candidato.token, candidato.unidade || "1");
+      if (Array.isArray(ests) && ests.length > 0) {
+        sessao.token = candidato.token;
+        sessao.origemToken = candidato.origem;
+        sessao.unidade = String(candidato.unidade || unidadeUrl || "1");
+        sessao.estabelecimentos = ests;
+        sessao.validada = true;
+        console.warn(`[Sessão] ⚠️ recuperar_dados não respondeu para: ${candidatosUsuario.join(", ")}. Sessão validada pela unidade; ajuste o código do usuário em ⚙️ Configurações.`);
+        break;
+      }
     }
   }
 
-  // Nenhum token autenticou (rede fora, sessão expirada): usa o melhor candidato para
-  // não deixar o painel mudo, deixando claro que a sessão não foi confirmada.
+  // Nenhum token autenticou (rede fora, sessão expirada): segue com o mais provável
+  // para o painel não ficar mudo, deixando claro que a sessão não foi confirmada.
   if (!sessao.token) {
     const primeiro = candidatos[0];
     sessao.token = primeiro.token;
@@ -190,24 +214,50 @@ export async function resolverSessaoBelle() {
     console.warn("[Sessão] ⚠️ Nenhum token pôde ser validado no Belle. Seguindo com o token mais provável:", sessao.origemToken);
   }
 
-  // Perfil do usuário logado (recuperar_dados). O código do usuário pode vir da página,
-  // da configuração manual do painel ou do padrão: tenta na ordem até o Belle responder.
-  const candidatosUsuario = [contexto?.codUsuario, state.currentCodUsuario, "master-admin"]
-    .map(c => (c ? String(c).trim() : ""))
-    .filter((c, i, arr) => c && arr.indexOf(c) === i);
+  if (unidadeUrl && String(sessao.unidade) !== String(unidadeUrl)) {
+    console.warn(`[Sessão] ⚠️ A aba do Belle está em /u/${unidadeUrl}, mas a sessão que autenticou é da unidade #${sessao.unidade}. Seguindo a unidade do token.`);
+  }
 
-  for (const cod of candidatosUsuario) {
-    const perfil = await buscarDadosUsuarioApi(sessao.token, cod);
-    if (perfil && (perfil.nom_usuario || perfil.cod_usuario || perfil.login)) {
-      sessao.usuario = perfil;
-      sessao.codUsuario = perfil.cod_usuario || perfil.login || cod;
-      console.log(`[Sessão] 👤 Usuário logado no Belle: ${perfil.nom_usuario || sessao.codUsuario} (${sessao.codUsuario})`);
-      break;
+  // ---------------------------------------------------------------------------
+  // 2ª REQUISIÇÃO: estabelecimentos_do_usuario — dados da unidade aberta.
+  // Traz nome, CNPJ, UF, cor e o `id_geinfo`, que o saldovendaplano exige.
+  // ---------------------------------------------------------------------------
+  if (sessao.estabelecimentos.length === 0) {
+    const ests = await buscarEstabelecimentosApi(sessao.token, sessao.unidade);
+    if (Array.isArray(ests) && ests.length > 0) sessao.estabelecimentos = ests;
+  }
+
+  if (sessao.estabelecimentos.length > 0) {
+    sessao.unidadeDados = unidadeAtivaDaLista(sessao.estabelecimentos, sessao.unidade);
+    sessao.nomeUnidade = sessao.unidadeDados?.nome || null;
+    if (sessao.unidadeDados?.id_geinfo) {
+      sessao.idGeinfo = String(sessao.unidadeDados.id_geinfo);
     }
   }
 
+  // Cache persistente: na próxima abertura o painel pinta usuário e unidade na hora.
+  if (sessao.usuario) await gravarCache("usuario", sessao.unidade, sessao.usuario);
+  if (sessao.unidadeDados) await gravarCache("unidade", sessao.unidade, sessao.unidadeDados);
+
+  // Rede indisponível: recorre ao que ficou guardado da última sessão desta unidade.
   if (!sessao.usuario) {
-    console.warn(`[Sessão] ⚠️ recuperar_dados não respondeu para: ${candidatosUsuario.join(", ")}. Ajuste o código do usuário em ⚙️ Configurações.`);
+    const emCache = await lerCache("usuario", sessao.unidade);
+    if (emCache?.dados) {
+      sessao.usuario = emCache.dados;
+      sessao.codUsuario = emCache.dados.cod_usuario || sessao.codUsuario;
+      sessao.origemUsuario = "cache";
+      console.log("[Sessão] 💾 Perfil do usuário recuperado do cache local.");
+    }
+  }
+  if (!sessao.unidadeDados) {
+    const emCache = await lerCache("unidade", sessao.unidade);
+    if (emCache?.dados) {
+      sessao.unidadeDados = emCache.dados;
+      sessao.nomeUnidade = emCache.dados.nome || sessao.nomeUnidade;
+      if (emCache.dados.id_geinfo) sessao.idGeinfo = String(emCache.dados.id_geinfo);
+      sessao.origemUnidade = "cache";
+      console.log("[Sessão] 💾 Dados da unidade recuperados do cache local.");
+    }
   }
 
   return sessao;
@@ -246,6 +296,10 @@ export function aplicarSessaoNoEstado(sessao) {
     state.currentEstabelecimentos = sessao.estabelecimentos;
   }
   if (sessao.nomeUnidade) state.currentClinicaNome = sessao.nomeUnidade;
+  if (sessao.unidadeDados) state.currentUnidadeDados = sessao.unidadeDados;
+  // `id_geinfo` vem do cadastro da unidade (estabelecimentos_do_usuario) e é exigido
+  // pelo saldovendaplano. Antes era um número fixo no código.
+  if (sessao.idGeinfo) state.currentIdGeinfo = String(sessao.idGeinfo);
 
   return { unidadeAlterada };
 }

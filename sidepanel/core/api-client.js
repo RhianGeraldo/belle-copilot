@@ -4,6 +4,7 @@
  */
 
 import { state, getFromCache, setInCache, arrGridDaUnidade, saldoPlanosCache, laserParamsCache, getServicosCache, servicosCatalogoCache, turnosValidosCache, arvoreSalasCache } from './state.js';
+import { gravarCache } from './cache-persistente.js';
 
 /**
  * `etb` nas rotas de grade é FIXO em "1" — doc 11.4: "o backend mantém como padrão
@@ -17,7 +18,8 @@ const ETB_FIXO_GRADE = "1";
 export function montarArrGridDeGridSala(gridSalas, codEstab = "1") {
   if (!Array.isArray(gridSalas) || gridSalas.length === 0) return [];
   return gridSalas.map((g, idx) => ({
-    id_geinfo: g.id_geinfo || 103868,
+    // id_geinfo real da unidade (estabelecimentos_do_usuario), não mais um número fixo.
+    id_geinfo: g.id_geinfo || Number(state.currentIdGeinfo) || 0,
     codigo: g.codigo || (922280 + idx),
     login: g.login || state.currentCodUsuario || "master-admin",
     cod_tipo: g.cod_tipo || 2,
@@ -201,6 +203,7 @@ export async function buscarServicosCatalogoApi(token, codEstab = "1") {
       if (Array.isArray(lista) && lista.length > 0) {
         state.servicosCatalogo = lista;
         setInCache(servicosCatalogoCache, cacheKey, lista);
+        gravarCache("servicos", state.currentCodEstab, lista);
         return lista;
       }
     }
@@ -429,7 +432,13 @@ export async function buscarSaldoVendaPlanoApi(token, codOrc, codPlano, idGeinfo
 
   const finalCodOrc = String(codOrc || state.selectedAppointment?.codOrcamento || "").trim();
   const finalCodPlano = String(codPlano || state.selectedAppointment?.codPlano || "").trim();
-  const finalIdGeinfo = String(idGeinfo || state.selectedAppointment?.idGeinfo || state.currentSalas?.[0]?.id_geinfo || "114411").trim();
+  const finalIdGeinfo = String(
+    idGeinfo
+    || state.selectedAppointment?.idGeinfo
+    || state.currentIdGeinfo                 // cadastro da unidade logada
+    || state.currentSalas?.[0]?.id_geinfo
+    || ""
+  ).trim();
 
   if (!finalCodOrc) {
     console.log("[Saldo API] ℹ️ Consulta sem orçamento de plano vinculado (cod_plano_paciente).");

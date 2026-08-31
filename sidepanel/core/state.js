@@ -20,6 +20,11 @@ export const state = {
   currentCodUsuario: "master-admin",
   currentUserName: "Master - Patrícia Karla",
   currentClinicaNome: "ESTETICA E LASER",
+  // Cadastro completo da unidade ativa (estabelecimentos_do_usuario): nome, CNPJ, UF,
+  // cor_hexa, hrI/hrF e id_geinfo.
+  currentUnidadeDados: null,
+  // id_geinfo da unidade, exigido pelo saldovendaplano. Resolvido da API, não fixo.
+  currentIdGeinfo: "",
   currentEstabelecimentos: [],
   currentSalas: [],
   currentDataAgenda: new Date().toISOString().split("T")[0],

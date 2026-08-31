@@ -286,6 +286,38 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
               const targetMonthIndex = m - 1; // 0 a 11
               const targetDay = d;
 
+              function simularCliquePerfeito(elem) {
+                if (!elem) return;
+                const rect = elem.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                const opts = {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: x,
+                  clientY: y,
+                  screenX: window.screenX + x,
+                  screenY: window.screenY + y,
+                  button: 0,
+                  buttons: 1
+                };
+
+                try { elem.dispatchEvent(new PointerEvent('pointerover', { ...opts, pointerType: 'mouse' })); } catch(e){}
+                try { elem.dispatchEvent(new PointerEvent('pointerenter', { ...opts, pointerType: 'mouse' })); } catch(e){}
+                try { elem.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerType: 'mouse' })); } catch(e){}
+                try { elem.dispatchEvent(new MouseEvent('mouseover', opts)); } catch(e){}
+                try { elem.dispatchEvent(new MouseEvent('mouseenter', opts)); } catch(e){}
+                try { elem.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(e){}
+                try { elem.focus?.(); } catch(e){}
+                try { elem.dispatchEvent(new PointerEvent('pointerup', { ...opts, buttons: 0, pointerType: 'mouse' })); } catch(e){}
+                try { elem.dispatchEvent(new MouseEvent('mouseup', { ...opts, buttons: 0 })); } catch(e){}
+                try { elem.dispatchEvent(new MouseEvent('click', { ...opts, buttons: 0 })); } catch(e){}
+                if (typeof elem.click === 'function') {
+                  try { elem.click(); } catch(e){}
+                }
+              }
+
               function executarNavegacaoPassoAPasso() {
                 let stepCount = 0;
                 const maxSteps = 40;
@@ -320,9 +352,9 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                     }
 
                     if (triggerBtn) {
-                      console.log("[BelleCopilot Injected] 🖱️ Abrindo popover do datepicker...");
-                      triggerBtn.click();
-                      setTimeout(step, 90);
+                      console.log("[BelleCopilot Injected] 🖱️ Abrindo popover do datepicker com clique real:", triggerBtn);
+                      simularCliquePerfeito(triggerBtn);
+                      setTimeout(step, 100);
                       return;
                     }
                   }
@@ -345,19 +377,18 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                     }
 
                     if (currentMonthIndex !== -1 && !isNaN(currentYear)) {
-                      // Se ainda não estamos no mês/ano alvo, avança ou volta 1 mês por vez e aguarda renderização
                       if (currentYear < targetYear || (currentYear === targetYear && currentMonthIndex < targetMonthIndex)) {
                         console.log(`[BelleCopilot Injected] ⏩ Avançando mês (Atual: Mês ${currentMonthIndex + 1}/${currentYear} -> Alvo: ${targetMonthIndex + 1}/${targetYear})...`);
                         if (nextBtn) {
-                          nextBtn.click();
-                          setTimeout(step, 80);
+                          simularCliquePerfeito(nextBtn);
+                          setTimeout(step, 90);
                           return;
                         }
                       } else if (currentYear > targetYear || (currentYear === targetYear && currentMonthIndex > targetMonthIndex)) {
                         console.log(`[BelleCopilot Injected] ⏪ Voltando mês (Atual: Mês ${currentMonthIndex + 1}/${currentYear} -> Alvo: ${targetMonthIndex + 1}/${targetYear})...`);
                         if (prevBtn) {
-                          prevBtn.click();
-                          setTimeout(step, 80);
+                          simularCliquePerfeito(prevBtn);
+                          setTimeout(step, 90);
                           return;
                         }
                       }
@@ -382,6 +413,12 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                     }
                   }
 
+                  // Busca por aria-label no td
+                  const targetTd = document.querySelector(`tbody td.p-datepicker-day-cell[aria-label="${targetDay}"]:not(.p-datepicker-other-month)`);
+                  if (!cell && targetTd) {
+                    cell = targetTd.querySelector('.p-datepicker-day') || targetTd;
+                  }
+
                   if (!cell) {
                     const validDayCells = document.querySelectorAll('tbody tr td:not(.p-datepicker-other-month) .p-datepicker-day, tbody tr td:not(.p-datepicker-other-month)');
                     for (const sp of validDayCells) {
@@ -393,16 +430,13 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
                   }
 
                   if (cell) {
-                    console.log(`[BelleCopilot Injected] ✅ Célula do dia ${targetDay} encontrada na grade! Clicando...`, cell);
-                    cell.click();
-                    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                    cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-
-                    const parentTd = cell.closest('td');
-                    if (parentTd) {
-                      parentTd.click();
-                      parentTd.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                    console.log(`[BelleCopilot Injected] ✅ Célula do dia ${targetDay} encontrada! Disparando clique real...`, cell);
+                    const parentTd = cell.closest('td') || targetTd;
+                    
+                    // Simula clique real completo no span e no td
+                    simularCliquePerfeito(cell);
+                    if (parentTd && parentTd !== cell) {
+                      simularCliquePerfeito(parentTd);
                     }
                     return;
                   }

@@ -64,9 +64,31 @@ export function classificarPerfilUsuario(userData, codUsuario = "") {
   return "aplicadora";
 }
 
+/** Perfil com acesso aos números de gestão (faturamento, conversão, ranking). */
+export function ehGerente() {
+  return state.currentUserRole === "gerente";
+}
+
+/**
+ * Números de gestão do funil de vendas ficam restritos ao gerente.
+ * A consultora continua com as filas de trabalho (aguardando, pendente, vencendo),
+ * que é o que ela precisa para operar — sem ver faturamento, ticket médio,
+ * taxa de conversão nem o ranking das colegas.
+ */
+export function aplicarVisibilidadeGerencial() {
+  const gerente = ehGerente();
+  const kpisVendas = document.getElementById("vendas-kpi-grid");
+  const rankingVendas = document.getElementById("vendas-ranking");
+
+  if (kpisVendas) kpisVendas.style.display = gerente ? "grid" : "none";
+  if (rankingVendas) rankingVendas.style.display = gerente ? "block" : "none";
+}
+
 export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba, onRenderizarComercial }) {
   state.currentUserRole = perfil;
   console.log(`[PERFIL] 👤 Aplicando modo de visualização: ${perfil.toUpperCase()}`);
+
+  aplicarVisibilidadeGerencial();
 
   const rolePreviewContainer = document.getElementById("role-preview-container");
   const selectRolePreview = document.getElementById("select-role-preview");

@@ -11,6 +11,7 @@
 
 import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
+import { ehGerente, aplicarVisibilidadeGerencial } from '../core/permissions.js';
 import {
   prepararOrcamentos,
   calcularKpisVendas,
@@ -199,16 +200,26 @@ export async function carregarPlanosVencendo(forcar = false) {
 function atualizarKpis() {
   if (!kpis) return;
 
-  if (vendasKpiFaturamento) vendasKpiFaturamento.textContent = formatarReal(kpis.faturamentoAprovado);
-  if (vendasKpiAberto) vendasKpiAberto.textContent = formatarReal(kpis.valorEmAberto);
-  if (vendasKpiConversao) vendasKpiConversao.textContent = `${kpis.taxaConversao}%`;
-  if (vendasKpiTicket) vendasKpiTicket.textContent = formatarReal(kpis.ticketMedio);
+  // Faturamento, ticket, conversão e ranking são números de gestão: só o gerente vê.
+  // A consultora fica com as filas de trabalho, logo abaixo.
+  const gerente = ehGerente();
+  aplicarVisibilidadeGerencial();
+
+  if (gerente) {
+    if (vendasKpiFaturamento) vendasKpiFaturamento.textContent = formatarReal(kpis.faturamentoAprovado);
+    if (vendasKpiAberto) vendasKpiAberto.textContent = formatarReal(kpis.valorEmAberto);
+    if (vendasKpiConversao) vendasKpiConversao.textContent = `${kpis.taxaConversao}%`;
+    if (vendasKpiTicket) vendasKpiTicket.textContent = formatarReal(kpis.ticketMedio);
+  }
 
   if (vendasResumoPeriodo) {
-    vendasResumoPeriodo.textContent =
-      `${kpis.totalOrcamentos} orçamentos nos últimos ${JANELA_DIAS} dias • ` +
-      `${kpis.qtdAprovado} aprovados • ${kpis.qtdAguardando} aguardando • ${kpis.qtdPendente} pendentes` +
-      (kpis.descontoMedio ? ` • desconto médio ${kpis.descontoMedio}%` : "");
+    // Contagem das filas todo mundo vê; desconto médio é indicador de margem.
+    vendasResumoPeriodo.textContent = gerente
+      ? `${kpis.totalOrcamentos} orçamentos nos últimos ${JANELA_DIAS} dias • ` +
+        `${kpis.qtdAprovado} aprovados • ${kpis.qtdAguardando} aguardando • ${kpis.qtdPendente} pendentes` +
+        (kpis.descontoMedio ? ` • desconto médio ${kpis.descontoMedio}%` : "")
+      : `${kpis.qtdAguardando} aguardando pagamento • ${kpis.qtdPendente} orçamento(s) pendente(s) para retomar` +
+        (planosVencendo.length ? ` • ${planosVencendo.length} plano(s) vencendo com saldo` : "");
   }
 
   const aResgatar = kpis.qtdAguardando + kpis.qtdPendente + planosVencendo.length;
@@ -234,6 +245,11 @@ function atualizarKpis() {
 
 function renderizarRanking() {
   if (!vendasRanking) return;
+  // Ranking entre consultoras é informação de gestão.
+  if (!ehGerente()) {
+    vendasRanking.innerHTML = "";
+    return;
+  }
 
   const ranking = rankingPorVendedora(orcamentos).slice(0, 5);
   if (ranking.length === 0) {

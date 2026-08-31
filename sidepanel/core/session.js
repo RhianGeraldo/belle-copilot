@@ -20,6 +20,27 @@
 import { state, limparCachesAtendimento, definirArrGrid } from './state.js';
 import { buscarEstabelecimentosApi, buscarDadosUsuarioApi } from './api-client.js';
 
+/**
+ * Nome da unidade ativa a partir de `estabelecimentos_do_usuario`.
+ *
+ * OBSERVADO EM PRODUÇÃO: esse endpoint é relativo ao TOKEN enviado e normaliza o `cod`
+ * para 1, igual a `etb` e `cod_clinica`. Com o token da unidade #3 ele responde
+ * `[#1 ESTETICA E LASER LINHARES]`; com o da #0, `[#1 Estetica & Laser (Franqueadora)]`.
+ * Ou seja: casar `/u/{n}` contra `cod` não funciona — quando vem uma entrada só, ela É
+ * a unidade aberta, e o que identifica a filial é o NOME.
+ */
+export function nomeDaUnidadeAtiva(estabelecimentos, unidade) {
+  if (!Array.isArray(estabelecimentos) || estabelecimentos.length === 0) return null;
+
+  // Uma entrada = a unidade da sessão atual.
+  if (estabelecimentos.length === 1) return estabelecimentos[0].nome || null;
+
+  // Várias entradas: tenta o código e cai para a padrão.
+  const porCodigo = unidade ? estabelecimentos.find(e => String(e.cod) === String(unidade)) : null;
+  const padrao = estabelecimentos.find(e => e.padrao == 1);
+  return (porCodigo || padrao || null)?.nome || null;
+}
+
 /** Unidade logada a partir da URL do Belle: /u/3/agenda -> "3" */
 export function extrairUnidadeDaUrl(url = "") {
   const match = String(url || "").match(/\/u\/(\d+)/);
@@ -151,22 +172,10 @@ export async function resolverSessaoBelle() {
       if (unidadeUrl && candidato.unidade && String(candidato.unidade) !== String(unidadeUrl)) {
         console.warn(`[Sessão] ⚠️ A aba do Belle está em /u/${unidadeUrl}, mas quem autenticou foi a sessão da unidade #${candidato.unidade}. Seguindo a unidade do token para não misturar filiais.`);
       }
-      const naLista = unidadeCandidata
-        ? ests.find(e => String(e.cod) === String(unidadeCandidata))
-        : null;
-      const padrao = ests.find(e => e.padrao == 1) || (ests.length === 1 ? ests[0] : null);
-
       // A unidade é SEMPRE a da sessão aberta (URL / cookie do token). A lista de
-      // estabelecimentos serve apenas para dar nome a ela — nunca para substituí-la.
-      // O `/u/{n}` da URL e o `cod` do estabelecimento não seguem obrigatoriamente a mesma
-      // numeração; deixar a unidade "padrão" vencer jogava o painel para outra filial e
-      // fazia o painel descartar o stream ao vivo da aba (agenda e atendimento paravam).
-      sessao.unidade = String(unidadeCandidata ?? padrao?.cod ?? "1");
-      sessao.nomeUnidade = naLista?.nome || (unidadeCandidata ? null : padrao?.nome) || null;
-
-      if (unidadeCandidata && !naLista) {
-        console.warn(`[Sessão] ℹ️ A unidade #${unidadeCandidata} não aparece com esse código em estabelecimentos_do_usuario (${ests.map(e => `#${e.cod} ${e.nome}`).join(" | ")}). Mantendo a unidade da sessão aberta.`);
-      }
+      // estabelecimentos serve apenas para NOMEAR a unidade — nunca para substituí-la.
+      sessao.unidade = String(unidadeCandidata ?? "1");
+      sessao.nomeUnidade = nomeDaUnidadeAtiva(ests, unidadeCandidata);
       break;
     }
   }

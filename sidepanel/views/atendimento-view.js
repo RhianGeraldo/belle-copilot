@@ -65,6 +65,10 @@ function formatarDataPtBr(dataIso) {
 
 export function renderizarMultiplosAgendamentosHoje(appAtual) {
   if (!atendMultiAppBox || !atendMultiButtons) return;
+  if (!appAtual) {
+    atendMultiAppBox.style.display = "none";
+    return;
+  }
 
   const codCli = appAtual.codCliente;
   const nomeCli = (appAtual.clienteNome || "").toLowerCase().trim();

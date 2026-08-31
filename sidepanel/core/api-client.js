@@ -5,6 +5,15 @@
 
 import { state, getFromCache, setInCache, arrGridDaUnidade, saldoPlanosCache, laserParamsCache, getServicosCache, servicosCatalogoCache, turnosValidosCache, arvoreSalasCache } from './state.js';
 
+/**
+ * `etb` nas rotas de grade é FIXO em "1" — doc 11.4: "o backend mantém como padrão
+ * arquitetural os parâmetros `etb=1&estabGeral=1` em todos os endpoints de grade
+ * (/gridsala, /salas e /agendaapi)"; a filial vem do token `authorization`.
+ * Enviar o número real da unidade faz o gridsala voltar VAZIO (observado com etb=3),
+ * e sem grid o Sucesso do Cliente não consegue montar a consulta.
+ */
+const ETB_FIXO_GRADE = "1";
+
 export function montarArrGridDeGridSala(gridSalas, codEstab = "1") {
   if (!Array.isArray(gridSalas) || gridSalas.length === 0) return [];
   return gridSalas.map((g, idx) => ({
@@ -92,7 +101,7 @@ export async function buscarArvoreSalasApi(token, codEstab = "1") {
       method: "GET",
       headers: {
         "authorization": authTok,
-        "etb": String(codEstab || "1"),
+        "etb": ETB_FIXO_GRADE,
         "restringe": "0",
         "accept": "application/json, text/plain, */*"
       }
@@ -117,7 +126,7 @@ export async function buscarGridSalaApi(token, codEstab = "1") {
 
   const estabAlvo = String(codEstab || state.currentCodEstab || "1");
   try {
-    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/gridsala?etb=${encodeURIComponent(estabAlvo)}&restringe=0&estabGeral=1`;
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/gridsala?etb=${ETB_FIXO_GRADE}&restringe=0&estabGeral=1`;
     const res = await fetch(url, {
       method: "GET",
       headers: {
@@ -219,8 +228,9 @@ export async function buscarAgendaApi(token, dataAgenda, arrGrid, codEstab = "1"
 
   const dataFormatada = dataAgenda || state.currentDataAgenda || new Date().toISOString().split("T")[0];
   const estabAlvo = String(codEstab || state.currentCodEstab || "1");
-  // `etb` é replicado exatamente como o Belle envia (a filial é definida pelo token).
-  const etbPayload = String(state.lastInterceptedAgendaPayload?.etb || estabAlvo || "1");
+  // Replica o `etb` que o Belle acabou de enviar; sem payload capturado, usa o fixo da
+  // doc 11.4 — nunca o número da unidade, que é o que zera a resposta.
+  const etbPayload = String(state.lastInterceptedAgendaPayload?.etb || ETB_FIXO_GRADE);
 
   let payload;
   if (herdarFiltrosDaPagina && state.lastInterceptedAgendaPayload && typeof state.lastInterceptedAgendaPayload === "object") {

@@ -940,6 +940,14 @@ btnFecharModalSucesso?.addEventListener("click", () => {
  * Salva oficialmente o agendamento no Belle Software (validacao + edicaoagenda)
  */
 btnConfirmarAgendarProxima?.addEventListener("click", async () => {
+  // O modal pode ter perdido o contexto (re-sincronização de sessão fecha o atendimento).
+  // Sem agendamento de origem não há o que gravar — antes isso estourava em
+  // `currentAppAgendamento.clienteNome` dentro de uma promise.
+  if (!currentAppAgendamento) {
+    alert("⚠️ Agendamento de origem não encontrado. Reabra o atendimento e tente novamente.");
+    return;
+  }
+
   if (!currentAppAgendamento) return;
 
   const dataEscolhidaBr = modalAgendaInputDataBr?.value || "";

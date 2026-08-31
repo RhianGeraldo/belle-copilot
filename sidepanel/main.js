@@ -4,7 +4,7 @@
  */
 
 import { state, definirArrGrid, arrGridDaUnidade } from './core/state.js';
-import { resolverSessaoBelle, aplicarSessaoNoEstado, mensagemEhDaUnidadeAtiva, obterAbaBelle, extrairUnidadeDaUrl } from './core/session.js';
+import { resolverSessaoBelle, aplicarSessaoNoEstado, mensagemEhDaUnidadeAtiva, obterAbaBelle, extrairUnidadeDaUrl, nomeDaUnidadeAtiva } from './core/session.js';
 import { 
   buscarDadosUsuarioApi, 
   buscarEstabelecimentosApi, 
@@ -180,19 +180,21 @@ export async function sincronizarSessao() {
 
       if (Array.isArray(ests) && ests.length > 0) {
         state.currentEstabelecimentos = ests;
-        // Rótulo estritamente da unidade consultada: o antigo fallback (padrão / primeira
-        // da lista) exibia o nome de uma clínica diferente da que estava sendo carregada.
-        const ativo = ests.find(e => String(e.cod) === String(state.currentCodEstab));
+        // O endpoint é relativo ao token: quando responde uma entrada só, ela é a unidade
+        // aberta (o `cod` vem normalizado como 1 em qualquer filial).
+        const nomeAtivo = nomeDaUnidadeAtiva(ests, state.currentCodEstab);
+        const ativo = ests.length === 1
+          ? ests[0]
+          : ests.find(e => String(e.cod) === String(state.currentCodEstab));
 
-        if (ativo) {
-          state.currentClinicaNome = ativo.nome;
+        if (nomeAtivo) {
+          state.currentClinicaNome = nomeAtivo;
           if (unidadeDisplay) {
-            unidadeDisplay.textContent = `🏢 ${ativo.nome}`;
-            unidadeDisplay.title = `${ativo.nome} - CNPJ: ${ativo.cnpj || 'N/A'} (${ativo.uf || ''})`;
+            unidadeDisplay.textContent = `🏢 ${nomeAtivo}`;
+            unidadeDisplay.title = `${nomeAtivo} — unidade #${state.currentCodEstab}${ativo?.cnpj ? ` • CNPJ: ${ativo.cnpj}` : ""}${ativo?.uf ? ` (${ativo.uf})` : ""}`;
           }
         } else if (unidadeDisplay) {
           unidadeDisplay.textContent = `🏢 Unidade #${state.currentCodEstab}`;
-          unidadeDisplay.title = "Unidade não encontrada na lista do usuário logado.";
         }
       }
 

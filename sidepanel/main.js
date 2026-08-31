@@ -204,7 +204,14 @@ export async function sincronizarSessao() {
         renderizarSalasFiltro(state.currentSalas);
       }
 
-      // 4. Carrega a Agenda Autônoma do Dia
+      // 4. Pós-atendimento (CS) em paralelo com a agenda do dia: ele tem sessão e grid
+      //    próprios, então não precisa esperar a agenda terminar para começar a carregar.
+      //    Recarga forçada quando a unidade mudou: o CS nunca reaproveita outra filial.
+      const promessaCs = Promise.resolve(carregarSucessoCliente(unidadeAlterada)).catch(err => {
+        console.warn("[BelleCopilot] Falha ao carregar o Sucesso do Cliente:", err);
+      });
+
+      // 5. Carrega a Agenda Autônoma do Dia
       if (loadingAgenda) loadingAgenda.style.display = "flex";
       const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab);
       if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
@@ -223,10 +230,7 @@ export async function sincronizarSessao() {
         }
       }
 
-      // 5. Carrega o Pós-Atendimento do Sucesso do Cliente (CS 24h e 3 Dias)
-      //    Recarga forçada quando a unidade mudou: o CS nunca pode reaproveitar
-      //    clientes atendidos em outra filial.
-      carregarSucessoCliente(unidadeAlterada);
+      await promessaCs;
     }
   } catch (err) {
     console.warn("Erro ao sincronizar sessão:", err);

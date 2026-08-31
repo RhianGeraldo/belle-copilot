@@ -22,6 +22,7 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - **Controle de Sessões & Saldos**: Exibe a contagem de sessões realizadas vs. contratadas com barras de progresso visual.
    - **Validação de Evolução Clínica**: Trava de segurança para impedir finalização sem registro de evolução nas áreas atendidas.
    - **Transição Automática de Fila**: Ao finalizar os atendimentos da cliente atual, abre automaticamente a próxima cliente com status `Aguardando`.
+   - **Ofertas & Cadência Clínica** (`engines/cadencia-ofertas.js`): dentro da própria ficha de atendimento, prescreve a oferta do dia conforme a fase do tratamento (inicial, expansão de áreas ou reta final), com motivo clínico e script verbal pronto para a aplicadora.
 
 4. **Sucesso do Cliente (CS / Pós-Laser 24h & 3 Dias)**:
    - Acompanhamento automático de clientes com status **Atendido / Finalizado** em 24h (ontem) e 3 dias pós-procedimento.

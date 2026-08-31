@@ -468,10 +468,12 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
   const authTok = state.currentToken || "";
   const codConsulta = state.selectedAppointment?.codConsulta || state.selectedAppointment?.id || "";
 
-  let salvosComSucesso = 0;
   const falhas = [];
 
-  for (const item of payloadArray) {
+  // As áreas são registros independentes no prontuário: gravar em paralelo troca N idas
+  // e voltas sequenciais por uma só. Numa cliente com 5 áreas isso é a diferença entre
+  // ~5 tempos de rede e ~1 no botão de finalizar.
+  const gravarArea = async (item) => {
     const nomeArea = item.nomeArea || item.area || "Área";
     try {
       const isRealizada = item.isRealizada !== false;
@@ -506,18 +508,21 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
         },
         body: JSON.stringify(payloadFormatado)
       });
-      if (res.ok) {
-        salvosComSucesso++;
-      } else {
-        const detalhe = await res.text().catch(() => "");
-        console.warn(`[Laser] ❌ Falha ao gravar a área "${nomeArea}": HTTP ${res.status}`, detalhe);
-        falhas.push({ area: nomeArea, erro: `HTTP ${res.status}` });
-      }
+      if (res.ok) return true;
+
+      const detalhe = await res.text().catch(() => "");
+      console.warn(`[Laser] ❌ Falha ao gravar a área "${nomeArea}": HTTP ${res.status}`, detalhe);
+      falhas.push({ area: nomeArea, erro: `HTTP ${res.status}` });
+      return false;
     } catch (err) {
       console.warn(`[Laser] ❌ Erro ao salvar a área "${nomeArea}":`, err);
       falhas.push({ area: nomeArea, erro: err.message || "Falha de rede" });
+      return false;
     }
-  }
+  };
+
+  const resultados = await Promise.all(payloadArray.map(gravarArea));
+  const salvosComSucesso = resultados.filter(Boolean).length;
 
   // Invalida cache de parâmetros deste cliente para forçar atualização fresca
   if (payloadArray[0]?.cod_paciente || state.selectedAppointment?.codCliente) {

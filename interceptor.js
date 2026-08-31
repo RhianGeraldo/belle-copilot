@@ -136,8 +136,9 @@
       dispatchInterceptedData(url, self._method, bodyStr, respData, self.status);
     }
 
-    this.addEventListener("readystatechange", onResponseReady);
-    this.addEventListener("load", onResponseReady);
+    // Um único listener: "loadend" dispara sempre no fim (sucesso, erro ou abort).
+    // Antes eram tres listeners por requisicao, e "readystatechange" ainda executava o
+    // handler a cada mudanca de estado de toda XHR da pagina.
     this.addEventListener("loadend", onResponseReady);
 
     return origSend.apply(this, arguments);

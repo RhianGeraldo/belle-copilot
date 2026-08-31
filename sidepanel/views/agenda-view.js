@@ -160,12 +160,15 @@ export function renderizarSalasFiltro(salas) {
   selectProfissional.innerHTML = '<option value="todos">Todas as Salas</option>';
 
   if (Array.isArray(salas) && salas.length > 0) {
+    // Fragmento: uma inserção só no <select>, em vez de uma por sala.
+    const fragmento = document.createDocumentFragment();
     salas.forEach(sala => {
       const opt = document.createElement("option");
       opt.value = sala.nome || sala.title;
       opt.textContent = `📍 ${sala.nome || sala.title}`;
-      selectProfissional.appendChild(opt);
+      fragmento.appendChild(opt);
     });
+    selectProfissional.appendChild(fragmento);
   }
 
   if (valorAtual) selectProfissional.value = valorAtual;
@@ -207,6 +210,11 @@ export function renderizarAgenda(onAbrirAtendimento) {
   if (agendaEmptyState) agendaEmptyState.style.display = "none";
   filtrados.sort((a, b) => a.horario.localeCompare(b.horario));
 
+  // Os cards são montados num fragmento e entram na tela de uma vez. Antes cada card era
+  // inserido direto no container: numa agenda cheia eram dezenas de inserções na árvore
+  // viva, e a agenda é re-renderizada a cada requisição interceptada do Belle.
+  const fragmento = document.createDocumentFragment();
+
   filtrados.forEach(app => {
     const card = document.createElement("div");
     card.className = `appointment-card status-${app.status}`;
@@ -220,7 +228,7 @@ export function renderizarAgenda(onAbrirAtendimento) {
         <div class="app-client-name" style="color: #b91c1c;">🔒 ${app.procedimento}</div>
         <div style="font-size: 11px; color: #64748b; margin-top: 2px;">📍 ${app.salaNome}</div>
       `;
-      agendaTimelineContainer.appendChild(card);
+      fragmento.appendChild(card);
       return;
     }
 
@@ -291,8 +299,10 @@ export function renderizarAgenda(onAbrirAtendimento) {
       }
     });
 
-    agendaTimelineContainer.appendChild(card);
+    fragmento.appendChild(card);
   });
+
+  agendaTimelineContainer.appendChild(fragmento);
 
   atualizarKpis();
 }

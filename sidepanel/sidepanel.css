@@ -3407,7 +3407,6 @@ label[for] {
   margin-top: 8px;
 }
 
-.btn-vendas-wpp,
 .btn-vendas-copiar,
 .btn-vendas-feito {
   font-size: 11px;
@@ -3420,21 +3419,9 @@ label[for] {
   color: #334155;
 }
 
-.btn-vendas-wpp {
-  text-decoration: none;
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-  color: #166534;
-}
-
 .btn-vendas-feito { margin-left: auto; }
 .btn-vendas-copiar:hover, .btn-vendas-feito:hover { background: #f1f5f9; }
 
-.vendas-sem-tel {
-  font-size: 10.5px;
-  color: #94a3b8;
-  font-style: italic;
-}
 
 /* === PLANOS VENCENDO COM SALDO === */
 .vencendo-resumo {

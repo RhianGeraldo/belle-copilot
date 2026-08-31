@@ -18,8 +18,7 @@ import {
   rankingPorVendedora,
   prepararPlanosVencendo,
   calcularKpisVencimento,
-  formatarReal,
-  numeroWhatsapp
+  formatarReal
 } from '../engines/cadencia-vendas.js';
 
 const JANELA_DIAS = 90;          // resgate de orçamento: olha a data da proposta
@@ -303,8 +302,6 @@ function renderizarFilaVencendo() {
 
   vendasCards.innerHTML = resumo + lista.map(o => {
     const contatado = contatadosSet.has(o.idUnico);
-    const wpp = numeroWhatsapp(o.telefone);
-    const linkWpp = wpp ? `https://wa.me/${wpp}?text=${encodeURIComponent(o.script)}` : "";
     const u = o.urgencia || {};
     const prazo = o.diasParaVencer < 0
       ? `venceu há ${Math.abs(o.diasParaVencer)} dia(s)`
@@ -335,7 +332,6 @@ function renderizarFilaVencendo() {
         <div class="vendas-card-script">${escaparHtml(o.script)}</div>
 
         <div class="vendas-card-acoes">
-          ${linkWpp ? `<a href="${linkWpp}" target="_blank" rel="noopener" class="btn-vendas-wpp">💬 WhatsApp</a>` : `<span class="vendas-sem-tel">sem telefone</span>`}
           <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}">📋 Copiar</button>
           <button class="btn-vendas-feito" data-id="${escaparHtml(o.idUnico)}">${contatado ? "✅ Contatada" : "☑️ Marcar feito"}</button>
         </div>
@@ -390,8 +386,6 @@ export function renderizarVendas() {
   vendasCards.innerHTML = lista.map(o => {
     const contatado = contatadosSet.has(o.idUnico);
     const cor = ROTULO_FILA[o.fila]?.cor || "#475569";
-    const wpp = numeroWhatsapp(o.telefone);
-    const linkWpp = wpp ? `https://wa.me/${wpp}?text=${encodeURIComponent(o.script)}` : "";
     const etapa = o.etapa;
 
     const idade = o.diasCorridos === 0
@@ -432,7 +426,6 @@ export function renderizarVendas() {
         <div class="vendas-card-script">${escaparHtml(o.script)}</div>
 
         <div class="vendas-card-acoes">
-          ${linkWpp ? `<a href="${linkWpp}" target="_blank" rel="noopener" class="btn-vendas-wpp">💬 WhatsApp</a>` : `<span class="vendas-sem-tel">sem telefone</span>`}
           <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}">📋 Copiar</button>
           <button class="btn-vendas-feito" data-id="${escaparHtml(o.idUnico)}">${contatado ? "✅ Contatada" : "☑️ Marcar feito"}</button>
         </div>

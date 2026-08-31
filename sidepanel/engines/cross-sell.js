@@ -14,7 +14,7 @@
  *   4. NOVA REGIÃO    região ainda intocada, oferta de expansão.
  */
 
-import { REGIOES, AREAS_POR_ID, AFINIDADES, SERVICOS, mapearCobertura } from './catalogo-areas.js';
+import { REGIOES, AREAS_POR_ID, AFINIDADES, SERVICOS, mapearCobertura, inferirSexoPorAreas } from './catalogo-areas.js';
 
 const NOME_SERVICO = Object.fromEntries(SERVICOS.map(s => [s.id, s.nome]));
 
@@ -64,6 +64,7 @@ function scriptNovaRegiao(nome, regiaoNome, areas) {
  * @param {Array} p.servicosHoje         arrServ do agendamento de hoje
  * @param {Array} p.historicoAreas       registros de parametro_laser (área já aplicada)
  * @param {String} p.clienteNome
+ * @param {String} p.sexo                "feminino" | "masculino" | null (cadastro do Belle)
  * @param {Number} p.limite              máximo de oportunidades devolvidas
  */
 export function analisarOportunidades({
@@ -71,6 +72,7 @@ export function analisarOportunidades({
   servicosHoje = [],
   historicoAreas = [],
   clienteNome = "",
+  sexo = null,
   limite = 6
 } = {}) {
   const nomesHistorico = (historicoAreas || []).map(r => r?.area || r?.observacao || "").filter(Boolean);
@@ -78,6 +80,18 @@ export function analisarOportunidades({
 
   const areasCobertas = [...cobertura.areas.keys()];
   const bloqueadas = montarBloqueadas(areasCobertas);
+
+  // Sexo: o cadastro manda; sem ele, deduz pelas áreas exclusivas que o cliente já
+  // trata. Sem nenhuma das duas pistas, `null` — e aí NADA é filtrado, para não
+  // esconder oferta legítima por um palpite.
+  const sexoEfetivo = sexo || inferirSexoPorAreas(areasCobertas);
+  const sexoInferido = !sexo && Boolean(sexoEfetivo);
+
+  const conflitaComSexo = (areaId) => {
+    if (!sexoEfetivo) return false;
+    const g = AREAS_POR_ID.get(areaId)?.genero;
+    return Boolean(g) && g !== sexoEfetivo;
+  };
   const oportunidades = [];
   const jaSugerida = new Set();
 
@@ -96,6 +110,7 @@ export function analisarOportunidades({
     AFINIDADES.filter(a => a.de === origemId).forEach(regra => {
       regra.para.forEach(alvoId => {
         if (bloqueadas.has(alvoId)) return;
+        if (conflitaComSexo(alvoId)) return;
         const alvo = AREAS_POR_ID.get(alvoId);
         if (!alvo) return;
 
@@ -119,7 +134,7 @@ export function analisarOportunidades({
   const porRegiao = REGIOES.map(regiao => {
     const total = regiao.areas.length;
     const cobertas = regiao.areas.filter(a => cobertura.areas.has(a.id));
-    const faltantes = regiao.areas.filter(a => !bloqueadas.has(a.id));
+    const faltantes = regiao.areas.filter(a => !bloqueadas.has(a.id) && !conflitaComSexo(a.id));
     return { regiao, total, cobertas, faltantes, pct: Math.round((cobertas.length / total) * 100) };
   });
 
@@ -175,7 +190,7 @@ export function analisarOportunidades({
   /* 4. NOVA REGIÃO — só quando já existe relacionamento */
   if (areasCobertas.length >= 2) {
     porRegiao
-      .filter(r => r.cobertas.length === 0)
+      .filter(r => r.cobertas.length === 0 && r.faltantes.length > 0)
       .slice(0, 2)
       .forEach(r => {
         adicionar({
@@ -183,11 +198,11 @@ export function analisarOportunidades({
           prioridade: 20,
           regiaoId: r.regiao.id,
           regiaoNome: r.regiao.nome,
-          areaNome: r.regiao.areas.slice(0, 3).map(a => a.nome).join(", "),
+          areaNome: r.faltantes.slice(0, 3).map(a => a.nome).join(", "),
           servicoId: "depilacao",
           servicoNome: NOME_SERVICO.depilacao,
           motivo: `Região ${r.regiao.nome} ainda não foi iniciada.`,
-          script: scriptNovaRegiao(clienteNome, r.regiao.nome, r.regiao.areas)
+          script: scriptNovaRegiao(clienteNome, r.regiao.nome, r.faltantes)
         });
       });
   }
@@ -221,6 +236,8 @@ export function analisarOportunidades({
 
   return {
     areasCobertas,
+    sexo: sexoEfetivo,
+    sexoInferido,
     servicosCobertos: [...cobertura.servicos],
     porRegiao: porRegiao.map(r => ({
       regiao: r.regiao.nome,

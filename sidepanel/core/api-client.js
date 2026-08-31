@@ -466,6 +466,31 @@ export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso
   return { registros: todos, total: total || todos.length };
 }
 
+/**
+ * Cadastro do cliente (sexo, idade, contato, origem).
+ * É uma requisição POR cliente — só vale a pena na ficha aberta do Atendimento.
+ * O resultado é cacheado pelo chamador, porque sexo e data de nascimento não mudam.
+ */
+export async function buscarDadosClienteApi(token, codCliente) {
+  const authTok = token || state.currentToken || "";
+  if (!authTok || !codCliente) return null;
+
+  try {
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Cliente/v1.0/buscardadoscliente/${encodeURIComponent(codCliente)}?idGeinfo=&estabGeral=1`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "authorization": authTok, "accept": "application/json, text/plain, */*" }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data === "object") return data;
+    }
+  } catch (e) {
+    console.warn(`[Cliente] Erro ao buscar cadastro do cliente #${codCliente}:`, e);
+  }
+  return null;
+}
+
 export async function buscarVendasPlanosClienteApi(token, codCliente, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   if (!authTok || !codCliente) return [];

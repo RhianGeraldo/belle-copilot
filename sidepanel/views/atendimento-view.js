@@ -13,6 +13,9 @@ import {
   finalizarAtendimentoApi 
 } from '../core/api-client.js';
 import { atualizarOfertasSugeridasAtendimento } from '../engines/cadencia-ofertas.js';
+import { buscarDadosClienteApi } from '../core/api-client.js';
+import { lerPerfilCliente, gravarPerfilCliente } from '../core/cache-persistente.js';
+import { normalizarSexo } from '../engines/catalogo-areas.js';
 import { 
   extrairParametrosAnterioresDaArea, 
   coletarParametrosDosFormularios, 
@@ -55,6 +58,47 @@ const btnAtendVoltar = document.getElementById("btn-atend-voltar");
 
 let callbackAtivarAba = null;
 let callbackRecarregarAgenda = null;
+
+/**
+ * Sexo da cliente, para não sugerir área de outro gênero.
+ * Uma requisição por cliente, guardada por 30 dias — sexo não muda. Só é feita aqui,
+ * na ficha aberta; nas listas do Comercial a dedução por áreas resolve sem custo.
+ */
+async function obterSexoCliente(codCliente) {
+  if (!codCliente) return null;
+
+  const unidade = state.currentCodEstab || "";
+  try {
+    const emCache = await lerPerfilCliente(unidade, codCliente);
+    if (emCache && emCache.sexo !== undefined) return emCache.sexo;
+  } catch (e) {}
+
+  const dados = await buscarDadosClienteApi(state.currentToken, codCliente);
+  const sexo = normalizarSexo(dados?.sexo);
+
+  try {
+    await gravarPerfilCliente(unidade, codCliente, {
+      sexo,
+      nome: dados?.nome || "",
+      nascimento: dados?.dat_nas || "",
+      idade: dados?.idade ?? null
+    });
+  } catch (e) {}
+
+  return sexo;
+}
+
+/** Recalcula o card de ofertas já com o sexo da cliente resolvido. */
+async function atualizarOfertasComSexo(app, saldoServicos, historicoLaser) {
+  // Renderiza na hora sem o sexo (áreas exclusivas ficam de fora só se a dedução
+  // por áreas já bastar) e refina quando o cadastro responde.
+  atualizarOfertasSugeridasAtendimento(app, saldoServicos, historicoLaser, null);
+
+  const sexo = await obterSexoCliente(app?.codCliente);
+  if (sexo && state.selectedAppointment?.codCliente === app?.codCliente) {
+    atualizarOfertasSugeridasAtendimento(app, saldoServicos, historicoLaser, sexo);
+  }
+}
 
 function formatarDataPtBr(dataIso) {
   if (!dataIso) return "";
@@ -164,7 +208,7 @@ export function renderizarServicosComSaldo(servicosSaldo) {
   renderizarFormulariosParametrosLaser(servicosSaldo, state.ultimosRegistrosLaserCliente);
 
   if (state.selectedAppointment) {
-    atualizarOfertasSugeridasAtendimento(state.selectedAppointment, servicosSaldo, state.ultimosRegistrosLaserCliente);
+    atualizarOfertasComSexo(state.selectedAppointment, servicosSaldo, state.ultimosRegistrosLaserCliente);
   }
 }
 
@@ -217,7 +261,7 @@ export function renderizarParametrosLaser(registros) {
   renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, state.ultimosRegistrosLaserCliente);
 
   if (state.selectedAppointment) {
-    atualizarOfertasSugeridasAtendimento(state.selectedAppointment, state.lastSaldoServicosCache, state.ultimosRegistrosLaserCliente);
+    atualizarOfertasComSexo(state.selectedAppointment, state.lastSaldoServicosCache, state.ultimosRegistrosLaserCliente);
   }
 }
 

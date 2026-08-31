@@ -25,14 +25,19 @@ export const TTL_CACHE = {
   usuario:  12 * 60 * 60 * 1000, // 12h — perfil e grupos mudam raramente
   unidade:  24 * 60 * 60 * 1000, // 24h — cadastro da clínica é praticamente estático
   salas:     6 * 60 * 60 * 1000, // 6h  — estrutura física da unidade
-  servicos:  6 * 60 * 60 * 1000  // 6h  — catálogo de procedimentos
+  servicos:  6 * 60 * 60 * 1000, // 6h  — catálogo de procedimentos
+  clientes: 30 * 24 * 60 * 60 * 1000 // 30d — sexo e nascimento não mudam
 };
+
+// Teto do mapa de clientes: sem isso o storage cresceria sem fim.
+const MAX_CLIENTES_CACHE = 500;
 
 export const ROTULOS_CACHE = {
   usuario: "👤 Usuário logado (recuperar_dados)",
   unidade: "🏢 Unidade ativa (estabelecimentos_do_usuario)",
   salas: "🚪 Salas da unidade (gridsala)",
-  servicos: "💉 Catálogo de serviços"
+  servicos: "💉 Catálogo de serviços",
+  clientes: "🧬 Perfis de cliente (sexo/idade)"
 };
 
 function chaveCompleta(tipo, unidade) {
@@ -142,8 +147,41 @@ function resumirEntrada(tipo, dados) {
     if (tipo === "servicos") {
       return `${Array.isArray(dados) ? dados.length : 0} procedimento(s) no catálogo`;
     }
+    if (tipo === "clientes") {
+      const n = Object.keys(dados || {}).length;
+      return `${n} cliente(s) — evita ${n} requisição(ões) de cadastro`;
+    }
   } catch (e) {}
   return "";
+}
+
+/**
+ * Perfil de um cliente. Todos ficam num único registro por unidade: uma chave de
+ * storage por cliente estouraria o limite de itens do chrome.storage.
+ */
+export async function lerPerfilCliente(unidade, codCliente) {
+  const entrada = await lerCache("clientes", unidade);
+  const mapa = entrada?.dados || {};
+  return mapa[String(codCliente)] || null;
+}
+
+export async function gravarPerfilCliente(unidade, codCliente, perfil) {
+  if (!codCliente || !perfil) return false;
+
+  const entrada = await lerCache("clientes", unidade);
+  const mapa = { ...(entrada?.dados || {}) };
+  mapa[String(codCliente)] = { ...perfil, ts: Date.now() };
+
+  // Descarta os mais antigos ao passar do teto.
+  const chaves = Object.keys(mapa);
+  if (chaves.length > MAX_CLIENTES_CACHE) {
+    chaves
+      .sort((a, b) => (mapa[a].ts || 0) - (mapa[b].ts || 0))
+      .slice(0, chaves.length - MAX_CLIENTES_CACHE)
+      .forEach(k => delete mapa[k]);
+  }
+
+  return gravarCache("clientes", unidade, mapa);
 }
 
 export async function limparCache(unidade) {

@@ -35,11 +35,11 @@ export const REGIOES = [
     { id: "glabela",        nome: "Glabela",          tags: ["pelos", "facial"], sinonimos: ["entre as sobrancelhas", "entrecenho"] },
     { id: "nariz",          nome: "Nariz",            tags: ["pelos", "facial", "oleosidade"] },
     { id: "laterais-face",  nome: "Laterais da Face", tags: ["pelos", "facial"], sinonimos: ["lateral da face", "costeleta", "costeletas", "face lateral"] },
-    { id: "buco",           nome: "Buço",             tags: ["pelos", "facial"], sinonimos: ["buco", "labio superior"], equivalentes: ["bigode"] },
+    { id: "buco",           nome: "Buço",             tags: ["pelos", "facial"], sinonimos: ["buco", "labio superior"], equivalentes: ["bigode"], genero: "feminino" },
     { id: "mento",          nome: "Mento",            tags: ["pelos", "facial"], sinonimos: ["queixo"] },
     { id: "maxilar",        nome: "Maxilar",          tags: ["pelos", "facial"], sinonimos: ["mandibula", "linha da mandibula"] },
-    { id: "bigode",         nome: "Bigode",           tags: ["pelos", "facial"], equivalentes: ["buco"] },
-    { id: "cavanhaque",     nome: "Cavanhaque",       tags: ["pelos", "facial"] },
+    { id: "bigode",         nome: "Bigode",           tags: ["pelos", "facial"], equivalentes: ["buco"], genero: "masculino" },
+    { id: "cavanhaque",     nome: "Cavanhaque",       tags: ["pelos", "facial"], genero: "masculino" },
     { id: "orelhas",        nome: "Orelhas",          tags: ["pelos"], sinonimos: ["orelha", "pavilhao auricular"] }
   ]},
   { id: "pescoco", nome: "Pescoço", areas: [
@@ -47,14 +47,14 @@ export const REGIOES = [
     { id: "nuca",           nome: "Nuca",             tags: ["pelos"] }
   ]},
   { id: "barba", nome: "Barba", areas: [
-    { id: "barba",          nome: "Barba",            tags: ["pelos", "facial"], sinonimos: ["barba completa"] },
+    { id: "barba",          nome: "Barba",            tags: ["pelos", "facial"], sinonimos: ["barba completa"], genero: "masculino" },
     // `suprime`: o nome "FAIXA DE BARBA" contém "barba", mas quem faz só a faixa NÃO
     // faz a barba completa — e a barba inteira segue sendo uma oferta válida para ela.
-    { id: "faixa-barba",    nome: "Faixa de Barba",   tags: ["pelos", "facial"], sinonimos: ["faixa da barba", "contorno de barba", "desenho de barba"], suprime: ["barba"] }
+    { id: "faixa-barba",    nome: "Faixa de Barba",   tags: ["pelos", "facial"], sinonimos: ["faixa da barba", "contorno de barba", "desenho de barba"], suprime: ["barba"], genero: "masculino" }
   ]},
   { id: "torax", nome: "Tórax", areas: [
     { id: "axilas",         nome: "Axilas",           tags: ["pelos", "hipercromia"], sinonimos: ["axila", "sovaco"] },
-    { id: "seios",          nome: "Seios",            tags: ["pelos"], sinonimos: ["mamas", "peito feminino"] },
+    { id: "seios",          nome: "Seios",            tags: ["pelos"], sinonimos: ["mamas", "peito feminino"], genero: "feminino" },
     { id: "areolas",        nome: "Aréolas",          tags: ["pelos", "hipercromia"], sinonimos: ["areola", "auréola", "aureolas"] },
     { id: "torax",          nome: "Tórax",            tags: ["pelos", "oleosidade"], sinonimos: ["peitoral", "peito"] }
   ]},
@@ -76,7 +76,7 @@ export const REGIOES = [
   { id: "intimo", nome: "Íntimo", areas: [
     { id: "virilha",        nome: "Virilha",          tags: ["pelos", "hipercromia"], sinonimos: ["virilha completa", "virilha simples", "biquini", "cavado"] },
     { id: "virilha-interna",nome: "Virilha Interna",  tags: ["pelos", "hipercromia"], sinonimos: ["virilha interna", "interno de virilha", "labios", "grandes labios"] },
-    { id: "base-penis",     nome: "Base do Pênis",    tags: ["pelos"], sinonimos: ["base do penis", "penis", "genital masculino"] }
+    { id: "base-penis",     nome: "Base do Pênis",    tags: ["pelos"], sinonimos: ["base do penis", "penis", "genital masculino"], genero: "masculino" }
   ]},
   { id: "gluteos", nome: "Glúteos", areas: [
     { id: "gluteos",        nome: "Glúteos",          tags: ["pelos"], sinonimos: ["gluteo", "bumbum", "nadegas"] },
@@ -98,7 +98,7 @@ export const REGIOES = [
 export const AREAS_POR_ID = (() => {
   const mapa = new Map();
   REGIOES.forEach(r => r.areas.forEach(a => {
-    mapa.set(a.id, { ...a, regiaoId: r.id, regiaoNome: r.nome, tags: a.tags || [], sinonimos: a.sinonimos || [], equivalentes: a.equivalentes || [], suprime: a.suprime || [] });
+    mapa.set(a.id, { ...a, regiaoId: r.id, regiaoNome: r.nome, tags: a.tags || [], sinonimos: a.sinonimos || [], equivalentes: a.equivalentes || [], suprime: a.suprime || [], genero: a.genero || null });
   }));
   return mapa;
 })();
@@ -202,6 +202,33 @@ export function identificarAreas(nomeServico = "") {
   });
 
   return [...encontradas];
+}
+
+/**
+ * Deduz o sexo pelas áreas que o cliente já trata — de graça, sem requisição.
+ * Só considera áreas exclusivas: quem faz Barba ou Base do Pênis é homem, quem faz
+ * Seios ou Buço é mulher. Serve de fallback onde consultar o cadastro de cada
+ * cliente seria caro demais (listas com dezenas ou centenas de nomes).
+ */
+export function inferirSexoPorAreas(areasCobertas = []) {
+  let masculino = 0, feminino = 0;
+  areasCobertas.forEach(id => {
+    const g = AREAS_POR_ID.get(id)?.genero;
+    if (g === "masculino") masculino++;
+    else if (g === "feminino") feminino++;
+  });
+  if (masculino > feminino) return "masculino";
+  if (feminino > masculino) return "feminino";
+  return null;
+}
+
+/** Normaliza o campo `sexo` do cadastro do Belle ("Feminino"/"Masculino"/"F"/"M"). */
+export function normalizarSexo(valor) {
+  const t = normalizarTexto(valor);
+  if (!t) return null;
+  if (t.startsWith("f")) return "feminino";
+  if (t.startsWith("m")) return "masculino";
+  return null;
 }
 
 /** Extrai áreas e serviços de uma lista de serviços contratados/agendados. */

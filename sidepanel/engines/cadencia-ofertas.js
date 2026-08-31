@@ -78,7 +78,7 @@ export function extrairNumeroSessaoArea(nomeArea, historicoLaser = [], saldoServ
   return { sessaoAtual: 1, totalSessoes: 10, origem: "default" };
 }
 
-export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLaser = []) {
+export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLaser = [], sexo = null) {
   if (!app) return [];
 
   const ofertas = [];
@@ -124,6 +124,7 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
       servicosHoje: app.arrServ || [],
       historicoAreas: historicoLaser,
       clienteNome: app.clienteNome || "",
+      sexo,
       limite: 3
     });
 
@@ -157,14 +158,14 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
   return ofertas;
 }
 
-export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], historicoLaser = []) {
+export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], historicoLaser = [], sexo = null) {
   const atendCardOfertas = document.getElementById("atend-card-ofertas");
   const atendQtdOfertas = document.getElementById("atend-qtd-ofertas");
   const atendListaOfertas = document.getElementById("atend-lista-ofertas");
 
   if (!atendCardOfertas || !atendListaOfertas) return;
 
-  const ofertas = gerarOfertasCadenciaClinica(app, saldoServicos, historicoLaser);
+  const ofertas = gerarOfertasCadenciaClinica(app, saldoServicos, historicoLaser, sexo);
   if (!ofertas || ofertas.length === 0) {
     atendCardOfertas.style.display = "none";
     return;

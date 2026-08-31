@@ -31,7 +31,13 @@ Extensão do Google Chrome desenvolvida em arquitetura moderna (Manifest V3 + ES
    - Consolidação de múltiplas áreas tratadas pela mesma cliente em um único card com link direto do WhatsApp (`wa.me`) e script clínico pronto.
    - Controle de contato diário ("Marcar como Feito") com persistência local.
 
-5. **Vendas & Resgate de Orçamentos (Funil Comercial)**:
+5. **💰 Oportunidades (Aplicadora — Módulo Agenda)**:
+   - Orçamentos em aberto dos **últimos 30 dias**, ao lado do Sucesso do Cliente.
+   - Divisão de trabalho por idade do orçamento: **0 a 30 dias** ficam com a aplicadora, que tem a cliente na cadeira; **depois de 30 dias** caem para o Comercial. As janelas se encostam, sem buraco.
+   - Filas Aguardando (link gerado) e Pendente, com a cadência D+0/D+1/D+3 e D+1 a D+30 — é a janela para a qual ela foi desenhada.
+   - Clientes que **estão na agenda de hoje** sobem para o topo com selo e horário: é a maior chance de fechamento.
+
+6. **Vendas & Resgate de Orçamentos (Funil Comercial)**:
    - Sub-aba no módulo Comercial alimentada pelo `vendasplanos`. A janela ignora os orçamentos recentes (ainda em negociação com a consultora): **data final = hoje − 30 dias**, e daí **3 meses para trás**.
    - KPIs do funil: aprovado no período, **valor parado a resgatar**, taxa de conversão, ticket médio, desconto médio e cortesias.
    - Duas filas de trabalho separadas: **🔥 Aguardando** (link de pagamento gerado — cadência D+0/D+1/D+3) e **💬 Pendente** (orçamento apresentado — D+1/D+3/D+7/D+15/D+30), além de Suspenso.

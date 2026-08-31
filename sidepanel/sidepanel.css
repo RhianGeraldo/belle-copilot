@@ -819,6 +819,7 @@ label[for] {
 /* Tab 2 (Atendimento), Tab 3 (CS) & Tab 4 (Config): Scroll vertical completo */
 #tab-atendimento.active,
 #tab-cs.active,
+#tab-oportunidades.active,
 #tab-comercial.active,
 #tab-vendas.active,
 #tab-config.active {
@@ -3578,4 +3579,20 @@ label[for] {
   border-radius: 6px;
   font-size: 11.5px;
   line-height: 1.4;
+}
+
+/* === SELO "CLIENTE VEM HOJE" NAS OPORTUNIDADES === */
+.vendas-card.vendas-card-hoje {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.vendas-selo-hoje {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 5px;
+  padding: 4px 8px;
+  margin-top: 6px;
 }

@@ -40,6 +40,7 @@ import {
 } from './views/cs-view.js';
 import { inicializarConfigView } from './views/config-view.js';
 import { carregarVendas, inicializarVendasView } from './views/vendas-view.js';
+import { carregarOportunidades, inicializarOportunidadesView } from './views/oportunidades-view.js';
 
 // Elementos de Identificação
 const userDisplayName = document.getElementById("user-display-name");
@@ -77,7 +78,7 @@ export function ativarModulo(moduleId) {
 }
 
 export function ativarAba(targetId) {
-  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs") {
+  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs" || targetId === "tab-oportunidades") {
     ativarModulo("module-agenda");
     const subTabButtons = document.querySelectorAll(".sub-tab-item");
     subTabButtons.forEach(b => {
@@ -91,6 +92,9 @@ export function ativarAba(targetId) {
     });
     if (targetId === "tab-cs") {
       renderizarCsView();
+    } else if (targetId === "tab-oportunidades") {
+      // Consulta própria (vendasplanos dos últimos 30 dias): busca ao abrir a aba.
+      carregarOportunidades();
     }
   } else if (targetId === "tab-comercial" || targetId === "tab-vendas") {
     ativarModulo("module-comercial");
@@ -352,6 +356,8 @@ document.addEventListener("DOMContentLoaded", () => {
   inicializarCsView();
 
   inicializarVendasView();
+
+  inicializarOportunidadesView();
 
   inicializarConfigView({
     onAtivarAba: ativarAba,

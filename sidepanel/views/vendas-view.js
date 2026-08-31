@@ -12,6 +12,7 @@
 import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
 import { ehGerente, aplicarVisibilidadeGerencial } from '../core/permissions.js';
+import { htmlCardOrcamento, escaparHtml } from '../components/card-orcamento.js';
 import {
   prepararOrcamentos,
   calcularKpisVendas,
@@ -70,10 +71,6 @@ const ROTULO_FILA = {
   aprovado:   { titulo: "✅ Aprovado",              cor: "#15803d" },
   vencendo:   { titulo: "⏳ Vencendo com saldo",    cor: "#b91c1c" }
 };
-
-function escaparHtml(txt = "") {
-  return String(txt).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function dataLocalIso(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -421,55 +418,9 @@ export function renderizarVendas() {
   if (vendasEmptyState) vendasEmptyState.style.display = "none";
   vendasCards.style.display = "flex";
 
-  vendasCards.innerHTML = lista.map(o => {
-    const contatado = contatadosSet.has(o.idUnico);
-    const cor = ROTULO_FILA[o.fila]?.cor || "#475569";
-    const etapa = o.etapa;
-
-    const idade = o.diasCorridos === 0
-      ? "hoje"
-      : o.diasCorridos === 1 ? "ontem" : `há ${o.diasCorridos} dias`;
-
-    const selo = etapa
-      ? (etapa.atrasado
-          ? `<span class="vendas-etapa-tag vendas-etapa-atrasada">⏰ ${escaparHtml(etapa.titulo)} • atrasado</span>`
-          : etapa.futura
-            ? `<span class="vendas-etapa-tag vendas-etapa-futura">🕒 próximo toque em D+${etapa.dia}</span>`
-            : `<span class="vendas-etapa-tag">📣 Toque ${etapa.indice + 1}/${etapa.total} • ${escaparHtml(etapa.titulo)}</span>`)
-      : "";
-
-    return `
-      <div class="vendas-card ${contatado ? "vendas-card-feito" : ""}" style="border-left-color: ${cor};" data-id="${escaparHtml(o.idUnico)}">
-        <div class="vendas-card-topo">
-          <div class="vendas-card-cli">
-            <strong class="vendas-card-nome">👤 ${escaparHtml(o.clienteNome)}</strong>
-            <span class="vendas-card-meta">
-              Orçamento ${escaparHtml(String(o.codOrcamento))} • apresentado ${idade}
-              ${o.vendedora ? ` • 🧑‍💼 ${escaparHtml(o.vendedora)}` : ""}
-            </span>
-          </div>
-          <span class="vendas-card-valor">${formatarReal(o.valorFinal)}</span>
-        </div>
-
-        <div class="vendas-card-plano">
-          💎 ${escaparHtml(o.nomePlano)}
-          ${o.descontoPct > 0 ? `<span class="vendas-desc-tag">−${o.descontoPct}%</span>` : ""}
-          ${o.temLink ? `<span class="vendas-link-tag" title="${escaparHtml(o.formaPagamento)}">🔗 link gerado</span>` : ""}
-          ${o.vencido ? `<span class="vendas-venc-tag">⚠️ vencido</span>` : ""}
-        </div>
-
-        ${selo}
-        ${etapa && !etapa.futura ? `<div class="vendas-card-foco">🎯 ${escaparHtml(etapa.foco)}</div>` : ""}
-
-        <div class="vendas-card-script">${escaparHtml(o.script)}</div>
-
-        <div class="vendas-card-acoes">
-          <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}">📋 Copiar</button>
-          <button class="btn-vendas-feito" data-id="${escaparHtml(o.idUnico)}">${contatado ? "✅ Contatada" : "☑️ Marcar feito"}</button>
-        </div>
-      </div>
-    `;
-  }).join("");
+  vendasCards.innerHTML = lista
+    .map(o => htmlCardOrcamento(o, { contatado: contatadosSet.has(o.idUnico) }))
+    .join("");
 }
 
 export function inicializarVendasView() {

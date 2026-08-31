@@ -58,8 +58,21 @@ export async function obterAbaBelle() {
     if (abasAtivas.length > 0 && abasAtivas[0].url && abasAtivas[0].url.includes("bellesoftware.com.br")) {
       return abasAtivas[0];
     }
+
+    // A aba em foco não é o Belle (a operadora foi para o WhatsApp Web, e-mail, etc.).
     const abasBelle = await chrome.tabs.query({ url: "*://app.bellesoftware.com.br/*" });
-    if (abasBelle.length > 0) return abasBelle[0];
+    if (abasBelle.length === 0) return null;
+
+    // Com várias abas do Belle abertas, mantém a da unidade que o painel já acompanha.
+    // Pegar "a primeira que aparecer" fazia o painel trocar de filial sozinho ao sair
+    // da aba do Belle, descartando a agenda carregada.
+    const unidadeAcompanhada = state.unidadeAbaResolvida || state.currentCodEstab;
+    if (unidadeAcompanhada) {
+      const mesmaUnidade = abasBelle.find(t => extrairUnidadeDaUrl(t.url) === String(unidadeAcompanhada));
+      if (mesmaUnidade) return mesmaUnidade;
+    }
+
+    return abasBelle[0];
   } catch (e) {
     console.warn("[Sessão] Erro ao localizar a aba do Belle:", e);
   }
@@ -271,7 +284,17 @@ export function aplicarSessaoNoEstado(sessao) {
   if (!sessao || !sessao.unidade) return { unidadeAlterada: false };
 
   const unidadeAnterior = String(state.currentCodEstab || "");
-  const unidadeAlterada = Boolean(unidadeAnterior) && String(sessao.unidade) !== unidadeAnterior;
+  const mudouDeUnidade = Boolean(unidadeAnterior) && String(sessao.unidade) !== unidadeAnterior;
+
+  // Só descarta os dados carregados quando a troca de unidade foi CONFIRMADA pelo Belle.
+  // Uma resolução não validada (rede fora, aba do Belle fechada, cookie de outra filial
+  // como último recurso) não pode apagar a agenda que já está na tela.
+  const unidadeAlterada = mudouDeUnidade && sessao.validada === true;
+
+  if (mudouDeUnidade && !unidadeAlterada) {
+    console.warn(`[Sessão] ⚠️ Resolveu a unidade #${sessao.unidade} sem validar no Belle, mas o painel está na #${unidadeAnterior}. Mantendo os dados já carregados.`);
+    return { unidadeAlterada: false };
+  }
 
   if (unidadeAlterada) {
     console.log(`[Sessão] 🏢 Unidade ativa: #${unidadeAnterior} → #${sessao.unidade}. Limpando dados da unidade anterior.`);

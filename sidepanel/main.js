@@ -370,6 +370,10 @@ function agendarResyncDeUnidade(motivo) {
     timerResync = null;
     const aba = await obterAbaBelle();
     const unidadeAba = extrairUnidadeDaUrl(aba?.url);
+
+    // Sem aba do Belle localizável, mantém tudo como está em vez de re-resolver a
+    // sessão às cegas — re-resolver sem referência pode cair no cookie de outra filial.
+    if (!aba) return;
     // Compara com a unidade de aba usada na ÚLTIMA resolução (e não com a unidade que
     // autenticou): quando as duas divergem, comparar com a unidade final re-sincronizaria
     // sem parar a cada mensagem da página.
@@ -380,7 +384,21 @@ function agendarResyncDeUnidade(motivo) {
   }, 400);
 }
 
-chrome.tabs.onActivated.addListener(() => agendarResyncDeUnidade("troca de aba"));
+// Sair da aba do Belle (ir para o WhatsApp Web, e-mail, etc.) NÃO mexe no painel:
+// os dados carregados continuam na tela. Só uma aba do Belle em outra unidade
+// justifica re-sincronizar.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const aba = await chrome.tabs.get(tabId);
+    if (!aba?.url || !aba.url.includes("bellesoftware.com.br")) return;
+
+    const unidadeAba = extrairUnidadeDaUrl(aba.url);
+    if (unidadeAba && String(unidadeAba) !== String(state.unidadeAbaResolvida || "")) {
+      agendarResyncDeUnidade("aba do Belle em outra unidade");
+    }
+  } catch (e) {}
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && String(tab?.url || "").includes("bellesoftware.com.br")) {
     agendarResyncDeUnidade("navegação no Belle");

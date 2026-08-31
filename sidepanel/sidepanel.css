@@ -3464,3 +3464,131 @@ label[for] {
   text-align: right;
   margin-top: 1px;
 }
+
+/* === SALDO DO PLANO NOS CARDS DE OPORTUNIDADE (COMERCIAL) === */
+.com-saldo-bloco {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 7px 9px;
+  margin-top: 7px;
+}
+
+.com-saldo-cabecalho {
+  font-size: 10.5px;
+  color: #475569;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.com-saldo-cabecalho strong { color: #0f172a; }
+
+.com-saldo-total {
+  font-weight: 800;
+  color: #15803d;
+  white-space: nowrap;
+}
+
+.com-saldo-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  margin-bottom: 4px;
+}
+
+.com-saldo-item:last-child { margin-bottom: 0; }
+
+.com-saldo-item-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.com-saldo-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.com-saldo-sessao {
+  color: #0284c7;
+  white-space: nowrap;
+}
+
+.com-saldo-barra {
+  width: 100%;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  margin: 4px 0 3px 0;
+  overflow: hidden;
+}
+
+.com-saldo-barra-fill {
+  height: 100%;
+  background: #0284c7;
+  border-radius: 2px;
+}
+
+.com-saldo-item-rodape {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.com-saldo-restam strong { color: #15803d; }
+
+.com-saldo-carregando,
+.com-saldo-vazio {
+  font-size: 10.5px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 9px;
+  margin-top: 7px;
+}
+
+/* Ficha consultada na busca */
+.com-ficha-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.com-ficha-titulo {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0284c7;
+  margin-bottom: 4px;
+}
+
+.com-ficha-sub {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+.com-ficha-aviso {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}

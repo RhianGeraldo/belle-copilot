@@ -258,7 +258,7 @@ function atualizarKpis() {
 
   const aResgatar = kpis.qtdAguardando + kpis.qtdPendente + planosVencendo.length;
   if (badgeVendasTotal) {
-    badgeVendasTotal.textContent = aResgatar;
+    badgeVendasTotal.textContent = String(aResgatar);
     badgeVendasTotal.style.display = aResgatar > 0 ? "inline-block" : "none";
   }
 

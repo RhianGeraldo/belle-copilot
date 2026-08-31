@@ -262,7 +262,156 @@ export async function navegarParaDataAgenda(dataIso, dataBr) {
         chrome.windows.update(belleTab.windowId, { focused: true });
       }
 
-      // Envia comando in-page para simular clique no Datepicker da agenda do Belle
+      // Executa script diretamente no contexto principal da aba do Belle para clicar no Datepicker
+      if (chrome.scripting && chrome.scripting.executeScript) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: belleTab.id },
+            world: "MAIN",
+            args: [dataIso, dataBr],
+            func: (targetIso, targetBr) => {
+              console.log("[BelleCopilot Injected] 🚀 Disparando seleção de data no PrimeNG do Belle:", targetIso, targetBr);
+
+              const MESES_MAP = {
+                "janeiro": 0, "jan": 0, "fevereiro": 1, "fev": 1,
+                "marco": 2, "março": 2, "mar": 2, "abril": 3, "abr": 3,
+                "maio": 4, "mai": 4, "junho": 5, "jun": 5,
+                "julho": 6, "jul": 6, "agosto": 7, "ago": 7,
+                "setembro": 8, "set": 8, "outubro": 9, "out": 9,
+                "novembro": 10, "nov": 10, "dezembro": 11, "dez": 11
+              };
+
+              const [y, m, d] = targetIso.split("-").map(Number);
+              const targetYear = y;
+              const targetMonthIndex = m - 1; // 0 a 11
+              const targetDay = d;
+
+              function tentarClicarDatePicker() {
+                // 1. Se o popover não estiver aberto, procura o botão de data na barra superior
+                const datepickerPanel = document.querySelector('.p-datepicker-panel, p-datepicker');
+                if (!datepickerPanel || datepickerPanel.offsetParent === null) {
+                  const allButtons = document.querySelectorAll('button, .p-button, [class*="data"], [class*="date"], .header-data, [aria-haspopup="dialog"], [aria-haspopup="true"], .titulo-agenda-data, .current-date');
+                  let triggerBtn = null;
+
+                  for (const b of allButtons) {
+                    const txt = (b.textContent || "").trim();
+                    if (
+                      txt.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/) ||
+                      txt.match(/\b\d{1,2}\s+de\s+[a-z]+/i) ||
+                      txt.match(/hoje|domingo|segunda|terça|terca|quarta|quinta|sexta|sábado|sabado/i) ||
+                      b.querySelector('.pi-calendar, [class*="calendar"]') ||
+                      b.classList.contains("data-atual")
+                    ) {
+                      if (b.offsetParent !== null && !b.closest('.p-datepicker')) {
+                        triggerBtn = b;
+                        break;
+                      }
+                    }
+                  }
+
+                  if (triggerBtn) {
+                    console.log("[BelleCopilot Injected] 🖱️ Clicando no botão trigger da data:", triggerBtn);
+                    triggerBtn.click();
+                    triggerBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                  }
+                }
+
+                let tentativas = 0;
+                const navegarEClicar = () => {
+                  tentativas++;
+
+                  // 2. Navegação de Mês/Ano no cabeçalho do PrimeNG
+                  const monthBtn = document.querySelector('.p-datepicker-select-month, [aria-label="Choose Month"]');
+                  const yearBtn = document.querySelector('.p-datepicker-select-year, [aria-label="Choose Year"]');
+                  const nextBtn = document.querySelector('.p-datepicker-next-button, [aria-label="Next Month"], p-button[styleclass*="p-datepicker-next-button"] button');
+                  const prevBtn = document.querySelector('.p-datepicker-prev-button, [aria-label="Previous Month"], p-button[styleclass*="p-datepicker-prev-button"] button');
+
+                  if (monthBtn && yearBtn) {
+                    const currentYear = parseInt(yearBtn.textContent.trim(), 10) || targetYear;
+                    const monthTxt = (monthBtn.textContent || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    let currentMonthIndex = -1;
+                    for (const [nome, idx] of Object.entries(MESES_MAP)) {
+                      if (monthTxt.includes(nome)) {
+                        currentMonthIndex = idx;
+                        break;
+                      }
+                    }
+
+                    if (currentMonthIndex !== -1 && !isNaN(currentYear)) {
+                      const diffMonths = (targetYear - currentYear) * 12 + (targetMonthIndex - currentMonthIndex);
+                      if (diffMonths > 0 && nextBtn) {
+                        for (let i = 0; i < diffMonths; i++) {
+                          nextBtn.click();
+                          nextBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        }
+                      } else if (diffMonths < 0 && prevBtn) {
+                        for (let i = 0; i < Math.abs(diffMonths); i++) {
+                          prevBtn.click();
+                          prevBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        }
+                      }
+                    }
+                  }
+
+                  // 3. Procura a célula exata da data
+                  const possiveisDatas = [
+                    `${targetYear}-${targetMonthIndex}-${targetDay}`,
+                    `${targetYear}-${m}-${targetDay}`,
+                    `${targetYear}-${String(targetMonthIndex).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`,
+                    `${targetYear}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
+                  ];
+
+                  let cell = null;
+                  for (const dd of possiveisDatas) {
+                    const found = document.querySelector(`.p-datepicker-day[data-date="${dd}"], [data-date="${dd}"]`);
+                    if (found && !found.closest('.p-datepicker-other-month')) {
+                      cell = found;
+                      break;
+                    }
+                  }
+
+                  if (!cell) {
+                    const daySpans = document.querySelectorAll('.p-datepicker-day-cell:not(.p-datepicker-other-month) .p-datepicker-day, .p-datepicker-day:not(.p-datepicker-other-month)');
+                    for (const sp of daySpans) {
+                      if (sp.textContent.trim() === String(targetDay)) {
+                        cell = sp;
+                        break;
+                      }
+                    }
+                  }
+
+                  if (cell) {
+                    console.log(`[BelleCopilot Injected] ✅ Célula da data encontrada: ${targetIso}! Disparando clique...`);
+                    cell.click();
+                    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                    cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+                    const parentTd = cell.closest('td');
+                    if (parentTd) {
+                      parentTd.click();
+                      parentTd.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                    }
+                    return true;
+                  }
+
+                  if (tentativas < 12) {
+                    setTimeout(navegarEClicar, 70);
+                  }
+                };
+
+                setTimeout(navegarEClicar, 50);
+              }
+
+              tentarClicarDatePicker();
+            }
+          });
+        } catch (err) {
+          console.warn("Erro ao injetar script de clique no Belle:", err);
+        }
+      }
+
+      // Envia também via message listener para garantir
       try {
         await safeSendMessageToTab(belleTab.id, {
           action: "BELLE_NAVIGATE_DATE_IN_PAGE",

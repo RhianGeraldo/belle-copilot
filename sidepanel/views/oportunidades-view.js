@@ -153,6 +153,7 @@ export function renderizarOportunidades() {
   if (badgeOporTotal) {
     badgeOporTotal.textContent = String(totalAberto);
     badgeOporTotal.style.display = totalAberto > 0 ? "inline-block" : "none";
+    window.dispatchEvent(new CustomEvent("belle-opor-badge-updated", { detail: { total: totalAberto } }));
   }
 
   if (oportResumo) {

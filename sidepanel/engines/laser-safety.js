@@ -95,10 +95,170 @@ export function extrairParametrosAnterioresDaArea(nomeArea, historicoRegistros =
     frequencia: matchReg.frequencia || PARAMETROS_PADRAO.frequencia,
     pulso: matchReg.largura_pulso || "",
     disparos: matchReg.qtd_disparos || PARAMETROS_PADRAO.disparos,
-    obs: matchReg.observacao || "",
+    obs: "", // Não pré-preenche observações de sessões passadas
     semHistorico: !temEnergia,
     areaHistorico: matchReg.area || null
   };
+}
+
+/**
+ * Extrai as sub-zonas anteriores da área para esta cliente.
+ * Se na sessão anterior a área foi dividida (ex: [Geral] e [Lábios]),
+ * retorna as sub-zonas pré-configuradas com seus respectivos fototipos e energias anteriores.
+ */
+export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codServ = "", perfilCliente = null) {
+  if (!Array.isArray(historicoRegistros) || historicoRegistros.length === 0) {
+    // Verifica se há no cache persistente do perfil
+    if (perfilCliente?.subzonas && codServ && perfilCliente.subzonas[codServ]) {
+      return perfilCliente.subzonas[codServ].map(s => ({
+        rotulo: s.rotulo || "Geral",
+        fototipo: s.fototipo || PARAMETROS_PADRAO.fototipo,
+        modo: s.modo || PARAMETROS_PADRAO.modo,
+        energiaValor: "",
+        energiaAnterior: s.energiaAnterior || "",
+        temEnergiaAnterior: false,
+        freqNum: s.freq || 0.8,
+        disparosNum: s.disparos || 200,
+        obs: "",
+        origEnergia: 0,
+        origFototipo: s.fototipo || PARAMETROS_PADRAO.fototipo,
+        origModo: s.modo || PARAMETROS_PADRAO.modo
+      }));
+    }
+    return [{
+      rotulo: "Geral",
+      fototipo: PARAMETROS_PADRAO.fototipo,
+      modo: PARAMETROS_PADRAO.modo,
+      energiaValor: "",
+      energiaAnterior: "",
+      temEnergiaAnterior: false,
+      freqNum: 0.8,
+      disparosNum: 200,
+      obs: "",
+      origEnergia: 0,
+      origFototipo: PARAMETROS_PADRAO.fototipo,
+      origModo: PARAMETROS_PADRAO.modo
+    }];
+  }
+
+  const codAlvo = String(codServ || "").trim();
+  const keywords = extrairPalavrasChaveArea(nomeArea);
+
+  // 1. Localiza todos os registros pertencentes a esta área
+  const regsArea = historicoRegistros.filter(reg => {
+    const areaReg = String(reg.area || "").trim();
+    if (codAlvo && (areaReg.startsWith(`${codAlvo} -`) || areaReg.startsWith(`${codAlvo}-`) || String(reg.codServ || "") === codAlvo)) {
+      return true;
+    }
+    if (keywords.length > 0) {
+      const areaLower = areaReg.toLowerCase();
+      return keywords.some(k => areaLower.includes(k));
+    }
+    return false;
+  });
+
+  if (regsArea.length === 0) {
+    const fototipoPaciente = (historicoRegistros.find(r => r.fototipo) || {}).fototipo || PARAMETROS_PADRAO.fototipo;
+    return [{
+      rotulo: "Geral",
+      fototipo: fototipoPaciente,
+      modo: PARAMETROS_PADRAO.modo,
+      energiaValor: "",
+      energiaAnterior: "",
+      temEnergiaAnterior: false,
+      freqNum: 0.8,
+      disparosNum: 200,
+      obs: "",
+      origEnergia: 0,
+      origFototipo: fototipoPaciente,
+      origModo: PARAMETROS_PADRAO.modo
+    }];
+  }
+
+  // 2. Identifica o dia mais recente dessa área
+  const primeiraData = regsArea[0].data_hora;
+  const diaMaisRecente = primeiraData ? primeiraData.split(" ")[0] : "";
+  const regsUltimaSessao = diaMaisRecente 
+    ? regsArea.filter(r => r.data_hora && r.data_hora.startsWith(diaMaisRecente))
+    : [regsArea[0]];
+
+  // 3. Se houver 2 ou mais registros na última sessão para essa área, houve divisão em sub-zonas!
+  if (regsUltimaSessao.length >= 2) {
+    return regsUltimaSessao.map((reg, idx) => {
+      // Extrai rótulo de [Rótulo] ou (Rótulo)
+      let rotulo = `Sub-Zona ${idx + 1}`;
+      const matchBrackets = String(reg.area || "").match(/\[(.*?)\]/);
+      const matchParens = String(reg.area || "").match(/\((.*?)\)/);
+      if (matchBrackets) {
+        rotulo = matchBrackets[1].trim();
+      } else if (matchParens) {
+        rotulo = matchParens[1].trim();
+      } else if (idx === 0) {
+        rotulo = "Geral";
+      } else {
+        rotulo = `Sub-Zona ${idx + 1}`;
+      }
+
+      let energiaEncontrada = reg.energia || "";
+      if (!energiaEncontrada && reg.observacao) {
+        const matchEnergia = reg.observacao.match(/\b(\d{2,3})\s*(?:j|ft|joules)?\b/i);
+        if (matchEnergia) energiaEncontrada = matchEnergia[1];
+      }
+
+      const temEnergia = String(energiaEncontrada || "").trim() !== "" && parseFloat(energiaEncontrada) > 0;
+      const freqNum = parseFloat(String(reg.frequencia || "0.8").replace(",", ".")) || 0.8;
+      const disparosNum = parseInt(reg.qtd_disparos, 10) || 150;
+
+      return {
+        rotulo: rotulo,
+        fototipo: reg.fototipo || "IV",
+        modo: reg.modo_aplicacao || "HR",
+        energiaValor: temEnergia ? String(energiaEncontrada) : "",
+        energiaAnterior: temEnergia ? String(energiaEncontrada) : "",
+        temEnergiaAnterior: temEnergia,
+        freqNum: freqNum,
+        disparosNum: disparosNum,
+        obs: "", // Não pré-preenche observações de sessões passadas
+        origEnergia: temEnergia ? parseFloat(energiaEncontrada) : 0,
+        origFototipo: reg.fototipo || "IV",
+        origModo: reg.modo_aplicacao || "HR",
+        origFreq: freqNum,
+        origDisparos: disparosNum
+      };
+    });
+  }
+
+  // 4. Caso tenha apenas 1 registro na última sessão
+  const regUnico = regsUltimaSessao[0];
+  let energiaEncontrada = regUnico.energia || "";
+  if (!energiaEncontrada && regUnico.observacao) {
+    const matchEnergia = regUnico.observacao.match(/\b(\d{2,3})\s*(?:j|ft|joules)?\b/i);
+    if (matchEnergia) energiaEncontrada = matchEnergia[1];
+  }
+
+  const temEnergia = String(energiaEncontrada || "").trim() !== "" && parseFloat(energiaEncontrada) > 0;
+  const freqNum = parseFloat(String(regUnico.frequencia || "0.8").replace(",", ".")) || 0.8;
+  const disparosNum = parseInt(regUnico.qtd_disparos, 10) || 200;
+
+  const matchBrackets = String(regUnico.area || "").match(/\[(.*?)\]/);
+  const rotulo = matchBrackets ? matchBrackets[1].trim() : "Geral";
+
+  return [{
+    rotulo: rotulo,
+    fototipo: regUnico.fototipo || "IV",
+    modo: regUnico.modo_aplicacao || "HR",
+    energiaValor: temEnergia ? String(energiaEncontrada) : "",
+    energiaAnterior: temEnergia ? String(energiaEncontrada) : "",
+    temEnergiaAnterior: temEnergia,
+    freqNum: freqNum,
+    disparosNum: disparosNum,
+    obs: "", // Não pré-preenche observações de sessões passadas
+    origEnergia: temEnergia ? parseFloat(energiaEncontrada) : 0,
+    origFototipo: regUnico.fototipo || "IV",
+    origModo: regUnico.modo_aplicacao || "HR",
+    origFreq: freqNum,
+    origDisparos: disparosNum
+  }];
 }
 
 export function coletarParametrosDosFormularios() {
@@ -116,51 +276,90 @@ export function coletarParametrosDosFormularios() {
     const status = card.getAttribute("data-status") || "realizada";
     const isRealizada = status === "realizada";
 
-    const fototipo = card.querySelector(".param-fototipo")?.value || "IV";
-    const modo = card.querySelector(".param-modo")?.value || "HR";
-    const energia = (card.querySelector(".param-energia")?.value || "").trim();
-    const frequencia = card.querySelector(".param-frequencia")?.value || "0,8";
-    const disparos = card.querySelector(".param-disparos")?.value || "200";
-    const obsRealizada = card.querySelector(".param-obs")?.value?.trim() || "";
-    
-    const removerDoAgendamento = card.querySelector(".chk-remover-agendamento") ? card.querySelector(".chk-remover-agendamento").checked : true;
-    const skipObs = card.querySelector(".param-skip-obs")?.value?.trim() || "";
+    if (!isRealizada) {
+      const removerDoAgendamento = card.querySelector(".chk-remover-agendamento") ? card.querySelector(".chk-remover-agendamento").checked : true;
+      const skipObs = card.querySelector(".param-skip-obs")?.value?.trim() || "";
+      const observacaoFinal = skipObs ? (skipObs.startsWith("NÃO REALIZADA") ? skipObs : `NÃO REALIZADA: ${skipObs}`) : "NÃO REALIZADA HOJE";
 
-    const origFototipo = card.getAttribute("data-orig-fototipo") || "";
-    const origModo = card.getAttribute("data-orig-modo") || "";
-    const origEnergia = parseFloat(card.getAttribute("data-orig-energia")) || 0;
-    const origFreq = parseFloat(card.getAttribute("data-orig-frequencia")) || 0;
-    const origDisparos = parseInt(card.getAttribute("data-orig-disparos"), 10) || 0;
+      listaParaSalvar.push({
+        cod_paciente: String(app?.codCliente || ""),
+        data_hora: hojeStr,
+        area: areaFormatada,
+        codServ: codServ,
+        fototipo: "IV",
+        modo_aplicacao: "HR",
+        energia: "",
+        semEnergiaDefinida: false,
+        frequencia: "",
+        largura_pulso: "",
+        qtd_disparos: "0",
+        observacao: observacaoFinal,
+        obs: observacaoFinal,
+        profissional: app?.profissional || state.currentUserName || "Profissional",
+        isRealizada: false,
+        status: status,
+        removerDoAgendamento: removerDoAgendamento,
+        isSemEvolucao: false,
+        origEnergia: 0,
+        currentEnergia: 0,
+        nomeArea: areaNome
+      });
+      return;
+    }
 
-    const currentEnergiaNum = parseFloat(energia) || 0;
-    const isSemEvolucao = isRealizada && (origEnergia > 0 && currentEnergiaNum === origEnergia);
+    // Área Realizada: itera sobre cada subzona do card
+    const subzonaItems = card.querySelectorAll(".param-subzona-item");
+    const temMultiplasSubzonas = subzonaItems.length > 1;
 
-    const observacaoFinal = isRealizada
-      ? obsRealizada
-      : (skipObs ? (skipObs.startsWith("NÃO REALIZADA") ? skipObs : `NÃO REALIZADA: ${skipObs}`) : "NÃO REALIZADA HOJE");
+    subzonaItems.forEach((subItem, subIdx) => {
+      const rotulo = subItem.querySelector(".subzona-rotulo-input")?.value?.trim() || (temMultiplasSubzonas ? (subIdx === 0 ? "Geral" : `Sub-Zona ${subIdx + 1}`) : "");
+      const fototipo = subItem.querySelector(".param-fototipo")?.value || "IV";
+      const modo = subItem.querySelector(".param-modo")?.value || "HR";
+      const energia = (subItem.querySelector(".param-energia")?.value || "").trim();
+      const frequencia = subItem.querySelector(".param-frequencia")?.value || "0,8";
+      const disparos = subItem.querySelector(".param-disparos")?.value || "200";
+      const obsSub = (subItem.querySelector(".param-obs") || card.querySelector(".param-obs"))?.value?.trim() || "";
 
-    listaParaSalvar.push({
-      cod_paciente: String(app?.codCliente || ""),
-      data_hora: hojeStr,
-      area: areaFormatada,
-      codServ: codServ,
-      fototipo: fototipo,
-      modo_aplicacao: modo,
-      energia: isRealizada ? String(energia) : "",
-      semEnergiaDefinida: isRealizada && !(parseFloat(energia) > 0),
-      frequencia: isRealizada ? String(frequencia).replace(".", ",") : "",
-      largura_pulso: "",
-      qtd_disparos: isRealizada ? String(disparos) : "0",
-      observacao: observacaoFinal,
-      obs: observacaoFinal,
-      profissional: app?.profissional || state.currentUserName || "Profissional",
-      isRealizada: isRealizada,
-      status: status,
-      removerDoAgendamento: removerDoAgendamento,
-      isSemEvolucao: isSemEvolucao,
-      origEnergia: origEnergia,
-      currentEnergia: currentEnergiaNum,
-      nomeArea: areaNome
+      const origEnergia = parseFloat(subItem.getAttribute("data-orig-energia")) || 0;
+      const currentEnergiaNum = parseFloat(energia) || 0;
+      const isSemEvolucao = isRealizada && (origEnergia > 0 && currentEnergiaNum === origEnergia);
+
+      const areaParaSalvar = temMultiplasSubzonas && rotulo
+        ? `${areaFormatada} [${rotulo}]`
+        : areaFormatada;
+
+      const nomeAreaExibicao = temMultiplasSubzonas && rotulo
+        ? `${areaNome} [${rotulo}]`
+        : areaNome;
+
+      const obsFinal = obsSub 
+        ? (temMultiplasSubzonas && rotulo ? `[${rotulo}] ${obsSub}` : obsSub)
+        : (temMultiplasSubzonas && rotulo ? `[${rotulo}]` : "");
+
+      listaParaSalvar.push({
+        cod_paciente: String(app?.codCliente || ""),
+        data_hora: hojeStr,
+        area: areaParaSalvar,
+        codServ: codServ,
+        subRotulo: rotulo,
+        fototipo: fototipo,
+        modo_aplicacao: modo,
+        energia: String(energia),
+        semEnergiaDefinida: !(currentEnergiaNum > 0),
+        frequencia: String(frequencia).replace(".", ","),
+        largura_pulso: "",
+        qtd_disparos: String(disparos),
+        observacao: obsFinal,
+        obs: obsFinal,
+        profissional: app?.profissional || state.currentUserName || "Profissional",
+        isRealizada: true,
+        status: status,
+        removerDoAgendamento: false,
+        isSemEvolucao: isSemEvolucao,
+        origEnergia: origEnergia,
+        currentEnergia: currentEnergiaNum,
+        nomeArea: nomeAreaExibicao
+      });
     });
   });
 

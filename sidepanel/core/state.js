@@ -29,14 +29,15 @@ export const state = {
   currentSalas: [],
   currentDataAgenda: new Date().toISOString().split("T")[0],
 
-  // Perfis e Permissões (RBAC)
-  currentUserRole: "gerente", // "aplicadora" | "consultora" | "gerente"
-  currentUserOriginalRole: "gerente",
+  // Perfis e Permissões (RBAC) - Padrão seguro restritivo até a sessão confirmar o perfil
+  currentUserRole: "consultora", // "aplicadora" | "consultora" | "gerente" | "crc"
+  currentUserOriginalRole: "consultora",
   currentUserData: null,
 
   // Dados da Agenda & Atendimento
   appointmentsData: [],
   selectedAppointment: null,
+  currentServicosAgendadosHoje: [],
   currentListaServicosRegistro: [],
   ultimosRegistrosLaserCliente: [],
   lastSaldoServicosCache: [],

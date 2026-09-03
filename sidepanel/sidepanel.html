@@ -38,9 +38,10 @@
           <span id="user-role-display" class="user-role-pill">🏷️ Master</span>
           <div id="role-preview-container" class="role-preview-wrap" style="display: none;">
             <select id="select-role-preview" class="role-preview-select" title="Alternar visão do perfil (Gerente/Master)">
-              <option value="gerente">👑 Ver: Gerente</option>
+              <option value="gerente">👑 Ver: Gerente / Diretoria</option>
               <option value="aplicadora">🩺 Ver: Aplicadora</option>
               <option value="consultora">🎯 Ver: Consultora</option>
+              <option value="crc">🤝 Ver: CRC</option>
             </select>
           </div>
         </div>
@@ -74,51 +75,26 @@
     <!-- MÓDULO 1: AGENDA & ATENDIMENTO CLÍNICO                   -->
     <!-- ========================================================= -->
     <div id="module-agenda" class="module-container active">
-      <!-- PAINEL FIXO DO MÓDULO AGENDA (SALAS, KPIS, SUB-ABAS) -->
+      <!-- PAINEL FIXO DO MÓDULO AGENDA (SALAS E SUB-ABAS) -->
       <div class="fixed-agenda-panel" id="fixed-agenda-panel">
-        <!-- 1. Filtro de Salas -->
-        <section class="card control-card" id="card-filtro-salas">
-          <div class="filter-group">
-            <label for="select-profissional">📍 Filtrar por Sala / Recurso:</label>
-            <select id="select-profissional" class="form-select">
-              <option value="todos">Todas as Salas</option>
-            </select>
-          </div>
-        </section>
+        <!-- 1. Linha Compacta de Filtro de Sala -->
+        <div class="agenda-sala-bar" id="bar-filtro-salas">
+          <span class="agenda-sala-icon">📍</span>
+          <select id="select-profissional" class="agenda-sala-select" title="Filtrar agenda por Sala ou Recurso">
+            <option value="todos">Todas as Salas</option>
+          </select>
+        </div>
 
-        <!-- 2. KPIs de Agendamento do Dia -->
-        <section class="kpi-grid" id="card-kpi-grid">
-          <div class="kpi-card" data-filter="todos" title="Clique para filtrar todos os agendamentos">
-            <span class="kpi-label">Total</span>
-            <strong class="kpi-value" id="kpi-total">0</strong>
-          </div>
-          <div class="kpi-card kpi-success" data-filter="confirmado" title="Clique para filtrar apenas confirmados">
-            <span class="kpi-label">Confirmados</span>
-            <strong class="kpi-value" id="kpi-confirmados">0</strong>
-          </div>
-          <div class="kpi-card kpi-warning" data-filter="aguardando" title="Clique para filtrar clientes aguardando chamada">
-            <span class="kpi-label">Aguardando</span>
-            <strong class="kpi-value" id="kpi-aguardando">0</strong>
-          </div>
-          <div class="kpi-card kpi-purple" data-filter="finalizado" title="Clique para filtrar atendidos">
-            <span class="kpi-label">Atendidos</span>
-            <strong class="kpi-value" id="kpi-finalizados">0</strong>
-          </div>
-        </section>
-
-        <!-- 3. Sub-Abas Internas da Agenda: Agenda do Dia, Atendimento e CS -->
+        <!-- 2. Sub-Abas Internas da Agenda: Linha Única Slim -->
         <nav class="agenda-sub-tabs" id="agenda-sub-tabs">
-          <button class="sub-tab-item active" data-target="tab-agenda" id="tab-nav-agenda">
-            📅 Agenda do Dia
+          <button class="sub-tab-item active" data-target="tab-agenda" id="tab-nav-agenda" title="Agenda do Dia">
+            📅 Agenda
           </button>
-          <button class="sub-tab-item" data-target="tab-atendimento" id="tab-nav-atendimento">
+          <button class="sub-tab-item" data-target="tab-atendimento" id="tab-nav-atendimento" title="Atendimento Clínico">
             🩺 Atendimento
           </button>
-          <button class="sub-tab-item" data-target="tab-cs" id="tab-nav-cs">
-            🤝 Sucesso do Cliente <span class="badge-tab-count" id="badge-cs-total" style="display: none;">0</span>
-          </button>
-          <button class="sub-tab-item" data-target="tab-oportunidades" id="tab-nav-oportunidades">
-            💰 Oportunidades <span class="badge-tab-count" id="badge-opor-total" style="display: none;">0</span>
+          <button class="sub-tab-item" data-target="tab-cs" id="tab-nav-cs" title="Sucesso do Cliente e Oportunidades">
+            🤝 CS & Vendas <span class="badge-tab-count" id="badge-cs-total" style="display: none;">0</span>
           </button>
         </nav>
       </div>
@@ -127,7 +103,16 @@
       <div class="tabs-scroll-container">
         <!-- SUB-ABA 1: AGENDA DO DIA (TIMELINE) -->
         <section id="tab-agenda" class="tab-content active">
-          <!-- Tabulação Rápida por Status -->
+          <!-- Banner Alerta de Clientes Aguardando na Recepção (Exibido dinamicamente) -->
+          <div id="agenda-alerta-aguardando" class="agenda-alerta-banner" style="display: none;">
+            <div class="agenda-alerta-info">
+              <span class="alerta-pulse-dot"></span>
+              <span id="agenda-alerta-texto"><strong>1 cliente</strong> aguardando chamada</span>
+            </div>
+            <button id="btn-agenda-ver-aguardando" class="btn-alerta-acao">Ver aguardando</button>
+          </div>
+
+          <!-- Tabulação Rápida por Status com Contadores Integrados -->
           <div class="status-tab-bar" id="status-tab-bar">
             <button class="status-tab-btn active" data-status="todos">
               <span class="status-tab-name">Todos</span>
@@ -143,15 +128,15 @@
               <span class="status-tab-name">Confirmados</span>
               <span class="status-tab-count" id="count-status-confirmado">0</span>
             </button>
-            <button class="status-tab-btn" data-status="agendado">
-              <span class="status-tab-dot dot-agendado"></span>
-              <span class="status-tab-name">Marcados</span>
-              <span class="status-tab-count" id="count-status-agendado">0</span>
-            </button>
             <button class="status-tab-btn" data-status="atendimento">
               <span class="status-tab-dot dot-atendimento"></span>
               <span class="status-tab-name">Em Andamento</span>
               <span class="status-tab-count" id="count-status-atendimento">0</span>
+            </button>
+            <button class="status-tab-btn" data-status="agendado">
+              <span class="status-tab-dot dot-agendado"></span>
+              <span class="status-tab-name">Marcados</span>
+              <span class="status-tab-count" id="count-status-agendado">0</span>
             </button>
             <button class="status-tab-btn" data-status="finalizado">
               <span class="status-tab-dot dot-finalizado"></span>
@@ -362,115 +347,116 @@
     </section>
 
     <!-- ========================================================= -->
-    <!-- TAB 3: SUCESSO DO CLIENTE (CS / PÓS-LASER 24H E 3 DIAS)   -->
+    <!-- TAB 3: SUCESSO DO CLIENTE (CS) & OPORTUNIDADES            -->
     <!-- ========================================================= -->
     <section id="tab-cs" class="tab-content">
-      <!-- Card Cabeçalho & KPIs de CS -->
-      <div class="card cs-header-card">
-        <div class="card-section-title-flex">
-          <div class="title-with-icon">
-            <span class="icon-bubble" style="background: #e0e7ff; color: #4338ca;">🤝</span>
-            <span style="font-weight: 800; color: #1e1b4b;">Sucesso do Cliente (CS Pós-Laser)</span>
+      <!-- Seletor Interno entre Pós-Laser (CS) e Oportunidades -->
+      <div class="cs-subview-nav" id="cs-subview-nav">
+        <button class="cs-subview-btn active" data-subview="poslaser" id="btn-subview-poslaser">
+          🌿 Pós-Laser (24h / 3d) <span class="cs-subview-badge" id="badge-sub-cs" style="display: none;">0</span>
+        </button>
+        <button class="cs-subview-btn" data-subview="oportunidades" id="btn-subview-oportunidades">
+          💰 Oportunidades <span class="cs-subview-badge" id="badge-opor-total" style="display: none;">0</span>
+        </button>
+      </div>
+
+      <!-- PAINEL 1: PÓS-LASER (CS 24H E 3 DIAS) -->
+      <div id="panel-cs-poslaser" class="cs-subview-panel active">
+        <!-- Card Cabeçalho & KPIs de CS -->
+        <div class="card cs-header-card">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble" style="background: #e0e7ff; color: #4338ca;">🌿</span>
+              <span style="font-weight: 800; color: #1e1b4b;">Pós-Laser (24h & 3 Dias)</span>
+            </div>
+            <button id="btn-refresh-cs" class="btn-action-mini" title="Atualizar contatos de pós-atendimento">
+              🔄 Atualizar
+            </button>
           </div>
-          <button id="btn-refresh-cs" class="btn-action-mini" title="Atualizar contatos de pós-atendimento">
-            🔄 Atualizar
-          </button>
-        </div>
-        <p style="font-size: 11px; color: #64748b; margin: 4px 0 8px 0;">
-          Acompanhamento automático dos clientes atendidos em <strong>24h</strong> (ontem) e <strong>3 dias</strong> após o procedimento.
-        </p>
-        <div class="cs-unidade-row">
-          <span id="cs-unidade-ativa" class="cs-unidade-tag">🏢 Carregando unidade...</span>
+          <p style="font-size: 11px; color: #64748b; margin: 4px 0 8px 0;">
+            Acompanhamento automático das clientes atendidas em <strong>24h</strong> (ontem) e <strong>3 dias</strong> após o procedimento.
+          </p>
+          <div class="cs-unidade-row">
+            <span id="cs-unidade-ativa" class="cs-unidade-tag">🏢 Carregando unidade...</span>
+          </div>
+
+          <!-- Mini Grid de KPIs CS -->
+          <div class="cs-kpi-grid">
+            <div class="cs-kpi-box">
+              <span class="cs-kpi-lbl">Total Atendidos</span>
+              <strong class="cs-kpi-val" id="cs-kpi-total">0</strong>
+            </div>
+            <div class="cs-kpi-box cs-kpi-box-24h">
+              <span class="cs-kpi-lbl">⚡ 24h Pendentes</span>
+              <strong class="cs-kpi-val" id="cs-kpi-24h">0</strong>
+            </div>
+            <div class="cs-kpi-box cs-kpi-box-3d">
+              <span class="cs-kpi-lbl">🌿 3 Dias Pendentes</span>
+              <strong class="cs-kpi-val" id="cs-kpi-3d">0</strong>
+            </div>
+            <div class="cs-kpi-box cs-kpi-box-feito">
+              <span class="cs-kpi-lbl">✅ Contatados Hoje</span>
+              <strong class="cs-kpi-val" id="cs-kpi-contatados">0</strong>
+            </div>
+          </div>
         </div>
 
-        <!-- Mini Grid de KPIs CS -->
-        <div class="cs-kpi-grid">
-          <div class="cs-kpi-box">
-            <span class="cs-kpi-lbl">Total Atendidos</span>
-            <strong class="cs-kpi-val" id="cs-kpi-total">0</strong>
+        <!-- Barra de Filtros de CS -->
+        <div class="cs-controls-card card">
+          <div class="cs-filter-bar">
+            <button class="cs-filter-btn active" data-filter="todos">
+              Todos (<span id="cs-filter-count-todos">0</span>)
+            </button>
+            <button class="cs-filter-btn btn-filter-24h" data-filter="24h">
+              ⚡ 24h / Ontem (<span id="cs-filter-count-24h">0</span>)
+            </button>
+            <button class="cs-filter-btn btn-filter-3d" data-filter="3d">
+              🌿 3 Dias (<span id="cs-filter-count-3d">0</span>)
+            </button>
+            <button class="cs-filter-btn btn-filter-contatados" data-filter="contatados">
+              ✅ Feitos (<span id="cs-filter-count-contatados">0</span>)
+            </button>
           </div>
-          <div class="cs-kpi-box cs-kpi-box-24h">
-            <span class="cs-kpi-lbl">⚡ 24h Pendentes</span>
-            <strong class="cs-kpi-val" id="cs-kpi-24h">0</strong>
-          </div>
-          <div class="cs-kpi-box cs-kpi-box-3d">
-            <span class="cs-kpi-lbl">🌿 3 Dias Pendentes</span>
-            <strong class="cs-kpi-val" id="cs-kpi-3d">0</strong>
-          </div>
-          <div class="cs-kpi-box cs-kpi-box-feito">
-            <span class="cs-kpi-lbl">✅ Contatados Hoje</span>
-            <strong class="cs-kpi-val" id="cs-kpi-contatados">0</strong>
-          </div>
+        </div>
+
+        <!-- Spinner de Carregamento de CS -->
+        <div id="loading-cs" class="spinner-container" style="display: none; margin: 16px 0;">
+          <div class="spinner"></div>
+          <span>Carregando clientes atendidos em 24h e 3 dias...</span>
+        </div>
+
+        <!-- Container dos Cards de Clientes CS -->
+        <div id="cs-cards-container" class="cs-cards-list">
+          <!-- Injetado dinamicamente via cs-view.js -->
+        </div>
+
+        <!-- Estado Vazio de CS -->
+        <div id="cs-empty-state" class="empty-state" style="display: none;">
+          <div class="empty-icon">🤝</div>
+          <p>Nenhum atendimento finalizado encontrado em 24h ou 3 dias atrás.</p>
         </div>
       </div>
 
-      <!-- Barra de Filtros e Busca Rápida de CS -->
-      <div class="cs-controls-card card">
-        <div class="cs-filter-bar">
-          <button class="cs-filter-btn active" data-filter="todos">
-            Todos (<span id="cs-filter-count-todos">0</span>)
-          </button>
-          <button class="cs-filter-btn btn-filter-24h" data-filter="24h">
-            ⚡ 24h / Ontem (<span id="cs-filter-count-24h">0</span>)
-          </button>
-          <button class="cs-filter-btn btn-filter-3d" data-filter="3d">
-            🌿 3 Dias (<span id="cs-filter-count-3d">0</span>)
-          </button>
-          <button class="cs-filter-btn btn-filter-contatados" data-filter="contatados">
-            ✅ Feitos (<span id="cs-filter-count-contatados">0</span>)
-          </button>
-        </div>
-
-        <div class="cs-search-box" style="margin-top: 8px;">
-          <input 
-            type="text" 
-            id="cs-input-busca" 
-            placeholder="🔍 Buscar cliente por nome, telefone ou área..." 
-            class="form-input cs-search-input"
-            style="width: 100%; font-size: 11.5px; padding: 6px 10px;"
-          >
-        </div>
-      </div>
-
-      <!-- Spinner de Carregamento de CS -->
-      <div id="loading-cs" class="spinner-container" style="display: none; margin: 16px 0;">
-        <div class="spinner"></div>
-        <span>Carregando clientes atendidos em 24h e 3 dias...</span>
-      </div>
-
-      <!-- Container dos Cards de Clientes CS -->
-      <div id="cs-cards-container" class="cs-cards-list">
-        <!-- Injetado dinamicamente via cs-view.js -->
-      </div>
-
-      <!-- Estado Vazio de CS -->
-      <div id="cs-empty-state" class="empty-state" style="display: none;">
-        <div class="empty-icon">🤝</div>
-        <p>Nenhum atendimento finalizado encontrado em 24h ou 3 dias atrás.</p>
-      </div>
-    </section>
-
-    <!-- SUB-ABA: 💰 OPORTUNIDADES (orçamentos abertos dos últimos 30 dias — aplicadora) -->
-    <section id="tab-oportunidades" class="tab-content">
-      <div class="card">
-        <div class="card-section-title-flex">
-          <div class="title-with-icon">
-            <span class="icon-bubble" style="background: #dcfce7; color: #166534;">💰</span>
-            <span style="font-weight: 800; color: #0f172a;">Oportunidades de Venda</span>
+      <!-- PAINEL 2: OPORTUNIDADES (ORÇAMENTOS EM ABERTO DOS ÚLTIMOS 30 DIAS) -->
+      <div id="panel-cs-oportunidades" class="cs-subview-panel" style="display: none;">
+        <div class="card opor-header-card">
+          <div class="card-section-title-flex">
+            <div class="title-with-icon">
+              <span class="icon-bubble" style="background: #dcfce7; color: #166534;">💰</span>
+              <span style="font-weight: 800; color: #0f172a;">Oportunidades de Venda</span>
+            </div>
+            <button id="btn-refresh-oportunidades" class="btn-action-mini" title="Recarregar orçamentos">🔄 Atualizar</button>
           </div>
-          <button id="btn-refresh-oportunidades" class="btn-action-mini" title="Recarregar orçamentos">🔄 Atualizar</button>
-        </div>
-        <p id="opor-resumo" style="font-size: 11px; color: #64748b; margin: 4px 0 10px 0;">
-          Carregando orçamentos dos últimos 30 dias...
-        </p>
+          <p id="opor-resumo" style="font-size: 11px; color: #64748b; margin: 4px 0 10px 0;">
+            Carregando orçamentos dos últimos 30 dias...
+          </p>
 
-        <div class="vendas-filtros">
-          <button class="opor-filter-btn vendas-filter-btn active" data-fila="todos">📋 Todos <span class="opor-filter-count vendas-filter-count">0</span></button>
-          <button class="opor-filter-btn vendas-filter-btn" data-fila="aguardando">🔥 Aguardando <span class="opor-filter-count vendas-filter-count">0</span></button>
-          <button class="opor-filter-btn vendas-filter-btn" data-fila="pendente">💬 Pendente <span class="opor-filter-count vendas-filter-count">0</span></button>
+          <div class="vendas-filtros">
+            <button class="opor-filter-btn vendas-filter-btn active" data-fila="todos">📋 Todos <span class="opor-filter-count vendas-filter-count">0</span></button>
+            <button class="opor-filter-btn vendas-filter-btn" data-fila="aguardando">🔥 Aguardando <span class="opor-filter-count vendas-filter-count">0</span></button>
+            <button class="opor-filter-btn vendas-filter-btn" data-fila="pendente">💬 Pendente <span class="opor-filter-count vendas-filter-count">0</span></button>
+          </div>
         </div>
-
-        <input type="text" id="opor-input-busca" class="form-input" placeholder="🔍 Buscar por cliente ou plano..." style="margin-bottom: 8px;">
 
         <div id="loading-oportunidades" class="loading-box" style="display: none;">
           <div class="spinner"></div>

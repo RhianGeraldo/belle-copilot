@@ -6,59 +6,90 @@
 import { state } from './state.js';
 
 export function classificarPerfilUsuario(userData, codUsuario = "") {
+  // Se não há dados retornados na chamada de rede:
+  // Se já tínhamos um perfil válido no estado e ele não era o default ("gerente"), mantém o que já estava!
   if (!userData) {
+    if (state.currentUserRole && state.currentUserRole !== "gerente") {
+      return state.currentUserRole;
+    }
     const cod = String(codUsuario || "").toLowerCase();
-    if (cod.includes("admin") || cod.includes("master")) return "gerente";
-    return "gerente";
+    if (cod.includes("admin") || cod.includes("master") || cod.includes("diretor") || cod.includes("gerente")) {
+      return "gerente";
+    }
+    if (cod.includes("consultor") || cod.includes("venda")) {
+      return "consultora";
+    }
+    if (cod.includes("aplicador") || cod.includes("laser")) {
+      return "aplicadora";
+    }
+    if (cod.includes("crc")) {
+      return "crc";
+    }
+    return state.currentUserRole || "consultora";
   }
 
-  const gruposNomes = (Array.isArray(userData.grupos) ? userData.grupos.map(g => g.nome || "") : []).join(" ").toLowerCase();
-  const loginStr = (userData.login || userData.cod_usuario || codUsuario || "").toLowerCase();
-  const nomeStr = (userData.nom_usuario || userData.nomeUsuario || "").toLowerCase();
+  // Extrai nomes dos grupos retornados pela API /recuperar_dados do Belle Software
+  const gruposNomes = (Array.isArray(userData.grupos) ? userData.grupos.map(g => g.nome || "") : []).join(" ").toUpperCase();
+  const loginStr = (userData.login || userData.cod_usuario || codUsuario || "").toUpperCase();
+  const nomeStr = (userData.nom_usuario || userData.nomeUsuario || "").toUpperCase();
   const fullText = `${gruposNomes} ${loginStr} ${nomeStr}`;
 
-  // 1. Gerente / Master / Administrador
+  // 1. DIRETORIA - NOVO ou GERENTE - NOVO (Acesso total)
   if (
-    fullText.includes("master") ||
-    fullText.includes("admin") ||
-    fullText.includes("gerent") ||
-    fullText.includes("gerenc") ||
-    fullText.includes("diretor") ||
-    fullText.includes("proprietari") ||
-    fullText.includes("supervisor")
+    gruposNomes.includes("DIRETORIA") ||
+    gruposNomes.includes("GERENTE") ||
+    fullText.includes("DIRETORIA - NOVO") ||
+    fullText.includes("GERENTE - NOVO") ||
+    fullText.includes("MASTER") ||
+    fullText.includes("ADMIN") ||
+    fullText.includes("SUPERVISOR") ||
+    fullText.includes("PROPRIETARI")
   ) {
     return "gerente";
   }
 
-  // 2. Recepção / Atendimento
+  // 2. CONSULTORA - NOVO (Comercial / Vendas)
+  // IMPORTANTE: checado ANTES de CRC ou termos de atendimento para garantir foco comercial
   if (
-    fullText.includes("recepc") ||
-    fullText.includes("atendiment") ||
-    fullText.includes("portaria")
-  ) {
-    return "recepcao";
-  }
-
-  // 3. Consultora / Vendas
-  if (
-    fullText.includes("consultor") ||
-    fullText.includes("vendedor") ||
-    fullText.includes("comercial") ||
-    fullText.includes("vendas")
+    gruposNomes.includes("CONSULTORA") ||
+    fullText.includes("CONSULTORA - NOVO") ||
+    fullText.includes("CONSULTOR") ||
+    fullText.includes("VENDEDOR") ||
+    fullText.includes("COMERCIAL") ||
+    fullText.includes("VENDAS")
   ) {
     return "consultora";
   }
 
-  // 4. Aplicadora / Esteticista / Biomédica / Laser
+  // 3. CRC - NOVO (Central de Relacionamento com o Cliente)
   if (
-    fullText.includes("aplicador") ||
-    fullText.includes("estetic") ||
-    fullText.includes("biomedic") ||
-    fullText.includes("fisioterap") ||
-    fullText.includes("laser") ||
-    fullText.includes("operador")
+    gruposNomes.includes("CRC") ||
+    fullText.includes("CRC - NOVO") ||
+    fullText.includes("RELACIONAMENTO")
+  ) {
+    return "crc";
+  }
+
+  // 4. APLICADORA - NOVO (Laser / Técnica / Estética)
+  if (
+    gruposNomes.includes("APLICADORA") ||
+    fullText.includes("APLICADORA - NOVO") ||
+    fullText.includes("APLICADOR") ||
+    fullText.includes("ESTETIC") ||
+    fullText.includes("BIOMEDIC") ||
+    fullText.includes("FISIOTERAP") ||
+    fullText.includes("LASER") ||
+    fullText.includes("OPERADOR")
   ) {
     return "aplicadora";
+  }
+
+  // 5. Recepção / Portaria (caso legado)
+  if (
+    fullText.includes("RECEPC") ||
+    fullText.includes("PORTARIA")
+  ) {
+    return "recepcao";
   }
 
   return "aplicadora";
@@ -128,9 +159,9 @@ export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba } = {}) {
       moduleComercial.classList.add("active");
     }
 
-    if (typeof onAtivarAba === "function") onAtivarAba("tab-comercial");
-  } else {
-    // 👑 Modo Gerente: Exibe barra superior com Módulos (Agenda | Comercial)
+    if (typeof onAtivarAba === "function") onAtivarAba("tab-vendas");
+  } else if (perfil === "crc") {
+    // 🤝 Modo CRC: Central de Relacionamento (navega entre Agenda e Comercial, sem números financeiros da diretoria)
     if (mainModuleNav) mainModuleNav.style.display = "flex";
     if (moduleAgenda) {
       moduleAgenda.style.display = "flex";
@@ -143,5 +174,19 @@ export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba } = {}) {
     if (tabModuleAgenda) tabModuleAgenda.classList.add("active");
     if (tabModuleComercial) tabModuleComercial.classList.remove("active");
 
+    if (typeof onAtivarAba === "function") onAtivarAba("tab-agenda");
+  } else {
+    // 👑 Modo Gerente / Diretoria: Exibe barra superior com Módulos (Agenda | Comercial)
+    if (mainModuleNav) mainModuleNav.style.display = "flex";
+    if (moduleAgenda) {
+      moduleAgenda.style.display = "flex";
+      moduleAgenda.classList.add("active");
+    }
+    if (moduleComercial) {
+      moduleComercial.style.display = "none";
+      moduleComercial.classList.remove("active");
+    }
+    if (tabModuleAgenda) tabModuleAgenda.classList.add("active");
+    if (tabModuleComercial) tabModuleComercial.classList.remove("active");
   }
 }

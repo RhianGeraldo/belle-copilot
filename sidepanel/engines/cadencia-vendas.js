@@ -174,7 +174,9 @@ export function prepararOrcamentos(registros = []) {
       descontoPct: valorParaNumero(r.desconto),
       formaPagamento: r.labelFormasPag || "",
       temLink: possuiLinkPagamento(r),
-      vendedora: (r.nom_usuario || "").trim(),
+      vendedora: (r.nom_usuario || r.nom_vendedor || "").trim(),
+      codUsuario: String(r.cod_usuario || r.codUsuario || r.cod_vendedor || r.codVendedor || "").trim(),
+      loginUsuario: String(r.login || r.usuario || "").trim(),
       dataProposta: r.dtProp || "",
       validadeAte: r.dtValPlano || "",
       vencido: Boolean(r.vencido),
@@ -327,7 +329,9 @@ export function prepararPlanosVencendo(registros = [], horizonteDias = 90, inclu
       telefone: r.celular || "",
       nomePlano: r.nomePlano || "Plano",
       valorFinal: valorParaNumero(r.preco_final),
-      vendedora: (r.nom_usuario || "").trim(),
+      vendedora: (r.nom_usuario || r.nom_vendedor || "").trim(),
+      codUsuario: String(r.cod_usuario || r.codUsuario || r.cod_vendedor || r.codVendedor || "").trim(),
+      loginUsuario: String(r.login || r.usuario || "").trim(),
       dataProposta: r.dtProp || "",
       validadeAte: r.dtValPlano || "",
       validadeMeses: r.validade || null,
@@ -368,3 +372,67 @@ export function calcularKpisVencimento(itens = []) {
     qtdCriticos: criticos.length
   };
 }
+
+/**
+ * Verifica se um orçamento ou plano pertence à consultora / usuária informada.
+ * Compara por código numérico de usuário/vendedor, login ou nome da consultora.
+ */
+export function registroPertenceAoUsuario(item, { userData, userName, codUsuario } = {}) {
+  if (!item) return false;
+
+  const userCod = String(userData?.cod_usuario || codUsuario || "").trim().toLowerCase();
+  const userLogin = String(userData?.login || "").trim().toLowerCase();
+  const userNome = String(userData?.nom_usuario || userData?.nomeUsuario || userName || "").trim();
+
+  // 1. Match por código numérico de usuário / vendedor (ex: "82700")
+  const itemCod = String(item.codUsuario || item.cod_usuario || item.codVendedor || item.cod_vendedor || "").trim().toLowerCase();
+  if (userCod && itemCod && userCod === itemCod) {
+    return true;
+  }
+
+  // 2. Match por login (ex: "barbara.martins")
+  const itemLogin = String(item.loginUsuario || item.login || item.usuario || "").trim().toLowerCase();
+  if (userLogin && itemLogin && userLogin === itemLogin) {
+    return true;
+  }
+
+  // 3. Match por nome da consultora
+  const vendedoraNome = String(item.vendedora || item.nom_usuario || item.nomVendedor || item.nom_vendedor || "").trim();
+  if (!vendedoraNome) {
+    return false;
+  }
+
+  const normalizar = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const normVend = normalizar(vendedoraNome);
+  const normUser = normalizar(userNome);
+
+  if (normVend && normUser && normVend === normUser) {
+    return true;
+  }
+
+  // Se um nome contém o outro (ex: "BARBARA MARTINS" vs "BARBARA MARTINS DE ALMEIDA")
+  if (normUser.length >= 4 && normVend.length >= 4) {
+    if (normVend.includes(normUser) || normUser.includes(normVend)) {
+      return true;
+    }
+
+    const tokensVend = normVend.split(" ").filter(p => p.length > 2);
+    const tokensUser = normUser.split(" ").filter(p => p.length > 2);
+    if (tokensVend.length >= 2 && tokensUser.length >= 2) {
+      if (tokensVend[0] === tokensUser[0] && tokensVend[tokensVend.length - 1] === tokensUser[tokensUser.length - 1]) {
+        return true;
+      }
+    }
+  }
+
+  // Se o login for derivado do nome (ex: "barbara.martins")
+  if (userLogin && userLogin.length >= 3) {
+    const tokens = userLogin.split(/[\._\-]/).filter(t => t.length > 2);
+    if (tokens.length > 0 && tokens.every(tok => normVend.includes(tok))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+

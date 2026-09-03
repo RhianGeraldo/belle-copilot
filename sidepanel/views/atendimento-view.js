@@ -18,12 +18,14 @@ import { lerPerfilCliente, gravarPerfilCliente } from '../core/cache-persistente
 import { normalizarSexo } from '../engines/catalogo-areas.js';
 import { 
   extrairParametrosAnterioresDaArea, 
+  extrairSubzonasHistorico,
   coletarParametrosDosFormularios, 
   verificarEvolucaoParametros,
   verificarParametrosObrigatorios 
 } from '../engines/laser-safety.js';
 import { abrirModalTravaEvolucao } from '../components/modal-trava.js';
 import { abrirModalProximoAgendamento } from '../components/modal-proximo.js';
+import { registrarSaldoCapturado, ehAgendamentoAvaliacao } from './agenda-view.js';
 
 const atendimentoPlaceholder = document.getElementById("atendimento-placeholder");
 const atendimentoContent = document.getElementById("atendimento-content");
@@ -166,37 +168,125 @@ export function renderizarMultiplosAgendamentosHoje(appAtual) {
   });
 }
 
+/**
+ * Localiza o saldo correspondente de um serviço agendado hoje dentro do array retornado por saldovendaplano.
+ */
+function encontrarSaldoDoServico(servicoAgendado, listaSaldo) {
+  if (!Array.isArray(listaSaldo) || listaSaldo.length === 0) return null;
+
+  const codHoje = String(servicoAgendado.cod_servico || servicoAgendado.codServ || "").trim();
+  const nomeHoje = String(servicoAgendado.nome || servicoAgendado.nom_servico || servicoAgendado.procedimento || "").toLowerCase().trim();
+
+  // 1. Match por código do serviço se ambos tiverem
+  if (codHoje) {
+    const matchCod = listaSaldo.find(s => {
+      const sCod = String(s.codServ || s.cod_servico || s.id || "").trim();
+      return sCod && sCod === codHoje;
+    });
+    if (matchCod) return matchCod;
+  }
+
+  // 2. Match por igualdade de nome ou inclusão direta
+  const matchNome = listaSaldo.find(s => {
+    const sNome = String(s.servico || s.nome || s.nom_servico || "").toLowerCase().trim();
+    if (!sNome) return false;
+    return sNome === nomeHoje || nomeHoje.includes(sNome) || sNome.includes(nomeHoje);
+  });
+  if (matchNome) return matchNome;
+
+  // 3. Match por palavras-chave anatômicas (ex: axilas, virilha, perna, buço, barba, costas)
+  const palavrasHoje = nomeHoje
+    .replace(/\b(depilação|depilacao|a|laser|feminina|masculina|sessao|sessões|completa|área|area|corpo|pacote)\b/gi, "")
+    .trim()
+    .split(/[\s\-\(\)\/\+]+/)
+    .filter(p => p.length >= 3);
+
+  if (palavrasHoje.length > 0) {
+    const matchPalavras = listaSaldo.find(s => {
+      const sNome = String(s.servico || s.nome || s.nom_servico || "").toLowerCase();
+      return palavrasHoje.some(palavra => sNome.includes(palavra));
+    });
+    if (matchPalavras) return matchPalavras;
+  }
+
+  return null;
+}
+
 export function renderizarServicosComSaldo(servicosSaldo) {
   if (!atendListaServicos) return;
 
-  if (!Array.isArray(servicosSaldo) || servicosSaldo.length === 0) {
+  state.lastSaldoServicosCache = Array.isArray(servicosSaldo) ? servicosSaldo : [];
+
+  // REGRA CLÍNICA: Exibe ESTRITAMENTE as áreas agendadas para a consulta de hoje.
+  // Nunca deve exibir todas as áreas do plano/pacote da cliente (pois ela pode já ter terminado alguma ou não estar agendada hoje).
+  const servicosHoje = (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0)
+    ? state.currentServicosAgendadosHoje
+    : ((state.selectedAppointment?.arrServ && state.selectedAppointment.arrServ.length > 0)
+        ? state.selectedAppointment.arrServ
+        : (state.selectedAppointment?.procedimento ? [{ nome: state.selectedAppointment.procedimento, cod_servico: state.selectedAppointment.codTipo }] : []));
+
+  if (servicosHoje.length === 0) {
+    atendListaServicos.innerHTML = '<div style="font-size: 12px; color: #64748b; padding: 8px;">Nenhum procedimento agendado para hoje.</div>';
+    if (atendQtdServicos) atendQtdServicos.textContent = "0 áreas";
     return;
   }
 
-  state.lastSaldoServicosCache = servicosSaldo;
-  if (atendQtdServicos) atendQtdServicos.textContent = `${servicosSaldo.length} área${servicosSaldo.length === 1 ? '' : 's'}`;
+  if (atendQtdServicos) {
+    atendQtdServicos.textContent = `${servicosHoje.length} área${servicosHoje.length === 1 ? '' : 's'}`;
+  }
 
   let html = "";
-  servicosSaldo.forEach(s => {
-    const nome = s.servico || s.nome || s.nom_servico || "Área a Laser";
-    const realizadas = parseInt(s.gasto || s.realizadas || s.qtd_executada || 0, 10);
-    const contratadas = parseInt(s.quantidade || s.contratadas || s.qtd_contratada || 10, 10);
-    const saldo = parseInt(s.saldo_atual || s.saldo || (contratadas - realizadas), 10);
-    const cod = s.codServ || s.cod_servico || s.id || "";
-    const pct = Math.min(100, Math.round((realizadas / Math.max(1, contratadas)) * 100));
+  servicosHoje.forEach((sHoje, idx) => {
+    const sNome = sHoje.nome || sHoje.nom_servico || sHoje.procedimento || `Área #${idx + 1}`;
+    const sCod = sHoje.cod_servico || sHoje.codServ || "";
+
+    // Procura o saldo correspondente desta área no pacote retornado pela API
+    const saldoItem = encontrarSaldoDoServico(sHoje, servicosSaldo);
+
+    let realizadas = 0;
+    let contratadas = 0;
+    let saldo = 0;
+    let pct = 0;
+    let temSaldoInfo = false;
+
+    if (saldoItem) {
+      realizadas = parseInt(saldoItem.gasto || saldoItem.realizadas || saldoItem.qtd_executada || 0, 10);
+      contratadas = parseInt(saldoItem.quantidade || saldoItem.contratadas || saldoItem.qtd_contratada || 10, 10);
+      saldo = parseInt(saldoItem.saldo_atual || saldoItem.saldo || (contratadas - realizadas), 10);
+      pct = Math.min(100, Math.round((realizadas / Math.max(1, contratadas)) * 100));
+      temSaldoInfo = true;
+    } else {
+      // Fallback para lbServ se houver (ex: "AXILAS - 5/10")
+      if (state.selectedAppointment?.lbServ) {
+        const linhas = state.selectedAppointment.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
+        for (const l of linhas) {
+          const match = l.match(/(.+?)\s*-\s*(\d+)\/(\d+)/);
+          if (match && (sNome.toLowerCase().includes(match[1].toLowerCase().trim()) || match[1].toLowerCase().includes(sNome.toLowerCase().substring(0, 8)))) {
+            realizadas = parseInt(match[2], 10) || 0;
+            contratadas = parseInt(match[3], 10) || 0;
+            saldo = Math.max(0, contratadas - realizadas);
+            pct = Math.min(100, Math.round((realizadas / Math.max(1, contratadas)) * 100));
+            temSaldoInfo = true;
+            break;
+          }
+        }
+      }
+    }
 
     html += `
       <div class="atend-service-card">
         <div class="atend-service-header">
-          <span class="atend-service-name">✨ ${nome}</span>
-          <span class="atend-service-progress">📊 Sessão ${realizadas}/${contratadas}</span>
+          <span class="atend-service-name">✨ ${sNome}</span>
+          ${temSaldoInfo ? `<span class="atend-service-progress">📊 Sessão ${realizadas}/${contratadas}</span>` : ''}
         </div>
-        <div class="atend-session-bar-wrap">
-          <div class="atend-session-bar-fill" style="width: ${pct}%;"></div>
-        </div>
+        ${temSaldoInfo ? `
+          <div class="atend-session-bar-wrap">
+            <div class="atend-session-bar-fill" style="width: ${pct}%;"></div>
+          </div>
+        ` : ''}
         <div class="atend-service-footer">
-          <span class="atend-service-code">🏷️ ${cod ? `Cód: ${cod}` : ''}</span>
-          <span class="atend-service-saldo">Restam: <strong>${saldo} sessões</strong></span>
+          <span class="atend-service-code">🏷️ ${sCod ? `Cód: ${sCod}` : `Área #${idx + 1}`}</span>
+          ${temSaldoInfo ? `<span class="atend-service-saldo">Restam: <strong>${saldo} sessões</strong></span>` : ''}
         </div>
       </div>
     `;
@@ -204,8 +294,8 @@ export function renderizarServicosComSaldo(servicosSaldo) {
 
   atendListaServicos.innerHTML = html;
 
-  // Atualiza também os formulários de registro por área com as áreas do plano
-  renderizarFormulariosParametrosLaser(servicosSaldo, state.ultimosRegistrosLaserCliente);
+  // Atualiza também os formulários de registro de parâmetros estritamente com as áreas de hoje
+  renderizarFormulariosParametrosLaser(servicosHoje, state.ultimosRegistrosLaserCliente);
 
   if (state.selectedAppointment) {
     atualizarOfertasComSexo(state.selectedAppointment, servicosSaldo, state.ultimosRegistrosLaserCliente);
@@ -265,19 +355,165 @@ export function renderizarParametrosLaser(registros) {
   }
 }
 
-export function renderizarFormulariosParametrosLaser(listaServicos, historicoRegistros = []) {
+export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
+  const isMulti = totalSubzonas > 1;
+  const rotulo = sub.rotulo || (subIdx === 0 ? "Geral" : `Sub-Zona ${subIdx + 1}`);
+  const energiaValor = sub.energiaValor || (sub.temEnergiaAnterior ? sub.energiaAnterior : "");
+  const temEnergiaAnterior = sub.temEnergiaAnterior;
+  const freqNum = sub.freqNum || 0.8;
+  const disparosNum = sub.disparosNum || (subIdx > 0 ? 150 : 200);
+  const modoHist = (sub.origModo === 'HR' || sub.modo === 'HR' || !sub.origModo) ? 'HR (Pontual)' : (sub.origModo || sub.modo || 'HR (Pontual)');
+
+  return `
+    <div class="param-subzona-item ${isMulti ? 'param-subzona-destacada' : ''}" 
+         data-sub-idx="${subIdx}"
+         data-orig-fototipo="${sub.origFototipo || sub.fototipo || 'IV'}"
+         data-orig-modo="${sub.origModo || sub.modo || 'HR'}"
+         data-orig-energia="${sub.origEnergia || 0}"
+         data-orig-frequencia="${freqNum}"
+         data-orig-disparos="${disparosNum}">
+
+      ${isMulti ? `
+        <div class="subzona-header">
+          <div class="subzona-title-wrap">
+            <span class="subzona-badge-tag">Zona ${subIdx + 1}</span>
+            <input type="text" class="subzona-rotulo-input" value="${rotulo}" placeholder="Nome (ex: Lábios, Geral)">
+          </div>
+          ${subIdx > 0 ? `
+            <button type="button" class="btn-remove-subzona" title="Remover esta sub-zona">
+              🗑️ Excluir
+            </button>
+          ` : ''}
+        </div>
+
+        ${subIdx > 0 ? `
+          <div class="subzona-sugestoes-row">
+            <span class="subzona-sugestao-pill" data-rotulo="Lábios / Mais escura">Lábios</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Face Interna">Face Interna</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Púbis / Externa">Púbis</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Buço">Buço</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Face Externa">Face Externa</span>
+          </div>
+        ` : ''}
+      ` : ''}
+
+      ${temEnergiaAnterior ? `
+        <div class="param-historico-ref">
+          <span class="param-hist-icon">📌</span>
+          <span>Última aplicação ${isMulti ? `[${rotulo}]` : ''}: <strong>${sub.energiaAnterior}J</strong> • Fototipo ${sub.origFototipo || sub.fototipo} • ${modoHist}</span>
+        </div>
+      ` : `
+        <div class="param-historico-ref param-historico-novo">
+          <span class="param-hist-icon">🛡️</span>
+          <span>${isMulti ? `Sub-zona [${rotulo}]: ` : ''}Sem histórico anterior. Defina os parâmetros para esta sessão.</span>
+        </div>
+      `}
+
+      <!-- Linha 1: Fototipo & Modo de Disparo -->
+      <div class="param-grid-duo">
+        <div class="param-field">
+          <label class="param-label">
+            <span>👤 Fototipo</span>
+          </label>
+          <select class="param-input param-fototipo">
+            <option value="I" ${sub.fototipo === 'I' ? 'selected' : ''}>Fototipo I (Muito clara)</option>
+            <option value="II" ${sub.fototipo === 'II' ? 'selected' : ''}>Fototipo II (Clara)</option>
+            <option value="III" ${sub.fototipo === 'III' ? 'selected' : ''}>Fototipo III (Morena clara)</option>
+            <option value="IV" ${sub.fototipo === 'IV' || !sub.fototipo ? 'selected' : ''}>Fototipo IV (Morena média)</option>
+            <option value="V" ${sub.fototipo === 'V' ? 'selected' : ''}>Fototipo V (Morena escura)</option>
+            <option value="VI" ${sub.fototipo === 'VI' ? 'selected' : ''}>Fototipo VI (Negra)</option>
+          </select>
+        </div>
+
+        <div class="param-field">
+          <label class="param-label">
+            <span>⚡ Modo</span>
+          </label>
+          <select class="param-input param-modo">
+            <option value="HR" ${sub.modo === 'HR' || !sub.modo ? 'selected' : ''}>HR (Pontual)</option>
+            <option value="SHR" ${sub.modo === 'SHR' ? 'selected' : ''}>SHR (Varredura)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Linha 2: Energia Principal (Joules) em Destaque -->
+      <div class="param-field param-field-energia-hero">
+        <div class="param-label param-label-energia">
+          <span>⚡ Energia Aplicada Hoje</span>
+          <span class="param-label-unit">Joules (J)</span>
+        </div>
+        <div class="param-stepper-wrap param-stepper-energia">
+          <button type="button" class="btn-param-step" data-delta="-1" title="Diminuir 1J">−1</button>
+          <div class="param-input-with-unit">
+            <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
+            <span class="param-unit-tag">J</span>
+          </div>
+          <button type="button" class="btn-param-step" data-delta="1" title="Aumentar 1J">+1</button>
+        </div>
+      </div>
+
+      <!-- Linha 3: Frequência & Disparos -->
+      <div class="param-grid-duo">
+        <div class="param-field">
+          <label class="param-label">
+            <span>⏱️ Frequência</span>
+            <span class="param-label-unit">Hz</span>
+          </label>
+          <div class="param-stepper-wrap">
+            <button type="button" class="btn-param-step" data-delta="-0.1" title="Diminuir 0.1Hz">−</button>
+            <div class="param-input-with-unit">
+              <input type="number" step="0.1" min="0.1" max="10.0" class="param-input param-frequencia" value="${freqNum}">
+              <span class="param-unit-tag">Hz</span>
+            </div>
+            <button type="button" class="btn-param-step" data-delta="0.1" title="Aumentar 0.1Hz">+</button>
+          </div>
+        </div>
+
+        <div class="param-field">
+          <label class="param-label">
+            <span>🎯 Disparos</span>
+            <span class="param-label-unit">shots</span>
+          </label>
+          <div class="param-stepper-wrap">
+            <button type="button" class="btn-param-step" data-delta="-50" title="Diminuir 50 disparos">−</button>
+            <div class="param-input-with-unit">
+              <input type="number" step="50" min="0" max="5000" class="param-input param-disparos" value="${disparosNum}">
+              <span class="param-unit-tag">qtd</span>
+            </div>
+            <button type="button" class="btn-param-step" data-delta="50" title="Aumentar 50 disparos">+</button>
+          </div>
+        </div>
+      </div>
+
+      ${isMulti ? `
+        <div class="param-field" style="margin-top: 6px;">
+          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="">
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+export function renderizarFormulariosParametrosLaser(listaServicos, historicoRegistros) {
   if (!atendListaFormsLaser) return;
   
-  if (Array.isArray(listaServicos) && listaServicos.length > 0) {
-    state.currentListaServicosRegistro = [...listaServicos];
+  // REGRA CLÍNICA: Exibe ESTRITAMENTE as áreas agendadas para a consulta de hoje.
+  // Nunca deve mostrar todas as áreas do plano contratado da cliente.
+  let servicosParaExibir = [];
+  if (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0) {
+    servicosParaExibir = [...state.currentServicosAgendadosHoje];
+  } else if (Array.isArray(listaServicos) && listaServicos.length > 0) {
+    servicosParaExibir = [...listaServicos];
   } else if (state.selectedAppointment?.arrServ && state.selectedAppointment.arrServ.length > 0) {
-    state.currentListaServicosRegistro = [...state.selectedAppointment.arrServ];
+    servicosParaExibir = [...state.selectedAppointment.arrServ];
   } else if (state.selectedAppointment?.procedimento) {
-    state.currentListaServicosRegistro = [{
+    servicosParaExibir = [{
       nome: state.selectedAppointment.procedimento,
       cod_servico: state.selectedAppointment.codTipo || ""
     }];
   }
+
+  state.currentListaServicosRegistro = servicosParaExibir;
 
   const historico = (Array.isArray(historicoRegistros) && historicoRegistros.length > 0) 
     ? historicoRegistros 
@@ -298,16 +534,9 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sNome = s.nome || `Área #${idx + 1}`;
     const areaFormatada = `${sCod} - ${sNome}`;
 
-    const prev = extrairParametrosAnterioresDaArea(sNome, historico, sCod);
-
-    // Sem registro anterior DESTA área a energia fica em branco: a aplicadora define o
-    // valor da sessão de hoje. Nada é herdado de outra região do corpo.
-    const energiaAnterior = parseFloat(prev.energia);
-    const temEnergiaAnterior = Number.isFinite(energiaAnterior) && energiaAnterior > 0;
-    const energiaValor = temEnergiaAnterior ? energiaAnterior : "";
-    const energiaOrig = temEnergiaAnterior ? energiaAnterior : 0;
-    const freqNum = parseFloat(String(prev.frequencia || "0.8").replace(",", ".")) || 0.8;
-    const disparosNum = parseInt(prev.disparos, 10) || 200;
+    // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
+    const subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
+    const subzonasHtml = subzonas.map((sub, sIdx) => gerarHtmlSubzonaItem(sub, sIdx, subzonas.length, sNome)).join("");
 
     formsHtml += `
       <div class="atend-param-form-card" 
@@ -315,98 +544,40 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
            data-cod-serv="${sCod}" 
            data-area-nome="${sNome}"
            data-area-formatada="${areaFormatada}"
-           data-orig-fototipo="${prev.fototipo}"
-           data-orig-modo="${prev.modo}"
-           data-orig-energia="${energiaOrig}"
-           data-orig-frequencia="${freqNum}"
-           data-orig-disparos="${disparosNum}"
-           data-orig-obs=""
            data-status="realizada">
         
         <div class="param-form-header">
-          <div class="param-header-info">
-            <span class="param-form-title" title="${areaFormatada}">✨ ${areaFormatada}</span>
-            <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
+          <div class="param-header-title-row">
+            <span class="param-form-title" title="${areaFormatada}">✨ ${sNome}</span>
           </div>
-
-          <div class="param-status-toggle">
-            <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
-              ✅ Realizada
-            </button>
-            <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
-              ❌ Não Realizada
-            </button>
+          <div class="param-header-controls-row">
+            <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
+            <div class="param-status-toggle">
+              <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
+                ✅ Realizada
+              </button>
+              <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
+                ❌ Não Realizada
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- SEÇÃO QUANDO REALIZADA (Padrão) -->
+        <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
         <div class="param-section-realizada">
-          ${!temEnergiaAnterior ? `
-            <div class="param-sem-historico-alert">
-              <span class="param-sem-historico-icon">🛡️</span>
-              <div class="param-sem-historico-text">
-                <strong>Sem registro anterior desta área para esta cliente.</strong><br>
-                Defina a <strong>energia (J)</strong> conforme a avaliação de hoje. Nenhum parâmetro foi herdado de outra área.
-              </div>
-            </div>
-          ` : `
-            <div class="param-historico-ref">
-              📌 Última aplicação registrada nesta área: <strong>${energiaValor}J</strong>${prev.areaHistorico ? ` • ${prev.areaHistorico}` : ''}
-            </div>
-          `}
-          <div class="param-fields-grid">
-            <div class="param-field">
-              <label>Fototipo:</label>
-              <select class="param-input param-fototipo">
-                <option value="I" ${prev.fototipo === 'I' ? 'selected' : ''}>I</option>
-                <option value="II" ${prev.fototipo === 'II' ? 'selected' : ''}>II</option>
-                <option value="III" ${prev.fototipo === 'III' ? 'selected' : ''}>III</option>
-                <option value="IV" ${prev.fototipo === 'IV' || !prev.fototipo ? 'selected' : ''}>IV</option>
-                <option value="V" ${prev.fototipo === 'V' ? 'selected' : ''}>V</option>
-                <option value="VI" ${prev.fototipo === 'VI' ? 'selected' : ''}>VI</option>
-              </select>
-            </div>
-
-            <div class="param-field">
-              <label>Modo:</label>
-              <select class="param-input param-modo">
-                <option value="HR" ${prev.modo === 'HR' || !prev.modo ? 'selected' : ''}>HR</option>
-                <option value="SHR" ${prev.modo === 'SHR' ? 'selected' : ''}>SHR</option>
-                <option value="STAMP" ${prev.modo === 'STAMP' ? 'selected' : ''}>STAMP</option>
-              </select>
-            </div>
-
-            <div class="param-field">
-              <label>Energia (J):</label>
-              <div class="param-stepper-wrap">
-                <button type="button" class="btn-param-step" data-delta="-1">−</button>
-                <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
-                <button type="button" class="btn-param-step" data-delta="1">+</button>
-              </div>
-            </div>
-
-            <div class="param-field">
-              <label>Frequência:</label>
-              <div class="param-stepper-wrap">
-                <button type="button" class="btn-param-step" data-delta="-0.1">−</button>
-                <input type="number" step="0.1" min="0.1" max="10.0" class="param-input param-frequencia" value="${freqNum}">
-                <button type="button" class="btn-param-step" data-delta="0.1">+</button>
-              </div>
-            </div>
-
-            <div class="param-field">
-              <label>Qtd Disparos:</label>
-              <div class="param-stepper-wrap">
-                <button type="button" class="btn-param-step" data-delta="-50">−</button>
-                <input type="number" step="50" min="0" max="5000" class="param-input param-disparos" value="${disparosNum}">
-                <button type="button" class="btn-param-step" data-delta="50">+</button>
-              </div>
-            </div>
+          <div class="param-subzonas-container">
+            ${subzonasHtml}
           </div>
 
-          <div class="param-field" style="margin-top: 8px;">
+          <div class="param-add-subzona-row">
+            <button type="button" class="btn-add-subzona" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
+              ➕ Dividir por Sub-Zona / Fototipo Misto (ex: Lábios, Face interna)
+            </button>
+          </div>
+
+          <div class="param-field" style="margin-top: 10px;">
             <label style="display: flex; justify-content: space-between; align-items: center;">
-              <span>Observação Clínica da Área:</span>
+              <span>Observações Clínicas da Área:</span>
               <span style="font-weight: normal; font-size: 10px; color: #8b5cf6;">💡 Opções rápidas</span>
             </label>
             <div class="param-obs-pills-row">
@@ -418,7 +589,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
               <span class="obs-pill" data-text="Pelos grossos">💥 Pelos grossos</span>
               <span class="obs-pill" data-text="Sem intercorrências">✅ Sem intercorrências</span>
             </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]}${temEnergiaAnterior ? ` ${energiaValor}J` : ''} • Boa tolerância" value="">
+            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]} • Boa tolerância" value="">
           </div>
         </div>
 
@@ -509,6 +680,35 @@ export async function salvarParametrosLaserDireto(parametros) {
       atendStatusSalvarLaser.textContent = msgSucesso;
     }
 
+    // Persiste no cache da cliente a configuração de subzonas
+    if (state.selectedAppointment?.codCliente) {
+      const subzonasPorServico = {};
+      document.querySelectorAll(".atend-param-form-card").forEach(card => {
+        const codServ = card.getAttribute("data-cod-serv");
+        const subItems = card.querySelectorAll(".param-subzona-item");
+        if (codServ && subItems.length > 1) {
+          subzonasPorServico[codServ] = Array.from(subItems).map((item, i) => ({
+            rotulo: item.querySelector(".subzona-rotulo-input")?.value?.trim() || (i === 0 ? "Geral" : `Sub-Zona ${i + 1}`),
+            fototipo: item.querySelector(".param-fototipo")?.value || "IV",
+            modo: item.querySelector(".param-modo")?.value || "HR",
+            energiaAnterior: item.querySelector(".param-energia")?.value || "",
+            freq: item.querySelector(".param-frequencia")?.value || "0,8",
+            disparos: item.querySelector(".param-disparos")?.value || "150"
+          }));
+        }
+      });
+
+      if (Object.keys(subzonasPorServico).length > 0) {
+        lerPerfilCliente(state.currentCodEstab, state.selectedAppointment.codCliente).then(perfilExistente => {
+          const perfilAtualizado = {
+            ...(perfilExistente || {}),
+            subzonas: { ...(perfilExistente?.subzonas || {}), ...subzonasPorServico }
+          };
+          gravarPerfilCliente(state.currentCodEstab, state.selectedAppointment.codCliente, perfilAtualizado);
+        }).catch(() => {});
+      }
+    }
+
     if (state.selectedAppointment?.codCliente) {
       buscarParametrosLaserApi(state.currentToken, state.selectedAppointment.codCliente, state.currentCodEstab)
         .then(registros => renderizarParametrosLaser(registros))
@@ -540,6 +740,45 @@ export async function salvarParametrosLaserDireto(parametros) {
 
 export async function executarFluxoFinalizacaoAtendimento(app) {
   if (!app) return;
+
+  const isAval = app.isAvaliacao ?? ehAgendamentoAvaliacao(app);
+
+  // Se for AVALIAÇÃO: não há parâmetros técnicos de laser nem evolução a validar
+  if (isAval) {
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.disabled = true;
+      btnAtendFinalizar.textContent = "⏳ Concluindo avaliação...";
+    }
+
+    const codConsulta = app.codConsulta || app.id;
+    const sucesso = await finalizarAtendimentoApi(state.currentToken, codConsulta, state.currentCodEstab);
+
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.disabled = false;
+      btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
+    }
+
+    if (sucesso) {
+      app.status = "finalizado";
+      app.statusFormatado = "Atendido";
+      if (atendStatusBadge) {
+        atendStatusBadge.className = "app-badge badge-finalizado";
+        atendStatusBadge.textContent = "Atendido";
+      }
+
+      limparCachesAtendimento();
+
+      if (typeof callbackRecarregarAgenda === "function") {
+        callbackRecarregarAgenda();
+      }
+
+      // Sugere agendar primeira sessão ou pacote
+      abrirModalProximoAgendamento(app, []);
+    } else {
+      alert("Não foi possível concluir a avaliação no Belle. Verifique a conexão e tente novamente.");
+    }
+    return;
+  }
 
   const parametrosParaSalvar = coletarParametrosDosFormularios();
   const areasRealizadas = parametrosParaSalvar.filter(p => p.isRealizada !== false);
@@ -751,6 +990,10 @@ export function renderizarProximaClienteAguardando(currentApp) {
 
 export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba, onRecarregarAgenda } = {}) {
   if (!app) return;
+  if (state.currentUserRole === "consultora") {
+    console.warn("[Atendimento] 🚫 Perfil Consultora não tem acesso à tela clínica de atendimento.");
+    return;
+  }
   if (onAtivarAba) callbackAtivarAba = onAtivarAba;
   if (onRecarregarAgenda) callbackRecarregarAgenda = onRecarregarAgenda;
 
@@ -844,6 +1087,9 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     });
   }
 
+  state.currentServicosAgendadosHoje = [...listaServicos];
+  state.currentListaServicosRegistro = [...listaServicos];
+
   if (atendQtdServicos) atendQtdServicos.textContent = `${listaServicos.length} área${listaServicos.length === 1 ? '' : 's'}`;
 
   // Mapeamento de progresso de lbServ (ex: "AXILAS (P) - depilação a laser - 15/40")
@@ -905,40 +1151,101 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     atendListaServicos.innerHTML = cardsHtml || '<div style="font-size: 12px; color: #64748b; padding: 8px;">Nenhum procedimento discriminado.</div>';
   }
 
-  // Renderiza imediatamente os formulários de registro por área
-  renderizarFormulariosParametrosLaser(listaServicos, state.ultimosRegistrosLaserCliente);
+  const isAvaliacao = app.isAvaliacao ?? ehAgendamentoAvaliacao(app);
+
+  const cardParametros = document.getElementById("atend-card-parametros");
+  const cardNovoParametro = document.getElementById("atend-card-novo-parametro");
+  let cardAvaliacao = document.getElementById("atend-card-avaliacao");
+
+  if (isAvaliacao) {
+    if (cardParametros) cardParametros.style.display = "none";
+    if (cardNovoParametro) cardNovoParametro.style.display = "none";
+
+    if (!cardAvaliacao) {
+      cardAvaliacao = document.createElement("div");
+      cardAvaliacao.id = "atend-card-avaliacao";
+      cardAvaliacao.className = "card card-avaliacao-destaque";
+      cardAvaliacao.innerHTML = `
+        <div class="card-section-title-flex">
+          <div class="title-with-icon">
+            <span class="icon-bubble" style="background: #e0f2fe; color: #0284c7;">📋</span>
+            <span style="color: #0369a1; font-weight: 800;">Atendimento de Avaliação</span>
+          </div>
+          <span class="badge-count-pill" style="background: #e0f2fe; color: #0284c7;">Sem Laser</span>
+        </div>
+        <div class="avaliacao-info-banner">
+          <p style="font-size: 11.5px; color: #334155; margin: 0 0 8px 0; line-height: 1.4;">
+            💡 Este agendamento é uma <strong>Avaliação</strong>. <strong>Não há parâmetros técnicos de laser a registrar</strong> nesta sessão.
+          </p>
+          <div class="avaliacao-checklist">
+            <div class="avaliacao-check-item">✔ Avaliar tipo de pele e histórico da cliente</div>
+            <div class="avaliacao-check-item">✔ Esclarecer dúvidas sobre o tratamento e contraindicações</div>
+            <div class="avaliacao-check-item">✔ Apresentar propostas de pacotes na aba <strong>CS & Vendas</strong></div>
+          </div>
+        </div>
+      `;
+      const actionCard = document.querySelector(".action-buttons-card");
+      if (actionCard && actionCard.parentNode) {
+        actionCard.parentNode.insertBefore(cardAvaliacao, actionCard);
+      }
+    } else {
+      cardAvaliacao.style.display = "block";
+    }
+
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
+      btnAtendFinalizar.style.background = "#0284c7";
+      btnAtendFinalizar.style.borderColor = "#0369a1";
+    }
+  } else {
+    if (cardParametros) cardParametros.style.display = "block";
+    if (cardNovoParametro) cardNovoParametro.style.display = "block";
+    if (cardAvaliacao) cardAvaliacao.style.display = "none";
+
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+      btnAtendFinalizar.style.background = "#16a34a";
+      btnAtendFinalizar.style.borderColor = "#15803d";
+    }
+
+    // Renderiza imediatamente os formulários de registro por área
+    renderizarFormulariosParametrosLaser(listaServicos, state.ultimosRegistrosLaserCliente);
+
+    // 3. Busca parâmetros anteriores do prontuário do laser
+    if (atendListaLaserParams) atendListaLaserParams.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>';
+    if (loadingLaserParams) loadingLaserParams.style.display = "flex";
+    if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Buscando...";
+
+    if (app.codCliente && state.currentToken) {
+      buscarParametrosLaserApi(state.currentToken, app.codCliente, state.currentCodEstab)
+        .then(registros => {
+          renderizarParametrosLaser(registros);
+        })
+        .catch(() => {
+          renderizarParametrosLaser([]);
+        });
+    } else {
+      renderizarParametrosLaser([]);
+    }
+  }
 
   // Ativa a aba Atendimento imediatamente
   if (typeof callbackAtivarAba === "function") {
     callbackAtivarAba("tab-atendimento");
   }
 
-  // 2. Busca o saldo exato e oficial de cada área via saldovendaplano usando cod_plano_paciente
-  if (app.codOrcamento && state.currentToken) {
+  // 2. Busca o saldo exato e oficial de cada área via saldovendaplano usando cod_plano_paciente (se houver pacote)
+  if (!isAvaliacao && app.codOrcamento && state.currentToken) {
     buscarSaldoVendaPlanoApi(state.currentToken, app.codOrcamento, app.codPlano, app.idGeinfo, state.currentCodEstab)
       .then(resSaldo => {
         if (Array.isArray(resSaldo) && resSaldo.length > 0) {
           renderizarServicosComSaldo(resSaldo);
+          if (app.codOrcamento) {
+            registrarSaldoCapturado(app.codOrcamento, resSaldo);
+          }
         }
       })
       .catch(() => {});
-  }
-
-  // 3. Busca parâmetros anteriores do prontuário do laser
-  if (atendListaLaserParams) atendListaLaserParams.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>';
-  if (loadingLaserParams) loadingLaserParams.style.display = "flex";
-  if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Buscando...";
-
-  if (app.codCliente && state.currentToken) {
-    buscarParametrosLaserApi(state.currentToken, app.codCliente, state.currentCodEstab)
-      .then(registros => {
-        renderizarParametrosLaser(registros);
-      })
-      .catch(() => {
-        renderizarParametrosLaser([]);
-      });
-  } else {
-    renderizarParametrosLaser([]);
   }
 }
 
@@ -1068,6 +1375,106 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
         obsInput.value = currentText;
         obsInput.dispatchEvent(new Event("input", { bubbles: true }));
       }
+      return;
+    }
+
+    // 5. Adicionar Subzona / Dividir por Fototipo
+    const btnAddSub = e.target.closest(".btn-add-subzona");
+    if (btnAddSub) {
+      e.preventDefault();
+      const card = btnAddSub.closest(".atend-param-form-card");
+      if (!card) return;
+      const container = card.querySelector(".param-subzonas-container");
+      if (!container) return;
+
+      const subItems = container.querySelectorAll(".param-subzona-item");
+      const nextIdx = subItems.length;
+      if (nextIdx >= 4) return; // Limite máximo de 4 subzonas por área
+
+      // Se for a primeira divisão (tinha só 1 item), re-renderiza o item 0 com o cabeçalho de subzona 1
+      if (nextIdx === 1) {
+        const item0 = subItems[0];
+        item0.classList.add("param-subzona-destacada");
+        if (!item0.querySelector(".subzona-header")) {
+          const headerDiv = document.createElement("div");
+          headerDiv.className = "subzona-header";
+          headerDiv.innerHTML = `
+            <div class="subzona-title-wrap">
+              <span class="subzona-badge-tag">Zona 1</span>
+              <input type="text" class="subzona-rotulo-input" value="Geral" placeholder="Nome (ex: Geral)">
+            </div>
+          `;
+          item0.prepend(headerDiv);
+        }
+      }
+
+      // Cria a nova subzona (ex: Lábios, Fototipo V)
+      const novaSubzonaObj = {
+        rotulo: "Lábios / Mais escura",
+        fototipo: "V",
+        modo: "HR",
+        energiaValor: "",
+        energiaAnterior: "",
+        temEnergiaAnterior: false,
+        freqNum: 0.8,
+        disparosNum: 150,
+        obs: "",
+        origEnergia: 0,
+        origFototipo: "V",
+        origModo: "HR"
+      };
+
+      const sNome = card.getAttribute("data-area-nome") || "Área";
+      const novaSubHtml = gerarHtmlSubzonaItem(novaSubzonaObj, nextIdx, nextIdx + 1, sNome);
+      container.insertAdjacentHTML("beforeend", novaSubHtml);
+
+      if (nextIdx + 1 >= 4) {
+        btnAddSub.style.display = "none";
+      }
+
+      const novoItem = container.lastElementChild;
+      novoItem?.querySelector(".param-energia")?.focus();
+      return;
+    }
+
+    // 6. Remover Subzona
+    const btnRemoveSub = e.target.closest(".btn-remove-subzona");
+    if (btnRemoveSub) {
+      e.preventDefault();
+      const subItem = btnRemoveSub.closest(".param-subzona-item");
+      const card = subItem?.closest(".atend-param-form-card");
+      if (!subItem || !card) return;
+
+      subItem.remove();
+
+      const container = card.querySelector(".param-subzonas-container");
+      const remainingItems = container?.querySelectorAll(".param-subzona-item") || [];
+
+      // Se sobrou apenas 1 subzona, simplifica de volta
+      if (remainingItems.length === 1) {
+        const item0 = remainingItems[0];
+        item0.classList.remove("param-subzona-destacada");
+        item0.querySelector(".subzona-header")?.remove();
+        item0.querySelector(".subzona-sugestoes-row")?.remove();
+      }
+
+      const btnAdd = card.querySelector(".btn-add-subzona");
+      if (btnAdd) btnAdd.style.display = "inline-flex";
+      return;
+    }
+
+    // 7. Chips rápidos de sugestão de subzona (ex: Lábios, Face interna)
+    const chipSugestao = e.target.closest(".subzona-sugestao-pill");
+    if (chipSugestao) {
+      e.preventDefault();
+      const rotulo = chipSugestao.getAttribute("data-rotulo");
+      const subItem = chipSugestao.closest(".param-subzona-item");
+      const inputRotulo = subItem?.querySelector(".subzona-rotulo-input");
+      if (inputRotulo && rotulo) {
+        inputRotulo.value = rotulo;
+        inputRotulo.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return;
     }
   });
 

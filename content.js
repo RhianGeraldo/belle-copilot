@@ -181,6 +181,28 @@ function descobrirCodUsuarioNaPagina() {
     }
   } catch (e) {}
 
+  // 3. Fallback: sessionStorage da página
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (!k || !/usuario|user|login|cod_usuario/i.test(k)) continue;
+        const raw = (sessionStorage.getItem(k) || "").trim();
+        if (raw && raw.length >= 3 && raw.length <= 60 && !/\s/.test(raw) && !/^[\[{]/.test(raw)) {
+          return raw;
+        }
+        if (raw && /^[\[{]/.test(raw)) {
+          try {
+            const parsed = JSON.parse(raw);
+            const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+            const cod = obj?.cod_usuario || obj?.codUsuario || obj?.login || obj?.usuario;
+            if (cod && String(cod).trim().length >= 3) return String(cod).trim();
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {}
+
   return null;
 }
 
@@ -352,6 +374,14 @@ window.addEventListener("message", (event) => {
       console.log(`[Agenda Assistant] 📥 Interceptados parâmetros e logo da empresa!`);
       safeSendMessage({
         action: "BELLE_LIVE_PARAMETROS_EMPRESA_CAPTURED",
+        url: url,
+        method: method,
+        data: parsedJson
+      });
+    } else if (url.includes("recuperar_dados") && parsedJson && typeof parsedJson === "object") {
+      console.log(`[Agenda Assistant] 📥 Interceptado perfil do usuário logado (${parsedJson.nom_usuario || parsedJson.login || "usuário"})!`);
+      safeSendMessage({
+        action: "BELLE_LIVE_USUARIO_CAPTURED",
         url: url,
         method: method,
         data: parsedJson

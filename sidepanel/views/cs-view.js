@@ -8,6 +8,7 @@ import { state } from '../core/state.js';
 import { buscarAgendaApi, montarArrGridDeGridSala, buscarGridSalaApi } from '../core/api-client.js';
 import { resolverSessaoBelle, aplicarSessaoNoEstado } from '../core/session.js';
 import { processarItensAgenda } from './agenda-view.js';
+import { carregarOportunidades } from './oportunidades-view.js';
 
 // Elementos da Interface
 const tabNavCs = document.getElementById("tab-nav-cs");
@@ -426,11 +427,8 @@ export function atualizarKpisCs() {
   if (csKpi3d) csKpi3d.textContent = pendentes3d;
   if (csKpiContatados) csKpiContatados.textContent = contatadosCount;
 
-  // Atualiza badge de contagem na sub-aba
-  if (badgeCsTotal) {
-    badgeCsTotal.textContent = totalPendentes;
-    badgeCsTotal.style.display = totalPendentes > 0 ? "inline-block" : "none";
-  }
+  // Atualiza badges consolidados (CS + Oportunidades)
+  atualizarBadgesConsolidados();
 
   // Atualiza badges dos filtros internos
   const cBadgeTodos = document.getElementById("cs-filter-count-todos");
@@ -661,4 +659,72 @@ export function inicializarCsView() {
       return;
     }
   });
+
+  // Alternância de Sub-Visões (Pós-Laser vs Oportunidades)
+  const subviewBtns = document.querySelectorAll(".cs-subview-btn");
+  subviewBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetView = btn.getAttribute("data-subview") || "poslaser";
+      alternarSubViewCs(targetView);
+    });
+  });
+
+  // Ouve atualizações de badge vindas do módulo de oportunidades
+  window.addEventListener("belle-opor-badge-updated", () => {
+    atualizarBadgesConsolidados();
+  });
+}
+
+/**
+ * Alterna entre as sub-visões internas do CS: Pós-Laser (24h/3d) e Oportunidades
+ */
+export function alternarSubViewCs(subview = "poslaser") {
+  const panelPoslaser = document.getElementById("panel-cs-poslaser");
+  const panelOpor = document.getElementById("panel-cs-oportunidades");
+  const btnPoslaser = document.getElementById("btn-subview-poslaser");
+  const btnOpor = document.getElementById("btn-subview-oportunidades");
+
+  if (subview === "oportunidades") {
+    panelPoslaser?.classList.remove("active");
+    if (panelPoslaser) panelPoslaser.style.display = "none";
+    panelOpor?.classList.add("active");
+    if (panelOpor) panelOpor.style.display = "flex";
+    btnPoslaser?.classList.remove("active");
+    btnOpor?.classList.add("active");
+    carregarOportunidades();
+  } else {
+    panelOpor?.classList.remove("active");
+    if (panelOpor) panelOpor.style.display = "none";
+    panelPoslaser?.classList.add("active");
+    if (panelPoslaser) panelPoslaser.style.display = "flex";
+    btnOpor?.classList.remove("active");
+    btnPoslaser?.classList.add("active");
+    renderizarCsView();
+  }
+  atualizarBadgesConsolidados();
+}
+
+/**
+ * Atualiza o badge consolidado da aba principal (CS + Oportunidades)
+ * e o badge individual da sub-aba de CS.
+ */
+export function atualizarBadgesConsolidados() {
+  const pendentes24h = csKpi24h ? (parseInt(csKpi24h.textContent, 10) || 0) : 0;
+  const pendentes3d = csKpi3d ? (parseInt(csKpi3d.textContent, 10) || 0) : 0;
+  const totalCs = pendentes24h + pendentes3d;
+
+  const badgeSubCs = document.getElementById("badge-sub-cs");
+  if (badgeSubCs) {
+    badgeSubCs.textContent = String(totalCs);
+    badgeSubCs.style.display = totalCs > 0 ? "inline-block" : "none";
+  }
+
+  const badgeOpor = document.getElementById("badge-opor-total");
+  const totalOpor = badgeOpor ? (parseInt(badgeOpor.textContent, 10) || 0) : 0;
+
+  const totalConsolidado = totalCs + totalOpor;
+  if (badgeCsTotal) {
+    badgeCsTotal.textContent = String(totalConsolidado);
+    badgeCsTotal.style.display = totalConsolidado > 0 ? "inline-block" : "none";
+  }
 }

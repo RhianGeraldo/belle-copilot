@@ -109,7 +109,7 @@
       self._handled = true;
 
       const url = self._url || "";
-      if (!url || (!url.includes("agendaapi") && !url.includes("gridsala") && !url.includes("salas") && !url.includes("get_servicos") && !url.includes("parametro_laser") && !url.includes("saldovendaplano") && !url.includes("detalhes_api") && !url.includes("edicaoagenda") && !url.includes("validar_agendamento") && !url.includes("atendimento") && !url.includes("parametros"))) {
+      if (!url || (!url.includes("agendaapi") && !url.includes("recuperar_dados") && !url.includes("gridsala") && !url.includes("salas") && !url.includes("get_servicos") && !url.includes("parametro_laser") && !url.includes("saldovendaplano") && !url.includes("detalhes_api") && !url.includes("edicaoagenda") && !url.includes("validar_agendamento") && !url.includes("atendimento") && !url.includes("parametros"))) {
         return;
       }
 
@@ -150,7 +150,7 @@
     const response = await origFetch.apply(this, arguments);
     try {
       const url = typeof resource === 'string' ? resource : resource?.url;
-      if (url && (url.includes("agendaapi") || url.includes("salas") || url.includes("gridsala") || url.includes("get_servicos") || url.includes("parametro_laser") || url.includes("saldovendaplano") || url.includes("detalhes_api") || url.includes("edicaoagenda") || url.includes("validar_agendamento") || url.includes("atendimento") || url.includes("parametros"))) {
+      if (url && (url.includes("agendaapi") || url.includes("recuperar_dados") || url.includes("salas") || url.includes("gridsala") || url.includes("get_servicos") || url.includes("parametro_laser") || url.includes("saldovendaplano") || url.includes("detalhes_api") || url.includes("edicaoagenda") || url.includes("validar_agendamento") || url.includes("atendimento") || url.includes("parametros"))) {
         const clone = response.clone();
         let bodyData = init?.body;
         if (bodyData && typeof bodyData !== 'string') {

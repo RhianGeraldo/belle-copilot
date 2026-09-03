@@ -19,7 +19,8 @@ import {
   rankingPorVendedora,
   prepararPlanosVencendo,
   calcularKpisVencimento,
-  formatarReal
+  formatarReal,
+  registroPertenceAoUsuario
 } from '../engines/cadencia-vendas.js';
 
 /*
@@ -230,8 +231,40 @@ export async function carregarPlanosVencendo(forcar = false) {
   }
 }
 
+/**
+ * Retorna os orçamentos visíveis para o usuário atual.
+ * Se o perfil for "consultora", filtra estritamente os orçamentos que pertencem a ela.
+ */
+export function obterOrcamentosVisiveis() {
+  if (state.currentUserRole === "consultora") {
+    return orcamentos.filter(o => registroPertenceAoUsuario(o, {
+      userData: state.currentUserData,
+      userName: state.currentUserName,
+      codUsuario: state.currentCodUsuario
+    }));
+  }
+  return orcamentos;
+}
+
+/**
+ * Retorna os planos a vencer visíveis para o usuário atual.
+ * Se o perfil for "consultora", filtra estritamente os planos que pertencem a ela.
+ */
+export function obterPlanosVencendoVisiveis() {
+  if (state.currentUserRole === "consultora") {
+    return planosVencendo.filter(o => registroPertenceAoUsuario(o, {
+      userData: state.currentUserData,
+      userName: state.currentUserName,
+      codUsuario: state.currentCodUsuario
+    }));
+  }
+  return planosVencendo;
+}
+
 function atualizarKpis() {
-  if (!kpis) return;
+  const orcamentosVisiveis = obterOrcamentosVisiveis();
+  const planosVencendoVisiveis = obterPlanosVencendoVisiveis();
+  const kpisAtuais = calcularKpisVendas(orcamentosVisiveis);
 
   // Faturamento, ticket, conversão e ranking são números de gestão: só o gerente vê.
   // A consultora fica com as filas de trabalho, logo abaixo.
@@ -239,24 +272,24 @@ function atualizarKpis() {
   aplicarVisibilidadeGerencial();
 
   if (gerente) {
-    if (vendasKpiFaturamento) vendasKpiFaturamento.textContent = formatarReal(kpis.faturamentoAprovado);
-    if (vendasKpiAberto) vendasKpiAberto.textContent = formatarReal(kpis.valorEmAberto);
-    if (vendasKpiConversao) vendasKpiConversao.textContent = `${kpis.taxaConversao}%`;
-    if (vendasKpiTicket) vendasKpiTicket.textContent = formatarReal(kpis.ticketMedio);
+    if (vendasKpiFaturamento) vendasKpiFaturamento.textContent = formatarReal(kpisAtuais.faturamentoAprovado);
+    if (vendasKpiAberto) vendasKpiAberto.textContent = formatarReal(kpisAtuais.valorEmAberto);
+    if (vendasKpiConversao) vendasKpiConversao.textContent = `${kpisAtuais.taxaConversao}%`;
+    if (vendasKpiTicket) vendasKpiTicket.textContent = formatarReal(kpisAtuais.ticketMedio);
   }
 
   if (vendasResumoPeriodo) {
-    // Contagem das filas todo mundo vê; desconto médio é indicador de margem.
+    const nomeConsultora = state.currentUserName || "sua carteira";
     vendasResumoPeriodo.textContent = gerente
-      ? `${kpis.totalOrcamentos} orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
-        `${kpis.qtdAprovado} aprovados • ${kpis.qtdAguardando} aguardando • ${kpis.qtdPendente} pendentes` +
-        (kpis.descontoMedio ? ` • desconto médio ${kpis.descontoMedio}%` : "")
-      : `Orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
-        `${kpis.qtdAguardando} aguardando pagamento • ${kpis.qtdPendente} pendente(s) para retomar` +
-        (planosVencendo.length ? ` • ${planosVencendo.length} plano(s) vencendo com saldo` : "");
+      ? `${kpisAtuais.totalOrcamentos} orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
+        `${kpisAtuais.qtdAprovado} aprovados • ${kpisAtuais.qtdAguardando} aguardando • ${kpisAtuais.qtdPendente} pendentes` +
+        (kpisAtuais.descontoMedio ? ` • desconto médio ${kpisAtuais.descontoMedio}%` : "")
+      : `👤 Sua carteira (${nomeConsultora}) • Orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)}: ` +
+        `${kpisAtuais.qtdAguardando} aguardando pagamento • ${kpisAtuais.qtdPendente} pendente(s) para retomar` +
+        (planosVencendoVisiveis.length ? ` • ${planosVencendoVisiveis.length} plano(s) vencendo com saldo` : "");
   }
 
-  const aResgatar = kpis.qtdAguardando + kpis.qtdPendente + planosVencendo.length;
+  const aResgatar = kpisAtuais.qtdAguardando + kpisAtuais.qtdPendente + planosVencendoVisiveis.length;
   if (badgeVendasTotal) {
     badgeVendasTotal.textContent = String(aResgatar);
     badgeVendasTotal.style.display = aResgatar > 0 ? "inline-block" : "none";
@@ -265,11 +298,11 @@ function atualizarKpis() {
   document.querySelectorAll(".vendas-filter-btn").forEach(btn => {
     const fila = btn.getAttribute("data-fila");
     const cont = {
-      aguardando: kpis.qtdAguardando,
-      pendente: kpis.qtdPendente,
-      suspenso: kpis.qtdSuspenso,
-      aprovado: kpis.qtdAprovado,
-      vencendo: planosVencendo.length
+      aguardando: kpisAtuais.qtdAguardando,
+      pendente: kpisAtuais.qtdPendente,
+      suspenso: kpisAtuais.qtdSuspenso,
+      aprovado: kpisAtuais.qtdAprovado,
+      vencendo: planosVencendoVisiveis.length
     }[fila];
     const span = btn.querySelector(".vendas-filter-count");
     if (span && cont !== undefined) span.textContent = cont;
@@ -302,20 +335,24 @@ function renderizarRanking() {
 }
 
 function renderizarFilaVencendo() {
-  const k = kpisVencimento;
+  const planosVencendoVisiveis = obterPlanosVencendoVisiveis();
+  const k = calcularKpisVencimento(planosVencendoVisiveis);
 
-  if (planosVencendo.length === 0) {
+  if (planosVencendoVisiveis.length === 0) {
     vendasCards.style.display = "none";
     if (vendasEmptyState) {
       vendasEmptyState.style.display = "block";
+      const ehCons = state.currentUserRole === "consultora";
       vendasEmptyState.textContent = carregandoVencendo
         ? "Procurando planos com saldo a vencer..."
-        : `Nenhum plano pago com sessão sobrando vencendo nos próximos ${HORIZONTE_VENCIMENTO_DIAS} dias. 🎉`;
+        : ehCons
+          ? `Nenhum plano pago da sua carteira com sessão sobrando vencendo nos próximos ${HORIZONTE_VENCIMENTO_DIAS} dias. 🎉`
+          : `Nenhum plano pago com sessão sobrando vencendo nos próximos ${HORIZONTE_VENCIMENTO_DIAS} dias. 🎉`;
     }
     return;
   }
 
-  let lista = planosVencendo;
+  let lista = planosVencendoVisiveis;
   if (termoBusca) {
     const t = termoBusca.toLowerCase();
     lista = lista.filter(o =>
@@ -380,12 +417,19 @@ export function renderizarVendas() {
   atualizarKpis();
   renderizarRanking();
 
+  if (vendasInputBusca) {
+    vendasInputBusca.placeholder = (state.currentUserRole === "consultora")
+      ? "🔍 Buscar por cliente ou plano da sua carteira..."
+      : "🔍 Buscar por cliente, plano ou consultora...";
+  }
+
   if (filtroFila === "vencendo") {
     renderizarFilaVencendo();
     return;
   }
 
-  let lista = orcamentos.filter(o => o.fila === filtroFila);
+  const orcamentosVisiveis = obterOrcamentosVisiveis();
+  let lista = orcamentosVisiveis.filter(o => o.fila === filtroFila);
 
   if (termoBusca) {
     const t = termoBusca.toLowerCase();
@@ -409,9 +453,14 @@ export function renderizarVendas() {
     vendasCards.style.display = "none";
     if (vendasEmptyState) {
       vendasEmptyState.style.display = "block";
-      vendasEmptyState.textContent = termoBusca
-        ? "Nenhum orçamento encontrado para essa busca."
-        : `Nenhum orçamento em "${ROTULO_FILA[filtroFila]?.titulo || filtroFila}" entre ${dataBrCurta(janelaAtual.inicioIso)} e ${dataBrCurta(janelaAtual.fimIso)}.`;
+      const ehCons = state.currentUserRole === "consultora";
+      const msgFila = {
+        aguardando: ehCons ? "Você não tem orçamentos aguardando pagamento na sua carteira." : "Nenhum orçamento aguardando pagamento no período.",
+        pendente:   ehCons ? "Você não tem orçamentos pendentes para retomar na sua carteira." : "Nenhum orçamento pendente para retomar no período.",
+        suspenso:   ehCons ? "Você não tem orçamentos suspensos na sua carteira." : "Nenhum orçamento suspenso.",
+        aprovado:   ehCons ? "Você não tem orçamentos aprovados na sua carteira neste período." : "Nenhum orçamento aprovado no período."
+      }[filtroFila] || (termoBusca ? "Nenhum orçamento encontrado para essa busca." : `Nenhum orçamento em "${ROTULO_FILA[filtroFila]?.titulo || filtroFila}" entre ${dataBrCurta(janelaAtual.inicioIso)} e ${dataBrCurta(janelaAtual.fimIso)}.`);
+      vendasEmptyState.textContent = msgFila;
     }
     return;
   }

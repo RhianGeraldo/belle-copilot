@@ -21,7 +21,10 @@ import {
   sincronizarSalasComAgendamentos, 
   processarItensAgenda, 
   atualizarKpis, 
-  inicializarAgendaView 
+  inicializarAgendaView,
+  registrarSaldoCapturado,
+  extrairNomeProfissional,
+  ehAgendamentoAvaliacao 
 } from './views/agenda-view.js';
 import { 
   abrirAtendimento, 
@@ -29,11 +32,12 @@ import {
   renderizarServicosComSaldo, 
   inicializarAtendimentoView 
 } from './views/atendimento-view.js';
-import { inicializarComercialView } from './views/comercial-view.js';
+import { inicializarComercialView, consultarFichaPorApp } from './views/comercial-view.js';
 import { 
   carregarSucessoCliente, 
   renderizarCsView, 
-  inicializarCsView 
+  inicializarCsView,
+  alternarSubViewCs 
 } from './views/cs-view.js';
 import { inicializarConfigView } from './views/config-view.js';
 import { carregarVendas, inicializarVendasView } from './views/vendas-view.js';
@@ -53,6 +57,16 @@ const agendaTimelineContainer = document.getElementById("agenda-timeline-contain
 const agendaEmptyState = document.getElementById("agenda-empty-state");
 
 export function ativarModulo(moduleId) {
+  // Trava de segurança RBAC por perfil
+  if (state.currentUserRole === "consultora" && moduleId === "module-agenda") {
+    console.warn("[RBAC] 🚫 Consultora não tem acesso ao módulo Agenda.");
+    moduleId = "module-comercial";
+  }
+  if ((state.currentUserRole === "aplicadora" || state.currentUserRole === "recepcao") && moduleId === "module-comercial") {
+    console.warn("[RBAC] 🚫 Aplicadora não tem acesso ao módulo Comercial.");
+    moduleId = "module-agenda";
+  }
+
   const moduleNavBtns = document.querySelectorAll(".module-nav-btn");
   moduleNavBtns.forEach(btn => {
     if (btn.getAttribute("data-module") === moduleId) btn.classList.add("active");
@@ -75,7 +89,22 @@ export function ativarModulo(moduleId) {
 }
 
 export function ativarAba(targetId) {
-  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs" || targetId === "tab-oportunidades") {
+  // Trava de segurança RBAC por perfil
+  if (state.currentUserRole === "consultora" && (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs" || targetId === "tab-oportunidades")) {
+    console.warn(`[RBAC] 🚫 Consultora tentou acessar "${targetId}". Redirecionando para Comercial.`);
+    targetId = "tab-vendas";
+  }
+  if ((state.currentUserRole === "aplicadora" || state.currentUserRole === "recepcao") && (targetId === "tab-comercial" || targetId === "tab-vendas")) {
+    console.warn(`[RBAC] 🚫 Aplicadora tentou acessar "${targetId}". Redirecionando para Agenda.`);
+    targetId = "tab-agenda";
+  }
+
+  const abrirOportunidadesDireto = (targetId === "tab-oportunidades");
+  if (abrirOportunidadesDireto) {
+    targetId = "tab-cs";
+  }
+
+  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs") {
     ativarModulo("module-agenda");
     const subTabButtons = document.querySelectorAll(".sub-tab-item");
     subTabButtons.forEach(b => {
@@ -88,10 +117,11 @@ export function ativarAba(targetId) {
       else tc.classList.remove("active");
     });
     if (targetId === "tab-cs") {
-      renderizarCsView();
-    } else if (targetId === "tab-oportunidades") {
-      // Consulta própria (vendasplanos dos últimos 30 dias): busca ao abrir a aba.
-      carregarOportunidades();
+      if (abrirOportunidadesDireto) {
+        alternarSubViewCs("oportunidades");
+      } else {
+        renderizarCsView();
+      }
     }
   } else if (targetId === "tab-comercial" || targetId === "tab-vendas") {
     // O módulo Comercial tem uma aba só; "tab-comercial" continua aceito como apelido.
@@ -138,6 +168,11 @@ async function pintarCabecalhoDoCache(unidade) {
     if (userDisplayName) userDisplayName.textContent = `👤 ${state.currentUserName}`;
     const grupo = usuario.dados.grupos?.[0]?.nome || usuario.dados.cod_usuario || "";
     if (userRoleDisplay && grupo) userRoleDisplay.textContent = `🏷️ ${grupo}`;
+
+    // Aplica o perfil salvo em cache imediatamente para não piscar telas indevidas
+    const perfilCache = classificarPerfilUsuario(usuario.dados, usuario.dados.cod_usuario);
+    state.currentUserOriginalRole = perfilCache;
+    aplicarVisualizacaoPorPerfil(perfilCache, { onAtivarAba: ativarAba });
   }
 
   if (unidadeCache?.dados) {
@@ -263,21 +298,27 @@ export async function sincronizarSessao() {
         console.warn("[BelleCopilot] Falha ao carregar o Sucesso do Cliente:", err);
       });
 
-      // 5. Carrega a Agenda Autônoma do Dia
-      if (loadingAgenda) loadingAgenda.style.display = "flex";
-      const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab);
-      if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
-        state.appointmentsData = processarItensAgenda(rawAgenda);
-        sincronizarSalasComAgendamentos(state.appointmentsData);
-        if (loadingAgenda) loadingAgenda.style.display = "none";
-        if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
-        if (agendaEmptyState) agendaEmptyState.style.display = "none";
-        renderizarAgenda();
-        atualizarKpis();
+      // 5. Carrega o módulo correspondente ao perfil
+      if (state.currentUserRole === "consultora") {
+        // Consultora não manipula a UI da agenda: foca exclusivamente no funil comercial
+        carregarVendas();
       } else {
-        if (loadingAgenda) loadingAgenda.style.display = "none";
-        if (state.appointmentsData.length === 0) {
-          if (agendaEmptyState) agendaEmptyState.style.display = "block";
+        // Carrega a Agenda Autônoma do Dia para Aplicadora / CRC / Gerente
+        if (loadingAgenda) loadingAgenda.style.display = "flex";
+        const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab);
+        if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
+          state.appointmentsData = processarItensAgenda(rawAgenda);
+          sincronizarSalasComAgendamentos(state.appointmentsData);
+          if (loadingAgenda) loadingAgenda.style.display = "none";
+          if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
+          if (agendaEmptyState) agendaEmptyState.style.display = "none";
+          renderizarAgenda();
+          atualizarKpis();
+        } else {
+          if (loadingAgenda) loadingAgenda.style.display = "none";
+          if (state.appointmentsData.length === 0) {
+            if (agendaEmptyState) agendaEmptyState.style.display = "block";
+          }
         }
       }
 
@@ -502,7 +543,25 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       definirArrGrid(montarArrGridDeGridSala(msg.data, state.currentCodEstab), state.currentCodEstab);
     }
     renderizarSalasFiltro(state.currentSalas);
+  } else if (msg.action === "BELLE_LIVE_USUARIO_CAPTURED" && msg.data) {
+    console.log(`[BelleCopilot] 👤 Perfil capturado ao vivo da aplicação:`, msg.data.nom_usuario || msg.data.login);
+    state.currentUserData = msg.data;
+    state.currentUserName = msg.data.nom_usuario || state.currentUserName;
+    if (userDisplayName) userDisplayName.textContent = `👤 ${state.currentUserName}`;
+    const grupo = (msg.data.grupos && msg.data.grupos[0]?.nome) ? msg.data.grupos[0].nome : "";
+    if (userRoleDisplay && grupo) userRoleDisplay.textContent = `🏷️ ${grupo}`;
+
+    const perfilDetectado = classificarPerfilUsuario(msg.data, msg.data.cod_usuario || state.currentCodUsuario);
+    state.currentUserOriginalRole = perfilDetectado;
+    aplicarVisualizacaoPorPerfil(perfilDetectado, { onAtivarAba: ativarAba });
+    if (state.currentCodEstab) {
+      gravarCache("usuario", state.currentCodEstab, msg.data);
+    }
   } else if (msg.action === "BELLE_LIVE_ATENDIMENTO_CAPTURED" && msg.codConsulta) {
+    if (state.currentUserRole === "consultora") {
+      console.log(`[BelleCopilot] 🛡️ Perfil Consultora: ignorando abertura de atendimento técnico para a consulta #${msg.codConsulta}.`);
+      return;
+    }
     const matchApp = state.appointmentsData.find(a => 
       String(a.codConsulta) === String(msg.codConsulta) || 
       String(a.id) === String(msg.codConsulta)
@@ -532,7 +591,9 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         })(msg.data.statusAgendamento || msg.data.status || "Marcado"),
         statusFormatado: msg.data.statusAgendamento || msg.data.status || "Marcado",
         salaNome: msg.data.sala || msg.data.nomSala || "SALA DEPILAÇÃO A LASER",
-        profissional: msg.data.nomProf || msg.data.profissional || "",
+        profissional: extrairNomeProfissional(msg.data) || "Não informada",
+        isAvaliacao: ehAgendamentoAvaliacao(msg.data),
+        tipoConsulta: ehAgendamentoAvaliacao(msg.data) ? "Avaliação" : (msg.data.cod_tipo_consulta || msg.data.tipoConsulta || "Serviço"),
         nomePlano: msg.data.nomePlano || msg.data.nome_plano || "",
         codOrcamento: msg.data.cod_plano_paciente || msg.data.codOrc || msg.data.cod_orcamento || "",
         codPlano: msg.data.cod_plano || msg.data.codPlano || "",
@@ -551,6 +612,9 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   } else if (msg.action === "BELLE_LIVE_SALDO_VENDA_PLANO_CAPTURED") {
     if (Array.isArray(msg.data) && msg.data.length > 0) {
       renderizarServicosComSaldo(msg.data);
+      if (state.selectedAppointment?.codOrcamento) {
+        registrarSaldoCapturado(state.selectedAppointment.codOrcamento, msg.data);
+      }
     }
   } else if (msg.action === "BELLE_LIVE_PARAMETROS_EMPRESA_CAPTURED" && msg.data?.logo_empresa) {
     aplicarLogoEmpresa(msg.data.logo_empresa);
@@ -569,6 +633,19 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   } else if (msg.action === "BELLE_AGENDA_ITEM_SELECTED") {
     const codCons = msg.codConsulta || msg.codigo;
     if (!codCons) return;
+
+    if (state.currentUserRole === "consultora") {
+      console.log(`[BelleCopilot] 🛡️ Perfil Consultora: agendamento #${codCons} clicado não abrirá atendimento clínico.`);
+      const matchApp = state.appointmentsData.find(a => 
+        String(a.codConsulta) === String(codCons) || 
+        String(a.id) === String(codCons) ||
+        (a.codCliente && String(a.codCliente) === String(codCons))
+      );
+      if (matchApp) {
+        consultarFichaPorApp(matchApp);
+      }
+      return;
+    }
 
     // 1. Prioridade máxima: match exato por codConsulta ou id do agendamento específico
     let matchApp = state.appointmentsData.find(a => 

@@ -175,8 +175,13 @@ export async function resolverSessaoBelle() {
     return sessao;
   }
 
-  // Códigos de usuário a tentar: o descoberto na página, o configurado à mão, o padrão.
-  const candidatosUsuario = [contexto?.codUsuario, state.currentCodUsuario, "master-admin"]
+  // Códigos de usuário a tentar: o descoberto na página, o perfil já em memória, o configurado, o padrão.
+  const candidatosUsuario = [
+    contexto?.codUsuario,
+    state.currentUserData?.cod_usuario,
+    state.currentCodUsuario,
+    "master-admin"
+  ]
     .map(c => (c ? String(c).trim() : ""))
     .filter((c, i, arr) => c && arr.indexOf(c) === i);
 
@@ -252,14 +257,18 @@ export async function resolverSessaoBelle() {
   if (sessao.usuario) await gravarCache("usuario", sessao.unidade, sessao.usuario);
   if (sessao.unidadeDados) await gravarCache("unidade", sessao.unidade, sessao.unidadeDados);
 
-  // Rede indisponível: recorre ao que ficou guardado da última sessão desta unidade.
+  // Rede indisponível: recorre ao que ficou guardado da última sessão desta unidade se compatível.
   if (!sessao.usuario) {
     const emCache = await lerCache("usuario", sessao.unidade);
     if (emCache?.dados) {
-      sessao.usuario = emCache.dados;
-      sessao.codUsuario = emCache.dados.cod_usuario || sessao.codUsuario;
-      sessao.origemUsuario = "cache";
-      console.log("[Sessão] 💾 Perfil do usuário recuperado do cache local.");
+      const loginContexto = contexto?.codUsuario ? String(contexto.codUsuario).trim().toLowerCase() : "";
+      const loginCache = String(emCache.dados.cod_usuario || emCache.dados.login || "").trim().toLowerCase();
+      if (!loginContexto || loginContexto === loginCache) {
+        sessao.usuario = emCache.dados;
+        sessao.codUsuario = emCache.dados.cod_usuario || sessao.codUsuario;
+        sessao.origemUsuario = "cache";
+        console.log("[Sessão] 💾 Perfil do usuário recuperado do cache local.");
+      }
     }
   }
   if (!sessao.unidadeDados) {

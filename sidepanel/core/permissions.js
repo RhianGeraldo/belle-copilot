@@ -7,14 +7,15 @@ import { state } from './state.js';
 
 export function classificarPerfilUsuario(userData, codUsuario = "") {
   // Se não há dados retornados na chamada de rede:
-  // Se já tínhamos um perfil válido no estado e ele não era o default ("gerente"), mantém o que já estava!
   if (!userData) {
+    const cod = String(codUsuario || state.currentCodUsuario || "").toLowerCase();
+    const nome = String(state.currentUserName || "").toLowerCase();
+    if (cod.includes("admin") || cod.includes("master") || cod.includes("diretor") || cod.includes("gerente") ||
+        nome.includes("admin") || nome.includes("master") || nome.includes("diretor") || nome.includes("gerente")) {
+      return "gerente";
+    }
     if (state.currentUserRole && state.currentUserRole !== "gerente") {
       return state.currentUserRole;
-    }
-    const cod = String(codUsuario || "").toLowerCase();
-    if (cod.includes("admin") || cod.includes("master") || cod.includes("diretor") || cod.includes("gerente")) {
-      return "gerente";
     }
     if (cod.includes("consultor") || cod.includes("venda")) {
       return "consultora";
@@ -25,7 +26,7 @@ export function classificarPerfilUsuario(userData, codUsuario = "") {
     if (cod.includes("crc")) {
       return "crc";
     }
-    return state.currentUserRole || "consultora";
+    return state.currentUserRole || "gerente";
   }
 
   // Extrai nomes dos grupos retornados pela API /recuperar_dados do Belle Software
@@ -110,9 +111,17 @@ export function aplicarVisibilidadeGerencial() {
   const gerente = ehGerente();
   const kpisVendas = document.getElementById("vendas-kpi-grid");
   const rankingVendas = document.getElementById("vendas-ranking");
+  const vendasEscopoContainer = document.getElementById("vendas-escopo-container");
+  const oporEscopoContainer = document.getElementById("opor-escopo-container");
+  const contratosEscopoContainer = document.getElementById("contratos-escopo-container");
+  const planosEscopoContainer = document.getElementById("planos-escopo-container");
 
   if (kpisVendas) kpisVendas.style.display = gerente ? "grid" : "none";
   if (rankingVendas) rankingVendas.style.display = gerente ? "block" : "none";
+  if (vendasEscopoContainer) vendasEscopoContainer.style.display = gerente ? "flex" : "none";
+  if (oporEscopoContainer) oporEscopoContainer.style.display = gerente ? "flex" : "none";
+  if (contratosEscopoContainer) contratosEscopoContainer.style.display = gerente ? "flex" : "none";
+  if (planosEscopoContainer) planosEscopoContainer.style.display = gerente ? "flex" : "none";
 }
 
 export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba } = {}) {

@@ -417,20 +417,27 @@ export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso
     status = "",
     somenteSaldo = "0",   // "1" pede ao Belle só quem ainda tem sessão em aberto
     vencidos = "0",
-    tpDt = "0"            // tipo de data do filtro dtIni/dtFim
+    tpDt = "0",           // tipo de data do filtro dtIni/dtFim
+    contrato = ""         // "2" para sem assinatura, "" para todos
   } = opcoes;
+
+  const normalizarDt = (d) => {
+    if (!d) return "";
+    return d.includes("T") ? d : `${d}T03:00:00.000Z`;
+  };
 
   const montarUrl = (offset) => {
     const params = new URLSearchParams({
-      dtIni: `${dataIniIso}T03:00:00.000Z`,
-      dtFim: `${dataFimIso}T03:00:00.000Z`,
+      dtIni: normalizarDt(dataIniIso),
+      dtFim: normalizarDt(dataFimIso),
       codEstab: ETB_FIXO_GRADE,
       codCliente: "", codVendedor: "", codOrc: "",
       status: status || "",
       origem: "Ambos",
       tpPlan: "", pfCmp: "", ckClass: "1", rating: "0", nomePlan: "", ord: "", cres: "0",
       vencidos: String(vencidos), tpDt: String(tpDt), codCamp: "", indicacao: "", ckFinan: "0",
-      somenteCortesia: "0", valorIni: "0", valorFim: "0", contrato: "",
+      somenteCortesia: "0", valorIni: "0", valorFim: "0",
+      contrato: String(contrato || ""),
       limit: String(limitePorPagina),
       offset: String(offset),
       somenteSaldo: String(somenteSaldo),
@@ -458,12 +465,23 @@ export async function buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso
       if (pagina.length < limitePorPagina || todos.length >= total) break;
     }
 
-    console.log(`[Vendas] 📥 ${todos.length} orçamento(s) de ${dataIniIso} a ${dataFimIso} (total no período: ${total}).`);
+    console.log(`[Vendas] 📥 ${todos.length} registro(s) de ${dataIniIso} a ${dataFimIso} (total no período: ${total}).`);
   } catch (e) {
     console.warn("[Vendas] Erro ao consultar vendasplanos do período:", e);
   }
 
   return { registros: todos, total: total || todos.length };
+}
+
+/**
+ * Consulta de vendas/contratos sem assinatura nos últimos N dias.
+ * Endpoint: /Plano/v1.0/vendasplanos com contrato=2
+ */
+export async function buscarContratosSemAssinaturaApi(token, dataIniIso, dataFimIso, opcoes = {}) {
+  return buscarVendasPlanosPeriodoApi(token, dataIniIso, dataFimIso, {
+    ...opcoes,
+    contrato: "2"
+  });
 }
 
 /**
@@ -721,6 +739,20 @@ export async function finalizarAtendimentoApi(token, codConsulta, codEstab = "1"
   const authTok = token || state.currentToken || "";
 
   try {
+    const resPainel = await fetch(`https://app.bellesoftware.com.br/api/release/controller/PainelAtend/v1.0/atendimento/${codConsulta}?origem=Painel%20de%20Atendimento&estabGeral=1`, {
+      method: "PUT",
+      headers: {
+        "authorization": authTok,
+        "content-type": "text/plain",
+        "accept": "application/json, text/plain, */*"
+      }
+    });
+    if (resPainel.ok) return true;
+  } catch (e) {
+    console.warn(`[Finalizar] Falha no PainelAtend, tentando rota agenda:`, e);
+  }
+
+  try {
     const res = await fetch(`https://app.bellesoftware.com.br/api/release/controller/Agenda/v1.0/agenda/${codConsulta}?estabGeral=1`, {
       method: "PUT",
       headers: {
@@ -740,10 +772,10 @@ export async function finalizarAtendimentoApi(token, codConsulta, codEstab = "1"
 }
 
 /**
- * Atualiza os serviços de um agendamento no Belle Software, removendo áreas não realizadas
- * para que o encerramento da consulta não debite sessões indevidamente do plano do cliente.
+ * Atualiza os serviços e vincula o atendente/profissional em um agendamento no Belle Software.
+ * Remove áreas não realizadas para que o encerramento da consulta não debite sessões indevidamente.
  */
-export async function atualizarServicosAgendamentoApi(token, app, servicosManter, codEstab = "1") {
+export async function atualizarServicosAgendamentoApi(token, app, servicosManter = null, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   const codConsulta = app?.codConsulta || app?.id;
   if (!authTok || !codConsulta) return { success: false, error: "Dados insuficientes" };
@@ -755,15 +787,26 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
     }
 
     const hrIni = detalhes.hrIni || app.horario || "00:00";
+    const servicos = Array.isArray(servicosManter) && servicosManter.length > 0
+      ? servicosManter
+      : (detalhes.arrServ || app.arrServ || []);
+
     let tempoTotal = 0;
-    servicosManter.forEach(s => {
+    servicos.forEach(s => {
       tempoTotal += Number(s.tempo || 5);
     });
-    if (tempoTotal <= 0) tempoTotal = 5;
+    if (tempoTotal <= 0) tempoTotal = Number(detalhes.tempo || app.tempo || 5);
 
     const [h, m] = hrIni.split(":").map(Number);
     const minFim = (h * 60 + m) + tempoTotal;
     const hrFimCalc = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
+
+    // Resolve atendente/profissional logada
+    const codProfAlvo = (state.currentCodUsuario && state.currentCodUsuario !== "master-admin")
+      ? String(state.currentCodUsuario)
+      : String(detalhes.codProfiss || app.codProfissional || state.currentUserData?.cod_usuario || "");
+
+    const nomProfAlvo = String(state.currentUserName || detalhes.nomProf || app.profissional || "Profissional").trim();
 
     const payloadEdicao = {
       ...detalhes,
@@ -773,15 +816,30 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
       hrIni: hrIni,
       hrFim: hrFimCalc,
       tempo: tempoTotal,
-      arrServ: servicosManter,
-      obServ: servicosManter,
+      arrServ: servicos,
+      obServ: servicos,
       status: detalhes.status || app.status || "Marcado"
     };
+
+    // Vincula a atendente/profissional responsável no agendamento (Passo 12 do Belle)
+    if (codProfAlvo) {
+      payloadEdicao.codProfiss = codProfAlvo;
+      payloadEdicao.nomProf = nomProfAlvo;
+      payloadEdicao.obProf = {
+        label: `${codProfAlvo}-${nomProfAlvo}`.replace(/^-/, ''),
+        value: {
+          cod_usuario: codProfAlvo,
+          nom_usuario: nomProfAlvo
+        }
+      };
+    } else if (nomProfAlvo) {
+      payloadEdicao.nomProf = nomProfAlvo;
+    }
 
     if (detalhes.obOrc && Array.isArray(detalhes.obOrc.servicos)) {
       payloadEdicao.obOrc = {
         ...detalhes.obOrc,
-        servicos: servicosManter.map(s => ({
+        servicos: servicos.map(s => ({
           codServico: Number(s.cod_servico || s.codServ || 0),
           saldoRestante: Number(s.saldo_atual || 1),
           nome: s.nome
@@ -789,11 +847,11 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
       };
     }
 
-    console.log(`[AgendaAPI] 🔄 Atualizando agendamento #${codConsulta} removendo áreas não realizadas (${servicosManter.length} áreas restantes):`, payloadEdicao);
+    console.log(`[AgendaAPI] 🔄 Atualizando agendamento #${codConsulta} (Atendente: ${nomProfAlvo}, ${servicos.length} serviços):`, payloadEdicao);
     const res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
     return res;
   } catch (err) {
-    console.warn("Erro ao atualizar serviços do agendamento:", err);
+    console.warn("Erro ao atualizar agendamento com atendente:", err);
     return { success: false, error: err.message };
   }
 }

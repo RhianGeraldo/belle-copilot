@@ -29,9 +29,9 @@ export const state = {
   currentSalas: [],
   currentDataAgenda: new Date().toISOString().split("T")[0],
 
-  // Perfis e Permissões (RBAC) - Padrão seguro restritivo até a sessão confirmar o perfil
-  currentUserRole: "consultora", // "aplicadora" | "consultora" | "gerente" | "crc"
-  currentUserOriginalRole: "consultora",
+  // Perfis e Permissões (RBAC)
+  currentUserRole: "gerente", // "aplicadora" | "consultora" | "gerente" | "crc"
+  currentUserOriginalRole: "gerente",
   currentUserData: null,
 
   // Dados da Agenda & Atendimento

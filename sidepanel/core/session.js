@@ -323,7 +323,11 @@ export function aplicarSessaoNoEstado(sessao) {
   state.unidadeAbaBelle = sessao.unidadeAba ? String(sessao.unidadeAba) : null;
   if (sessao.token) state.currentToken = sessao.token;
   if (sessao.codUsuario) state.currentCodUsuario = sessao.codUsuario;
-  if (sessao.usuario) state.currentUserData = sessao.usuario;
+  if (sessao.usuario) {
+    state.currentUserData = sessao.usuario;
+    const nome = sessao.usuario.nom_usuario || sessao.usuario.nomeUsuario;
+    if (nome) state.currentUserName = nome;
+  }
   if (Array.isArray(sessao.estabelecimentos) && sessao.estabelecimentos.length > 0) {
     state.currentEstabelecimentos = sessao.estabelecimentos;
   }

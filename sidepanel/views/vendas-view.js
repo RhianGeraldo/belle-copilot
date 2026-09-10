@@ -52,6 +52,7 @@ const vendasInputBusca = document.getElementById("vendas-input-busca");
 const btnRefreshVendas = document.getElementById("btn-refresh-vendas");
 const vendasRanking = document.getElementById("vendas-ranking");
 const badgeVendasTotal = document.getElementById("badge-vendas-total");
+const vendasEscopoContainer = document.getElementById("vendas-escopo-container");
 
 let orcamentos = [];
 let planosVencendo = [];
@@ -59,6 +60,7 @@ let kpisVencimento = null;
 let carregandoVencendo = false;
 let sessaoVencendo = null;
 let kpis = null;
+let filtroEscopo = "todos"; // "meus" | "todos"
 let filtroFila = "aguardando";
 let termoBusca = "";
 let contatadosSet = new Set();
@@ -233,42 +235,58 @@ export async function carregarPlanosVencendo(forcar = false) {
 
 /**
  * Retorna os orçamentos visíveis para o usuário atual.
- * Se o perfil for "consultora", filtra estritamente os orçamentos que pertencem a ela.
+ * Por padrão, exibe todos os orçamentos da unidade ("todos").
+ * No modo "meus", filtra os orçamentos atribuídos à usuária logada.
  */
 export function obterOrcamentosVisiveis() {
-  if (state.currentUserRole === "consultora") {
-    return orcamentos.filter(o => registroPertenceAoUsuario(o, {
-      userData: state.currentUserData,
-      userName: state.currentUserName,
-      codUsuario: state.currentCodUsuario
-    }));
+  if (filtroEscopo === "todos") {
+    return orcamentos;
   }
-  return orcamentos;
+  const meus = orcamentos.filter(o => registroPertenceAoUsuario(o));
+  if (meus.length === 0 && orcamentos.length > 0) {
+    const nomeNorm = (state.currentUserName || "").toLowerCase();
+    const codNorm = (state.currentCodUsuario || "").toLowerCase();
+    if (ehGerente() || nomeNorm.includes("master") || nomeNorm.includes("admin") || codNorm.includes("master") || codNorm.includes("admin")) {
+      return orcamentos;
+    }
+  }
+  return meus;
 }
 
 /**
  * Retorna os planos a vencer visíveis para o usuário atual.
- * Se o perfil for "consultora", filtra estritamente os planos que pertencem a ela.
+ * Por padrão, exibe todos os planos vencendo da unidade ("todos").
  */
 export function obterPlanosVencendoVisiveis() {
-  if (state.currentUserRole === "consultora") {
-    return planosVencendo.filter(o => registroPertenceAoUsuario(o, {
-      userData: state.currentUserData,
-      userName: state.currentUserName,
-      codUsuario: state.currentCodUsuario
-    }));
+  if (filtroEscopo === "todos") {
+    return planosVencendo;
   }
-  return planosVencendo;
+  const meus = planosVencendo.filter(o => registroPertenceAoUsuario(o));
+  if (meus.length === 0 && planosVencendo.length > 0) {
+    const nomeNorm = (state.currentUserName || "").toLowerCase();
+    const codNorm = (state.currentCodUsuario || "").toLowerCase();
+    if (ehGerente() || nomeNorm.includes("master") || nomeNorm.includes("admin") || codNorm.includes("master") || codNorm.includes("admin")) {
+      return planosVencendo;
+    }
+  }
+  return meus;
 }
 
 function atualizarKpis() {
+  const gerente = ehGerente();
+  if (vendasEscopoContainer) {
+    vendasEscopoContainer.style.display = gerente ? "flex" : "none";
+    vendasEscopoContainer.querySelectorAll(".btn-escopo-toggle").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-escopo") === filtroEscopo);
+    });
+  }
+
   const orcamentosVisiveis = obterOrcamentosVisiveis();
   const planosVencendoVisiveis = obterPlanosVencendoVisiveis();
   const kpisAtuais = calcularKpisVendas(orcamentosVisiveis);
 
   // Faturamento, ticket, conversão e ranking são números de gestão: só o gerente vê.
   // A consultora fica com as filas de trabalho, logo abaixo.
-  const gerente = ehGerente();
   aplicarVisibilidadeGerencial();
 
   if (gerente) {
@@ -279,12 +297,16 @@ function atualizarKpis() {
   }
 
   if (vendasResumoPeriodo) {
-    const nomeConsultora = state.currentUserName || "sua carteira";
-    vendasResumoPeriodo.textContent = gerente
-      ? `${kpisAtuais.totalOrcamentos} orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
+    const nomeConsultora = state.currentUserName ? ` (${state.currentUserName})` : "";
+    const prefixo = (filtroEscopo === "todos")
+      ? "🏢 Toda a Unidade"
+      : `👤 Sua carteira${nomeConsultora}`;
+
+    vendasResumoPeriodo.textContent = (filtroEscopo === "todos")
+      ? `${prefixo} • ${kpisAtuais.totalOrcamentos} orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)} • ` +
         `${kpisAtuais.qtdAprovado} aprovados • ${kpisAtuais.qtdAguardando} aguardando • ${kpisAtuais.qtdPendente} pendentes` +
         (kpisAtuais.descontoMedio ? ` • desconto médio ${kpisAtuais.descontoMedio}%` : "")
-      : `👤 Sua carteira (${nomeConsultora}) • Orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)}: ` +
+      : `${prefixo} • Orçamentos de ${dataBrCurta(janelaAtual.inicioIso)} a ${dataBrCurta(janelaAtual.fimIso)}: ` +
         `${kpisAtuais.qtdAguardando} aguardando pagamento • ${kpisAtuais.qtdPendente} pendente(s) para retomar` +
         (planosVencendoVisiveis.length ? ` • ${planosVencendoVisiveis.length} plano(s) vencendo com saldo` : "");
   }
@@ -428,8 +450,28 @@ export function renderizarVendas() {
     return;
   }
 
-  const orcamentosVisiveis = obterOrcamentosVisiveis();
+  let orcamentosVisiveis = obterOrcamentosVisiveis();
   let lista = orcamentosVisiveis.filter(o => o.fila === filtroFila);
+
+  // Se a fila inicial 'aguardando' estiver vazia, mas houver orçamentos em outra fila ativa (ex: pendente ou aprovado),
+  // ajusta automaticamente para exibir onde há dados de imediato
+  if (lista.length === 0 && orcamentosVisiveis.length > 0 && !termoBusca && filtroFila === "aguardando") {
+    const temPendente = orcamentosVisiveis.some(o => o.fila === "pendente");
+    const temAprovado = orcamentosVisiveis.some(o => o.fila === "aprovado");
+    if (temPendente) {
+      filtroFila = "pendente";
+      lista = orcamentosVisiveis.filter(o => o.fila === filtroFila);
+      document.querySelectorAll(".vendas-filter-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-fila") === "pendente");
+      });
+    } else if (temAprovado) {
+      filtroFila = "aprovado";
+      lista = orcamentosVisiveis.filter(o => o.fila === filtroFila);
+      document.querySelectorAll(".vendas-filter-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-fila") === "aprovado");
+      });
+    }
+  }
 
   if (termoBusca) {
     const t = termoBusca.toLowerCase();
@@ -453,12 +495,12 @@ export function renderizarVendas() {
     vendasCards.style.display = "none";
     if (vendasEmptyState) {
       vendasEmptyState.style.display = "block";
-      const ehCons = state.currentUserRole === "consultora";
+      const ehEscopoMeus = !ehGerente() || filtroEscopo === "meus";
       const msgFila = {
-        aguardando: ehCons ? "Você não tem orçamentos aguardando pagamento na sua carteira." : "Nenhum orçamento aguardando pagamento no período.",
-        pendente:   ehCons ? "Você não tem orçamentos pendentes para retomar na sua carteira." : "Nenhum orçamento pendente para retomar no período.",
-        suspenso:   ehCons ? "Você não tem orçamentos suspensos na sua carteira." : "Nenhum orçamento suspenso.",
-        aprovado:   ehCons ? "Você não tem orçamentos aprovados na sua carteira neste período." : "Nenhum orçamento aprovado no período."
+        aguardando: ehEscopoMeus ? "Você não tem orçamentos aguardando pagamento na sua carteira." : "Nenhum orçamento aguardando pagamento no período.",
+        pendente:   ehEscopoMeus ? "Você não tem orçamentos pendentes para retomar na sua carteira." : "Nenhum orçamento pendente para retomar no período.",
+        suspenso:   ehEscopoMeus ? "Você não tem orçamentos suspensos na sua carteira." : "Nenhum orçamento suspenso.",
+        aprovado:   ehEscopoMeus ? "Você não tem orçamentos aprovados na sua carteira neste período." : "Nenhum orçamento aprovado no período."
       }[filtroFila] || (termoBusca ? "Nenhum orçamento encontrado para essa busca." : `Nenhum orçamento em "${ROTULO_FILA[filtroFila]?.titulo || filtroFila}" entre ${dataBrCurta(janelaAtual.inicioIso)} e ${dataBrCurta(janelaAtual.fimIso)}.`);
       vendasEmptyState.textContent = msgFila;
     }
@@ -478,6 +520,15 @@ export function inicializarVendasView() {
     await carregarVendas(true);
     if (filtroFila === "vencendo") {
       await carregarPlanosVencendo(true);
+      renderizarVendas();
+    }
+  });
+
+  vendasEscopoContainer?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-escopo-toggle");
+    if (btn) {
+      filtroEscopo = btn.getAttribute("data-escopo") || "meus";
+      atualizarKpis();
       renderizarVendas();
     }
   });
@@ -522,3 +573,8 @@ export function inicializarVendasView() {
     }
   });
 }
+
+export function obterOrcamentosResgate() {
+  return orcamentos;
+}
+

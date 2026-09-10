@@ -289,21 +289,26 @@
           </div>
         </div>
 
-        <!-- Card 4: Histórico dos Últimos Parâmetros do Laser -->
-        <div class="card" id="atend-card-parametros">
-          <div class="card-section-title-flex">
+        <!-- Card 4: Histórico dos Últimos Parâmetros do Laser (com Toggle Abrir/Fechar) -->
+        <div class="card card-toggleable is-collapsed" id="atend-card-parametros">
+          <div class="card-section-title-flex card-toggle-header" id="atend-toggle-parametros" role="button" tabindex="0" aria-expanded="false" title="Clique para abrir ou fechar o histórico de parâmetros">
             <div class="title-with-icon">
               <span class="icon-bubble" style="background: #fef3c7; color: #b45309;">⚡</span>
               <span>Histórico de Parâmetros Anteriores</span>
             </div>
-            <span class="badge-date-pill" id="atend-laser-data-badge">Última Sessão</span>
+            <div class="toggle-header-right">
+              <span class="badge-date-pill" id="atend-laser-data-badge">Última Sessão</span>
+              <span class="toggle-chevron" id="atend-laser-chevron">▾</span>
+            </div>
           </div>
-          <div id="loading-laser-params" class="spinner-container" style="display: none; margin-bottom: 8px;">
-            <div class="spinner"></div>
-            <span>Consultando histórico no prontuário...</span>
-          </div>
-          <div id="atend-lista-laser-params" class="atend-laser-list">
-            <div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>
+          <div id="atend-corpo-parametros" class="card-toggle-body">
+            <div id="loading-laser-params" class="spinner-container" style="display: none; margin-bottom: 8px;">
+              <div class="spinner"></div>
+              <span>Consultando histórico no prontuário...</span>
+            </div>
+            <div id="atend-lista-laser-params" class="atend-laser-list">
+              <div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>
+            </div>
           </div>
         </div>
 
@@ -451,11 +456,19 @@
             Carregando orçamentos dos últimos 30 dias...
           </p>
 
+          <!-- Seletor de Escopo Gerencial (Visível apenas para Gestores/Gerentes) -->
+          <div id="opor-escopo-container" class="escopo-filtro-container" style="display: none;">
+            <button type="button" class="btn-escopo-toggle active" data-escopo="meus" id="btn-opor-escopo-meus">👤 Meus Orçamentos</button>
+            <button type="button" class="btn-escopo-toggle" data-escopo="todos" id="btn-opor-escopo-todos">🏢 Todos da Unidade</button>
+          </div>
+
           <div class="vendas-filtros">
             <button class="opor-filter-btn vendas-filter-btn active" data-fila="todos">📋 Todos <span class="opor-filter-count vendas-filter-count">0</span></button>
             <button class="opor-filter-btn vendas-filter-btn" data-fila="aguardando">🔥 Aguardando <span class="opor-filter-count vendas-filter-count">0</span></button>
             <button class="opor-filter-btn vendas-filter-btn" data-fila="pendente">💬 Pendente <span class="opor-filter-count vendas-filter-count">0</span></button>
           </div>
+
+          <input type="text" id="opor-input-busca" class="form-input" placeholder="🔍 Buscar por cliente ou plano..." style="margin-top: 4px; margin-bottom: 2px;">
         </div>
 
         <div id="loading-oportunidades" class="loading-box" style="display: none;">
@@ -475,10 +488,22 @@
     <!-- ========================================================= -->
     <div id="module-comercial" class="module-container" style="display: none;">
 
+      <!-- PAINEL FIXO DO MÓDULO COMERCIAL (SUB-ABAS) -->
+      <div class="fixed-comercial-panel" id="fixed-comercial-panel">
+        <nav class="agenda-sub-tabs" id="comercial-sub-tabs">
+          <button class="sub-tab-item active" data-target="tab-vendas" id="tab-nav-vendas" title="Vendas & Resgate de Orçamentos">
+            💰 Vendas &amp; Resgate
+          </button>
+          <button class="sub-tab-item" data-target="tab-contratos" id="tab-nav-contratos" title="Contratos sem Assinatura dos Últimos 30 Dias">
+            📝 Sem Assinatura <span class="badge-tab-count" id="badge-contratos-total" style="display: none;">0</span>
+          </button>
+          <button class="sub-tab-item" data-target="tab-planos" id="tab-nav-planos" title="Planos Mais Vendidos e Orçados (Últimos 3 Meses)">
+            🏆 Mais Vendidos
+          </button>
+        </nav>
+      </div>
+
       <div class="tabs-scroll-container">
-        <!-- TAB COMERCIAL: PAINEL DA CONSULTORA (OPORTUNIDADES DO DIA)-->
-        
-      
         <!-- SUB-ABA: VENDAS & RESGATE DE ORÇAMENTOS (vendasplanos, últimos 90 dias) -->
         <section id="tab-vendas" class="tab-content active">
           <!-- KPIs do funil -->
@@ -518,6 +543,12 @@
 
           <!-- Filas de follow-up -->
           <div class="card">
+            <!-- Seletor de Escopo Gerencial (Visível apenas para Gestores/Gerentes) -->
+            <div id="vendas-escopo-container" class="escopo-filtro-container" style="display: none;">
+              <button type="button" class="btn-escopo-toggle" data-escopo="meus" id="btn-vendas-escopo-meus">👤 Meus Orçamentos</button>
+              <button type="button" class="btn-escopo-toggle active" data-escopo="todos" id="btn-vendas-escopo-todos">🏢 Todos da Unidade</button>
+            </div>
+
             <div class="vendas-filtros">
               <button class="vendas-filter-btn active" data-fila="aguardando">🔥 Aguardando <span class="vendas-filter-count">0</span></button>
               <button class="vendas-filter-btn" data-fila="pendente">💬 Pendente <span class="vendas-filter-count">0</span></button>
@@ -563,6 +594,129 @@
             </div>
 
             <div id="resultado-saldo-comercial" style="margin-top: 8px; display: none;"></div>
+          </div>
+        </section>
+
+        <!-- SUB-ABA: CONTRATOS SEM ASSINATURA (vendasplanos, contrato=2, últimos 30 dias) -->
+        <section id="tab-contratos" class="tab-content">
+          <!-- KPIs de Contratos -->
+          <div class="card">
+            <div class="card-section-title-flex">
+              <div class="title-with-icon">
+                <span class="icon-bubble" style="background: #fef3c7; color: #b45309;">📝</span>
+                <span style="font-weight: 800; color: #0f172a;">Contratos sem Assinatura</span>
+              </div>
+              <button id="btn-refresh-contratos" class="btn-action-mini" title="Recarregar contratos pendentes">🔄 Atualizar</button>
+            </div>
+            <p id="contratos-resumo-periodo" style="font-size: 11px; color: #64748b; margin: 4px 0 10px 0;">
+              Carregando contratos dos últimos 30 dias...
+            </p>
+
+            <div class="vendas-kpi-grid" id="contratos-kpi-grid">
+              <div class="vendas-kpi-box vendas-kpi-destaque">
+                <span class="vendas-kpi-lbl">⚠️ Pendentes</span>
+                <strong class="vendas-kpi-val" id="contratos-kpi-total" style="color: #b45309;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">💰 Valor em Aberto</span>
+                <strong class="vendas-kpi-val" id="contratos-kpi-valor" style="color: #0369a1;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">📅 Na Agenda Hoje</span>
+                <strong class="vendas-kpi-val" id="contratos-kpi-hoje" style="color: #15803d;">—</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filas e Listagem de Contratos -->
+          <div class="card">
+            <!-- Seletor de Escopo Gerencial (Visível apenas para Gestores/Gerentes) -->
+            <div id="contratos-escopo-container" class="escopo-filtro-container" style="display: none;">
+              <button type="button" class="btn-escopo-toggle" data-escopo="meus" id="btn-contratos-escopo-meus">👤 Meus Contratos</button>
+              <button type="button" class="btn-escopo-toggle active" data-escopo="todos" id="btn-contratos-escopo-todos">🏢 Todos da Unidade</button>
+            </div>
+
+            <div class="vendas-filtros" id="contratos-filtros-container">
+              <button type="button" class="vendas-filter-btn active" data-filtro="todos">
+                📋 Todos <span class="vendas-filter-count" id="count-contratos-todos">0</span>
+              </button>
+              <button type="button" class="vendas-filter-btn" data-filtro="hoje">
+                📅 Estão Hoje na Clínica <span class="vendas-filter-count" id="count-contratos-hoje">0</span>
+              </button>
+            </div>
+
+            <input type="text" id="contratos-input-busca" class="form-input" placeholder="🔍 Buscar por cliente, plano, telefone, orçamento ou consultora..." style="margin-bottom: 8px;">
+
+            <div id="loading-contratos" class="loading-box" style="display: none;">
+              <div class="spinner"></div>
+              <span>Carregando contratos sem assinatura...</span>
+            </div>
+
+            <div id="contratos-empty-state" style="display: none; font-size: 11.5px; color: #64748b; padding: 12px 4px; text-align: center;"></div>
+            <div id="contratos-cards-container" class="vendas-cards"></div>
+          </div>
+        </section>
+
+        <!-- SUB-ABA: PLANOS MAIS VENDIDOS & ORÇADOS (vendasplanos, últimos 3 meses) -->
+        <section id="tab-planos" class="tab-content">
+          <!-- KPIs de Planos -->
+          <div class="card">
+            <div class="card-section-title-flex">
+              <div class="title-with-icon">
+                <span class="icon-bubble" style="background: #fef9c3; color: #a16207;">🏆</span>
+                <span style="font-weight: 800; color: #0f172a;">Planos Mais Vendidos &amp; Orçados</span>
+              </div>
+              <button id="btn-refresh-planos" class="btn-action-mini" title="Recarregar ranking de planos">🔄 Atualizar</button>
+            </div>
+            <p id="planos-resumo-periodo" style="font-size: 11px; color: #64748b; margin: 4px 0 10px 0;">
+              Carregando análise dos últimos 3 meses (encerrando 30 dias atrás)...
+            </p>
+
+            <div class="vendas-kpi-grid" id="planos-kpi-grid">
+              <div class="vendas-kpi-box vendas-kpi-destaque">
+                <span class="vendas-kpi-lbl">💎 Planos Distintos</span>
+                <strong class="vendas-kpi-val" id="planos-kpi-distintos" style="color: #0369a1;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">✅ Total Vendidos</span>
+                <strong class="vendas-kpi-val" id="planos-kpi-vendidos" style="color: #15803d;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">📝 Total Orçados</span>
+                <strong class="vendas-kpi-val" id="planos-kpi-orcados" style="color: #64748b;">—</strong>
+              </div>
+              <div class="vendas-kpi-box">
+                <span class="vendas-kpi-lbl">💰 Faturamento</span>
+                <strong class="vendas-kpi-val" id="planos-kpi-faturamento" style="color: #15803d;">—</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filtros e Lista de Planos -->
+          <div class="card">
+            <!-- Seletor de Escopo Gerencial (Visível apenas para Gestores/Gerentes) -->
+            <div id="planos-escopo-container" class="escopo-filtro-container" style="display: none;">
+              <button type="button" class="btn-escopo-toggle" data-escopo="meus" id="btn-planos-escopo-meus">👤 Meus Orçamentos</button>
+              <button type="button" class="btn-escopo-toggle active" data-escopo="todos" id="btn-planos-escopo-todos">🏢 Todos da Unidade</button>
+            </div>
+
+            <!-- Filtros de Ordenação do Ranking -->
+            <div class="vendas-filtros" id="planos-filtros-ordenacao">
+              <button type="button" class="vendas-filter-btn active" data-ordem="vendidos">🏆 Mais Vendidos</button>
+              <button type="button" class="vendas-filter-btn" data-ordem="orcados">📝 Mais Orçados</button>
+              <button type="button" class="vendas-filter-btn" data-ordem="faturamento">💰 Faturamento</button>
+              <button type="button" class="vendas-filter-btn" data-ordem="conversao">📈 Conversão</button>
+            </div>
+
+            <input type="text" id="planos-input-busca" class="form-input" placeholder="🔍 Buscar por nome do plano ou área..." style="margin-bottom: 8px;">
+
+            <div id="loading-planos" class="loading-box" style="display: none;">
+              <div class="spinner"></div>
+              <span>Calculando ranking dos planos...</span>
+            </div>
+
+            <div id="planos-empty-state" style="display: none; font-size: 11.5px; color: #64748b; padding: 12px 4px; text-align: center;"></div>
+            <div id="planos-cards-container" class="planos-cards"></div>
           </div>
         </section>
       </div>

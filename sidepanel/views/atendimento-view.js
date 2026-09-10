@@ -60,6 +60,39 @@ const btnAtendVoltar = document.getElementById("btn-atend-voltar");
 
 let callbackAtivarAba = null;
 let callbackRecarregarAgenda = null;
+let parametrosJaSalvosNesteAtendimento = false;
+
+export function obterDataHojeIso() {
+  const d = new Date();
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  const localHoje = `${ano}-${mes}-${dia}`;
+  return state.currentDataAgenda || localHoje;
+}
+
+export function normalizarDataParaIso(dataStr) {
+  if (!dataStr) return "";
+  const parte = dataStr.trim().split(" ")[0].split("T")[0];
+  if (parte.includes("/")) {
+    const [d, m, y] = parte.split("/");
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return parte;
+}
+
+export function verificarSeParametrosForamSalvos() {
+  if (parametrosJaSalvosNesteAtendimento) return true;
+
+  // Verifica se o prontuário da cliente já possui registros gravados na data de hoje
+  const hojeIso = obterDataHojeIso();
+  const registrosHoje = (state.ultimosRegistrosLaserCliente || []).filter(r => {
+    const dataReg = normalizarDataParaIso(r.data_hora || r.data);
+    return dataReg === hojeIso;
+  });
+
+  return registrosHoje.length > 0;
+}
 
 /**
  * Sexo da cliente, para não sugerir área de outro gênero.
@@ -302,11 +335,80 @@ export function renderizarServicosComSaldo(servicosSaldo) {
   }
 }
 
+export function alternarToggleParametros(forcarEstado = null) {
+  const card = document.getElementById("atend-card-parametros");
+  const header = document.getElementById("atend-toggle-parametros");
+  if (!card) return;
+
+  const deveFechar = forcarEstado !== null ? !forcarEstado : !card.classList.contains("is-collapsed");
+
+  if (deveFechar) {
+    card.classList.add("is-collapsed");
+    header?.setAttribute("aria-expanded", "false");
+    header?.setAttribute("title", "Clique para abrir o histórico de parâmetros");
+  } else {
+    card.classList.remove("is-collapsed");
+    header?.setAttribute("aria-expanded", "true");
+    header?.setAttribute("title", "Clique para fechar o histórico de parâmetros");
+  }
+}
+
+function gerarCardLaserHtml(r, exibirData = false) {
+  const partsDataHora = (r.data_hora || "").split(" ");
+  const dataIso = partsDataHora[0] || "";
+  const hora = partsDataHora[1]?.substring(0, 5) || "";
+  const dataPt = dataIso ? formatarDataPtBr(dataIso) : "";
+
+  let tagsHtml = "";
+  if (r.fototipo) tagsHtml += `<span class="laser-tag laser-tag-fototipo">Fototipo: ${r.fototipo}</span>`;
+  if (r.modo_aplicacao) tagsHtml += `<span class="laser-tag laser-tag-modo">Modo: ${r.modo_aplicacao}</span>`;
+  if (r.energia) tagsHtml += `<span class="laser-tag">Energia: ${r.energia}</span>`;
+  if (r.frequencia) tagsHtml += `<span class="laser-tag">Freq: ${r.frequencia}</span>`;
+  if (r.largura_pulso) tagsHtml += `<span class="laser-tag">Pulso: ${r.largura_pulso}</span>`;
+  if (r.qtd_disparos) tagsHtml += `<span class="laser-tag">Disparos: ${r.qtd_disparos}</span>`;
+
+  return `
+    <div class="atend-laser-card">
+      <div class="atend-laser-header">
+        <span class="atend-laser-area">⚡ ${r.area || 'Área Geral'}</span>
+        <div class="atend-laser-time-wrap">
+          ${exibirData && dataPt ? `<span class="atend-laser-date">📅 ${dataPt}</span>` : ''}
+          ${hora ? `<span class="atend-laser-time">⏰ ${hora}</span>` : ''}
+        </div>
+      </div>
+      ${r.profissional ? `<div class="atend-laser-prof">👩‍⚕️ Aplicado por: <strong>${r.profissional}</strong></div>` : ''}
+      ${tagsHtml ? `<div class="atend-laser-tags">${tagsHtml}</div>` : ''}
+      ${r.observacao ? `<div class="atend-laser-obs">${r.observacao}</div>` : '<div style="font-size:11px; color:#94a3b8; font-style:italic;">Sem observações adicionais.</div>'}
+    </div>
+  `;
+}
+
 export function renderizarParametrosLaser(registros) {
   if (!atendListaLaserParams) return;
   if (loadingLaserParams) loadingLaserParams.style.display = "none";
 
   state.ultimosRegistrosLaserCliente = Array.isArray(registros) ? registros : [];
+
+  // Verifica se já existem parâmetros salvos na data de hoje
+  const hojeIso = obterDataHojeIso();
+  const registrosHoje = state.ultimosRegistrosLaserCliente.filter(r => {
+    const dataReg = normalizarDataParaIso(r.data_hora || r.data);
+    return dataReg === hojeIso;
+  });
+
+  if (registrosHoje.length > 0) {
+    parametrosJaSalvosNesteAtendimento = true;
+    if (btnSalvarParametrosLaser) {
+      btnSalvarParametrosLaser.disabled = false;
+      btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
+      btnSalvarParametrosLaser.style.background = "#16a34a";
+    }
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-success";
+      atendStatusSalvarLaser.textContent = `✓ Parâmetros de laser já registrados hoje no prontuário (${registrosHoje.length} registro(s)).`;
+    }
+  }
 
   if (!Array.isArray(registros) || registros.length === 0) {
     if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Sem registros";
@@ -320,34 +422,51 @@ export function renderizarParametrosLaser(registros) {
   const registrosUltimoDia = diaRecente ? registros.filter(r => r.data_hora && r.data_hora.startsWith(diaRecente)) : [registros[0]];
 
   if (atendLaserDataBadge && diaRecente) {
-    atendLaserDataBadge.textContent = `Última Sessão: ${formatarDataPtBr(diaRecente)}`;
+    const diaRecenteIso = normalizarDataParaIso(diaRecente);
+    const rotuloData = (diaRecenteIso === hojeIso) ? `Hoje (${formatarDataPtBr(diaRecente)})` : formatarDataPtBr(diaRecente);
+    atendLaserDataBadge.textContent = `Última Sessão: ${rotuloData}`;
   }
 
   let cardsHtml = "";
   registrosUltimoDia.forEach(r => {
-    const hora = r.data_hora ? r.data_hora.split(" ")[1]?.substring(0, 5) : "";
-    let tagsHtml = "";
-    if (r.fototipo) tagsHtml += `<span class="laser-tag laser-tag-fototipo">Fototipo: ${r.fototipo}</span>`;
-    if (r.modo_aplicacao) tagsHtml += `<span class="laser-tag laser-tag-modo">Modo: ${r.modo_aplicacao}</span>`;
-    if (r.energia) tagsHtml += `<span class="laser-tag">Energia: ${r.energia}</span>`;
-    if (r.frequencia) tagsHtml += `<span class="laser-tag">Freq: ${r.frequencia}</span>`;
-    if (r.largura_pulso) tagsHtml += `<span class="laser-tag">Pulso: ${r.largura_pulso}</span>`;
-    if (r.qtd_disparos) tagsHtml += `<span class="laser-tag">Disparos: ${r.qtd_disparos}</span>`;
-
-    cardsHtml += `
-      <div class="atend-laser-card">
-        <div class="atend-laser-header">
-          <span class="atend-laser-area">⚡ ${r.area || 'Área Geral'}</span>
-          ${hora ? `<span class="atend-laser-time">⏰ ${hora}</span>` : ''}
-        </div>
-        ${r.profissional ? `<div class="atend-laser-prof">👩‍⚕️ Aplicado por: <strong>${r.profissional}</strong></div>` : ''}
-        ${tagsHtml ? `<div class="atend-laser-tags">${tagsHtml}</div>` : ''}
-        ${r.observacao ? `<div class="atend-laser-obs">${r.observacao}</div>` : '<div style="font-size:11px; color:#94a3b8; font-style:italic;">Sem observações adicionais.</div>'}
-      </div>
-    `;
+    cardsHtml += gerarCardLaserHtml(r, false);
   });
 
+  // Se houver registros de outras sessões anteriores no prontuário, permite expandi-los
+  const idsJaExibidos = new Set(registrosUltimoDia.map(r => r.id));
+  const registrosOutrasSessoes = registros.filter(r => !idsJaExibidos.has(r.id));
+
+  if (registrosOutrasSessoes.length > 0) {
+    cardsHtml += `
+      <div class="sessoes-anteriores-wrapper" style="margin-top: 10px;">
+        <button type="button" class="btn-toggle-anteriores" id="btn-toggle-laser-anteriores">
+          <span>📜 Ver sessões anteriores (${registrosOutrasSessoes.length})</span>
+          <span class="chevron-anteriores">▾</span>
+        </button>
+        <div id="container-laser-anteriores" class="sessoes-anteriores-container" style="display: none;">
+          ${registrosOutrasSessoes.map(r => gerarCardLaserHtml(r, true)).join("")}
+        </div>
+      </div>
+    `;
+  }
+
   atendListaLaserParams.innerHTML = cardsHtml;
+
+  // Listener para o botão de expansão de sessões anteriores
+  const btnAnteriores = document.getElementById("btn-toggle-laser-anteriores");
+  const containerAnteriores = document.getElementById("container-laser-anteriores");
+  if (btnAnteriores && containerAnteriores) {
+    btnAnteriores.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const estaOculto = containerAnteriores.style.display === "none";
+      containerAnteriores.style.display = estaOculto ? "flex" : "none";
+      const chevron = btnAnteriores.querySelector(".chevron-anteriores");
+      if (chevron) {
+        chevron.style.transform = estaOculto ? "rotate(180deg)" : "rotate(0deg)";
+      }
+    });
+  }
+
   renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, state.ultimosRegistrosLaserCliente);
 
   if (state.selectedAppointment) {
@@ -400,28 +519,44 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
       ${temEnergiaAnterior ? `
         <div class="param-historico-ref">
           <span class="param-hist-icon">📌</span>
-          <span>Última aplicação ${isMulti ? `[${rotulo}]` : ''}: <strong>${sub.energiaAnterior}J</strong> • Fototipo ${sub.origFototipo || sub.fototipo} • ${modoHist}</span>
+          <span class="param-hist-text">Anterior ${isMulti ? `[${rotulo}]` : ''}: <strong>${sub.energiaAnterior}J</strong> • Fototipo ${sub.origFototipo || sub.fototipo} • ${modoHist}</span>
         </div>
       ` : `
         <div class="param-historico-ref param-historico-novo">
           <span class="param-hist-icon">🛡️</span>
-          <span>${isMulti ? `Sub-zona [${rotulo}]: ` : ''}Sem histórico anterior. Defina os parâmetros para esta sessão.</span>
+          <span class="param-hist-text">${isMulti ? `Sub-zona [${rotulo}]: ` : ''}Sem histórico anterior — defina os parâmetros.</span>
         </div>
       `}
 
-      <!-- Linha 1: Fototipo & Modo de Disparo -->
+      <!-- Bloco de Energia em Destaque (Hero) -->
+      <div class="param-field-energia-hero">
+        <div class="param-energia-header">
+          <label class="param-label-energia">⚡ Energia Principal</label>
+          <span class="param-hero-badge">${temEnergiaAnterior ? `Anterior: ${sub.energiaAnterior}J` : 'Iniciando área'}</span>
+        </div>
+        <div class="param-stepper-wrap param-stepper-energia">
+          <button type="button" class="btn-param-step btn-step-minus" data-delta="-1" title="Diminuir 1J">−</button>
+          <div class="param-input-with-unit">
+            <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
+            <span class="param-unit-tag">J</span>
+          </div>
+          <button type="button" class="btn-param-step btn-step-plus" data-delta="1" title="Aumentar 1J">+</button>
+        </div>
+      </div>
+
+      <!-- Grid 2x2 de Configurações Técnicas -->
       <div class="param-grid-duo">
         <div class="param-field">
           <label class="param-label">
             <span>👤 Fototipo</span>
           </label>
           <select class="param-input param-fototipo">
-            <option value="I" ${sub.fototipo === 'I' ? 'selected' : ''}>Fototipo I (Muito clara)</option>
-            <option value="II" ${sub.fototipo === 'II' ? 'selected' : ''}>Fototipo II (Clara)</option>
-            <option value="III" ${sub.fototipo === 'III' ? 'selected' : ''}>Fototipo III (Morena clara)</option>
-            <option value="IV" ${sub.fototipo === 'IV' || !sub.fototipo ? 'selected' : ''}>Fototipo IV (Morena média)</option>
-            <option value="V" ${sub.fototipo === 'V' ? 'selected' : ''}>Fototipo V (Morena escura)</option>
-            <option value="VI" ${sub.fototipo === 'VI' ? 'selected' : ''}>Fototipo VI (Negra)</option>
+            <option value="I" ${sub.fototipo === 'I' ? 'selected' : ''}>I • Muito clara</option>
+            <option value="II" ${sub.fototipo === 'II' ? 'selected' : ''}>II • Clara</option>
+            <option value="III" ${sub.fototipo === 'III' ? 'selected' : ''}>III • Morena clara</option>
+            <option value="IV" ${sub.fototipo === 'IV' || !sub.fototipo ? 'selected' : ''}>IV • Morena</option>
+            <option value="V" ${sub.fototipo === 'V' ? 'selected' : ''}>V • Morena escura</option>
+            <option value="VI" ${sub.fototipo === 'VI' ? 'selected' : ''}>VI • Negra</option>
           </select>
         </div>
 
@@ -434,26 +569,7 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
             <option value="SHR" ${sub.modo === 'SHR' ? 'selected' : ''}>SHR (Varredura)</option>
           </select>
         </div>
-      </div>
 
-      <!-- Linha 2: Energia Principal (Joules) em Destaque -->
-      <div class="param-field param-field-energia-hero">
-        <div class="param-label param-label-energia">
-          <span>⚡ Energia Aplicada Hoje</span>
-          <span class="param-label-unit">Joules (J)</span>
-        </div>
-        <div class="param-stepper-wrap param-stepper-energia">
-          <button type="button" class="btn-param-step" data-delta="-1" title="Diminuir 1J">−1</button>
-          <div class="param-input-with-unit">
-            <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
-            <span class="param-unit-tag">J</span>
-          </div>
-          <button type="button" class="btn-param-step" data-delta="1" title="Aumentar 1J">+1</button>
-        </div>
-      </div>
-
-      <!-- Linha 3: Frequência & Disparos -->
-      <div class="param-grid-duo">
         <div class="param-field">
           <label class="param-label">
             <span>⏱️ Frequência</span>
@@ -533,6 +649,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sCod = s.codServ || s.cod_servico || (55556400 + idx);
     const sNome = s.nome || `Área #${idx + 1}`;
     const areaFormatada = `${sCod} - ${sNome}`;
+    const sNomeExibicao = sNome.replace(/^\d+\s*-\s*/, '').trim() || sNome;
 
     // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
     const subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
@@ -546,22 +663,31 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
            data-area-formatada="${areaFormatada}"
            data-status="realizada">
         
-        <div class="param-form-header">
-          <div class="param-header-title-row">
-            <span class="param-form-title" title="${areaFormatada}">✨ ${sNome}</span>
-          </div>
-          <div class="param-header-controls-row">
+        <!-- CABEÇALHO DO TOGGLE (Sempre visível: Título da Área + Status + Chevron) -->
+        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="false" title="Clique para abrir ou fechar os parâmetros desta área">
+          <div class="param-header-left">
+            <span class="param-area-icon">✨</span>
+            <span class="param-form-title" title="${areaFormatada}">${sNomeExibicao}</span>
             <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
+          </div>
+          <div class="param-header-right">
+            <span class="param-status-badge badge-realizada">✓ Realizada</span>
+            <span class="param-toggle-chevron">▼</span>
+          </div>
+        </div>
+
+        <!-- CORPO EXPANSÍVEL (Apenas visível quando o toggle estiver aberto) -->
+        <div class="param-form-body" style="display: none;">
+          <div class="param-status-toggle-row">
             <div class="param-status-toggle">
               <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
-                ✅ Realizada
+                <span class="status-btn-icon">✓</span> Realizada
               </button>
               <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
-                ❌ Não Realizada
+                <span class="status-btn-icon">✕</span> Não Realizada
               </button>
             </div>
           </div>
-        </div>
 
         <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
         <div class="param-section-realizada">
@@ -571,25 +697,25 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 
           <div class="param-add-subzona-row">
             <button type="button" class="btn-add-subzona" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
-              ➕ Dividir por Sub-Zona / Fototipo Misto (ex: Lábios, Face interna)
+              ➕ Dividir Sub-Zona (Fototipo Misto)
             </button>
           </div>
 
-          <div class="param-field" style="margin-top: 10px;">
-            <label style="display: flex; justify-content: space-between; align-items: center;">
-              <span>Observações Clínicas da Área:</span>
-              <span style="font-weight: normal; font-size: 10px; color: #8b5cf6;">💡 Opções rápidas</span>
-            </label>
-            <div class="param-obs-pills-row">
-              <span class="obs-pill" data-text="Boa tolerância">👍 Boa tolerância</span>
-              <span class="obs-pill" data-text="Pele íntegra">✨ Pele íntegra</span>
-              <span class="obs-pill" data-text="Sensibilidade leve">⚡ Sensibilidade leve</span>
-              <span class="obs-pill" data-text="Hiperemia leve">🔴 Hiperemia leve</span>
-              <span class="obs-pill" data-text="Pelos finos">🔍 Pelos finos</span>
-              <span class="obs-pill" data-text="Pelos grossos">💥 Pelos grossos</span>
-              <span class="obs-pill" data-text="Sem intercorrências">✅ Sem intercorrências</span>
+          <div class="param-obs-section">
+            <div class="param-obs-header">
+              <span class="param-obs-label">💬 Observações Clínicas:</span>
+              <span class="param-obs-hint">Toque para adicionar</span>
             </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNome.split(' - ')[0]} • Boa tolerância" value="">
+            <div class="param-obs-pills-row">
+              <span class="obs-pill" data-text="Boa tolerância">Boa tolerância</span>
+              <span class="obs-pill" data-text="Pele íntegra">Pele íntegra</span>
+              <span class="obs-pill" data-text="Sensibilidade leve">Sensibilidade leve</span>
+              <span class="obs-pill" data-text="Hiperemia leve">Hiperemia leve</span>
+              <span class="obs-pill" data-text="Pelos finos">Pelos finos</span>
+              <span class="obs-pill" data-text="Pelos grossos">Pelos grossos</span>
+              <span class="obs-pill" data-text="Sem intercorrências">Sem intercorrências</span>
+            </div>
+            <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="">
           </div>
         </div>
 
@@ -606,25 +732,26 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
           <div class="param-skip-options">
             <label class="param-skip-chk-wrap">
               <input type="checkbox" class="chk-remover-agendamento" checked>
-              <span>Remover do agendamento (não descontar sessão no Belle)</span>
+              <span>Remover do agendamento (preserva saldo no Belle)</span>
             </label>
 
-            <div class="param-field" style="margin-top: 6px;">
-              <label style="display: flex; justify-content: space-between; align-items: center;">
-                <span>Motivo da Não Realização:</span>
-                <span style="font-weight: normal; font-size: 10px; color: #e11d48;">Motivos rápidos</span>
-              </label>
+            <div class="param-obs-section" style="margin-top: 6px; border-top: none;">
+              <div class="param-obs-header">
+                <span class="param-obs-label">Motivo da Não Realização:</span>
+                <span class="param-obs-hint" style="color: #e11d48;">Motivos rápidos</span>
+              </div>
               <div class="param-skip-pills-row">
-                <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">⚡ Sensibilidade / Dor</span>
-                <span class="skip-pill" data-reason="Pele sensível / Lesão no local">🩹 Pele sensível / Lesão</span>
-                <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">☀️ Sol recente / Bronzeada</span>
-                <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">🩸 Período menstrual</span>
-                <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">⏱️ Sem tempo / Desistência</span>
-                <span class="skip-pill" data-reason="Área com pelos não raspados">🔍 Pelos não raspados</span>
+                <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">Sensibilidade / Dor</span>
+                <span class="skip-pill" data-reason="Pele sensível / Lesão no local">Pele sensível / Lesão</span>
+                <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">Sol recente / Bronzeada</span>
+                <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">Período menstrual</span>
+                <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">Sem tempo / Desistência</span>
+                <span class="skip-pill" data-reason="Área com pelos não raspados">Pelos não raspados</span>
               </div>
               <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="">
             </div>
           </div>
+        </div>
         </div>
       </div>
     `;
@@ -636,6 +763,22 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 export async function salvarParametrosLaserDireto(parametros) {
   if (!btnSalvarParametrosLaser) return { success: false, error: "Formulário indisponível" };
 
+  // Trava de segurança: impede duplicar gravações no mesmo dia
+  if (verificarSeParametrosForamSalvos()) {
+    console.log("[Atendimento] ℹ️ Parâmetros já constam como gravados hoje no prontuário. Salvamento ignorado para evitar duplicidade.");
+    if (btnSalvarParametrosLaser) {
+      btnSalvarParametrosLaser.disabled = false;
+      btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
+      btnSalvarParametrosLaser.style.background = "#16a34a";
+    }
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-success";
+      atendStatusSalvarLaser.textContent = "✓ Os parâmetros de laser desta consulta já foram gravados hoje no prontuário.";
+    }
+    return { success: true, jaSalvo: true };
+  }
+
   // Bloqueio clínico: área realizada sem energia definida não vai para o prontuário.
   const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametros);
   if (possuiPendencia) {
@@ -646,7 +789,14 @@ export async function salvarParametrosLaserDireto(parametros) {
       atendStatusSalvarLaser.textContent = `Informe a energia (J) aplicada hoje em: ${nomes}.`;
     }
     document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
-      if (!(parseFloat(inp.value) > 0)) inp.classList.add("param-input-erro");
+      if (!(parseFloat(inp.value) > 0)) {
+        inp.classList.add("param-input-erro");
+        const card = inp.closest(".atend-param-form-card");
+        if (card) {
+          alternarCardArea(card, true);
+          inp.focus();
+        }
+      }
     });
     return { success: false, bloqueado: true, error: `Energia não informada em: ${nomes}` };
   }
@@ -673,8 +823,10 @@ export async function salvarParametrosLaserDireto(parametros) {
       msgSucesso += ` (${qtdNaoRealizadas} área(s) não realizada(s) registrada(s))`;
     }
 
-    btnSalvarParametrosLaser.textContent = "✅ Parâmetros Salvos!";
+    btnSalvarParametrosLaser.disabled = false;
+    btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
     btnSalvarParametrosLaser.style.background = "#16a34a";
+    parametrosJaSalvosNesteAtendimento = true;
     if (atendStatusSalvarLaser) {
       atendStatusSalvarLaser.className = "param-save-status status-success";
       atendStatusSalvarLaser.textContent = msgSucesso;
@@ -716,10 +868,9 @@ export async function salvarParametrosLaserDireto(parametros) {
     }
 
     setTimeout(() => {
-      btnSalvarParametrosLaser.disabled = false;
-      btnSalvarParametrosLaser.textContent = "💾 Salvar Parâmetros (Todas as Áreas)";
-      btnSalvarParametrosLaser.style.background = "";
-      if (atendStatusSalvarLaser) atendStatusSalvarLaser.style.display = "none";
+      if (atendStatusSalvarLaser) {
+        atendStatusSalvarLaser.textContent = "✓ Parâmetros gravados hoje no prontuário do Belle.";
+      }
     }, 4000);
   } else {
     btnSalvarParametrosLaser.disabled = false;
@@ -780,83 +931,45 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
     return;
   }
 
-  const parametrosParaSalvar = coletarParametrosDosFormularios();
-  const areasRealizadas = parametrosParaSalvar.filter(p => p.isRealizada !== false);
-  const areasNaoRealizadas = parametrosParaSalvar.filter(p => p.isRealizada === false);
+  // ATENDIMENTO DE LASER:
+  // 1. Verifica se os parâmetros já foram gravados no prontuário hoje
+  const parametrosJaSalvos = verificarSeParametrosForamSalvos();
+  const parametrosFormularios = coletarParametrosDosFormularios();
+  const areasRealizadas = parametrosFormularios.filter(p => p.isRealizada !== false);
+  const areasNaoRealizadas = parametrosFormularios.filter(p => p.isRealizada === false);
   const areasParaRemover = areasNaoRealizadas.filter(p => p.removerDoAgendamento !== false);
 
-  // Trava antes de tocar no agendamento: área realizada sem energia não pode ser finalizada.
-  const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametrosParaSalvar);
-  if (possuiPendencia) {
-    const nomes = areasSemEnergia.map(a => a.nomeArea || a.area).join(", ");
-    document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
-      if (!(parseFloat(inp.value) > 0)) inp.classList.add("param-input-erro");
-    });
-    if (atendStatusSalvarLaser) {
-      atendStatusSalvarLaser.style.display = "block";
-      atendStatusSalvarLaser.className = "param-save-status status-error";
-      atendStatusSalvarLaser.textContent = `Informe a energia (J) aplicada hoje em: ${nomes}.`;
-    }
-    alert(`Não é possível finalizar: informe a energia (J) aplicada hoje em ${nomes}.`);
-    return;
-  }
+  // Determina quais serviços devem ser mantidos no agendamento (remove áreas não realizadas do pacote)
+  const servicosParaManter = (areasParaRemover.length > 0 && areasRealizadas.length > 0 && app.arrServ && app.arrServ.length > 0)
+    ? app.arrServ.filter(s => {
+        const sNomeNorm = (s.nome || "").toLowerCase().trim();
+        const sCod = String(s.codServ || s.cod_servico || "");
+        return areasRealizadas.some(r => {
+          const rNomeNorm = (r.nomeArea || "").toLowerCase().trim();
+          const rCod = String(r.codServ || "");
+          return (rCod && sCod && rCod === sCod) || rNomeNorm.includes(sNomeNorm) || sNomeNorm.includes(rNomeNorm);
+        });
+      })
+    : (app.arrServ || null);
 
-  const { possuiSemEvolucao, areasSemEvolucao } = verificarEvolucaoParametros(parametrosParaSalvar);
-
-  const executarSalvarEFinalizar = async () => {
+  // Função central: Edita no Belle para vincular a atendente e finaliza a consulta
+  const executarEdicaoEFinalizacao = async () => {
     if (btnAtendFinalizar) {
       btnAtendFinalizar.disabled = true;
-      btnAtendFinalizar.textContent = "⏳ Processando...";
+      btnAtendFinalizar.textContent = "⏳ Vinculando atendente...";
     }
 
-    // 1. Sincronização Inteligente com o Belle: remove áreas não realizadas do agendamento para NÃO descontar sessões
-    if (areasParaRemover.length > 0 && areasRealizadas.length > 0) {
-      if (btnAtendFinalizar) btnAtendFinalizar.textContent = "⏳ Ajustando agendamento...";
-      
-      const servicosParaManter = (app.arrServ && app.arrServ.length > 0)
-        ? app.arrServ.filter(s => {
-            const sNomeNorm = (s.nome || "").toLowerCase().trim();
-            const sCod = String(s.codServ || s.cod_servico || "");
-            return areasRealizadas.some(r => {
-              const rNomeNorm = (r.nomeArea || "").toLowerCase().trim();
-              const rCod = String(r.codServ || "");
-              return (rCod && sCod && rCod === sCod) || rNomeNorm.includes(sNomeNorm) || sNomeNorm.includes(rNomeNorm);
-            });
-          })
-        : [];
-
-      if (servicosParaManter.length > 0 && servicosParaManter.length < (app.arrServ || []).length) {
-        console.log(`[Atendimento] ✂️ Removendo ${areasParaRemover.length} área(s) não realizada(s) do agendamento para não descontar do pacote da cliente.`);
-        await atualizarServicosAgendamentoApi(state.currentToken, app, servicosParaManter, state.currentCodEstab);
-        app.arrServ = servicosParaManter;
-        limparCachesAtendimento();
-      }
+    // 1. Edita o agendamento no Belle: vincula a atendente e ajusta os serviços
+    console.log(`[Atendimento] 📝 Editando agendamento para vincular atendente (${state.currentUserName || 'Atendente'})...`);
+    await atualizarServicosAgendamentoApi(state.currentToken, app, servicosParaManter, state.currentCodEstab);
+    if (servicosParaManter && servicosParaManter.length > 0) {
+      app.arrServ = servicosParaManter;
     }
+    limparCachesAtendimento();
 
-    // 2. Salva parâmetros do laser (disparos nas realizadas e notas de intercorrência nas não realizadas)
-    if (parametrosParaSalvar.length > 0) {
-      const resSalvar = await salvarParametrosLaserDireto(parametrosParaSalvar);
-
-      // Só finaliza a consulta se TODAS as áreas entraram no prontuário. Encerrar com
-      // gravação parcial deixaria a sessão debitada sem a evolução clínica correspondente.
-      if (!resSalvar || !resSalvar.success) {
-        if (btnAtendFinalizar) {
-          btnAtendFinalizar.disabled = false;
-          btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
-        }
-        const areasFalhas = (resSalvar?.falhas || []).map(f => f.area).join(", ");
-        alert(
-          resSalvar?.parcial
-            ? `Atendimento NÃO finalizado.\n\nApenas ${resSalvar.salvos} de ${resSalvar.total} área(s) foram gravadas no prontuário.\nNão gravadas: ${areasFalhas}\n\nTente salvar novamente antes de finalizar.`
-            : `Atendimento NÃO finalizado.\n\nOs parâmetros do laser não puderam ser gravados no prontuário${areasFalhas ? ` (${areasFalhas})` : ""}.\nVerifique a conexão e tente novamente.`
-        );
-        return;
-      }
-    }
-
-    // 3. Finaliza oficialmente a consulta no Belle
+    // 2. Finaliza oficialmente a consulta no Belle
     if (btnAtendFinalizar) {
-      btnAtendFinalizar.textContent = "⏳ Concluindo...";
+      btnAtendFinalizar.textContent = "⏳ Finalizando consulta...";
     }
 
     const codConsulta = app.codConsulta || app.id;
@@ -876,6 +989,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       }
 
       limparCachesAtendimento();
+      parametrosJaSalvosNesteAtendimento = false;
 
       const codCli = app.codCliente;
       const nomeCli = (app.clienteNome || "").toLowerCase().trim();
@@ -926,16 +1040,78 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
         if (typeof callbackRecarregarAgenda === "function") callbackRecarregarAgenda();
       }
     } else {
-      alert("Não foi possível finalizar o agendamento no Belle. Verifique a conexão.");
+      alert("Não foi possível finalizar o atendimento no Belle. Verifique a conexão e tente novamente.");
     }
+  };
+
+  // CASO A: Parâmetros já foram salvos anteriormente nesta consulta ou hoje
+  if (parametrosJaSalvos) {
+    console.log("[Atendimento] ✅ Parâmetros já constam como gravados hoje. Executando apenas a edição para vincular atendente e finalizando...");
+    await executarEdicaoEFinalizacao();
+    return;
+  }
+
+  // CASO B: Parâmetros ainda NÃO foram salvos
+  console.log("[Atendimento] ⚠️ Parâmetros ainda não foram salvos. Validando e salvando parâmetros antes de editar e finalizar...");
+
+  // Trava clínica: área realizada sem energia não pode ser salva nem finalizada
+  const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametrosFormularios);
+  if (possuiPendencia) {
+    const nomes = areasSemEnergia.map(a => a.nomeArea || a.area).join(", ");
+    document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
+      if (!(parseFloat(inp.value) > 0)) {
+        inp.classList.add("param-input-erro");
+        const card = inp.closest(".atend-param-form-card");
+        if (card) {
+          alternarCardArea(card, true);
+          inp.focus();
+        }
+      }
+    });
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-error";
+      atendStatusSalvarLaser.textContent = `Informe a energia (J) aplicada hoje em: ${nomes}.`;
+    }
+    alert(`Não é possível finalizar: informe a energia (J) aplicada hoje em ${nomes}.`);
+    return;
+  }
+
+  const { possuiSemEvolucao, areasSemEvolucao } = verificarEvolucaoParametros(parametrosFormularios);
+
+  const salvarParametrosEProsseguir = async () => {
+    if (btnAtendFinalizar) {
+      btnAtendFinalizar.disabled = true;
+      btnAtendFinalizar.textContent = "⏳ Salvando parâmetros...";
+    }
+
+    if (parametrosFormularios.length > 0) {
+      const resSalvar = await salvarParametrosLaserDireto(parametrosFormularios);
+      if (!resSalvar || !resSalvar.success) {
+        if (btnAtendFinalizar) {
+          btnAtendFinalizar.disabled = false;
+          btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+        }
+        const areasFalhas = (resSalvar?.falhas || []).map(f => f.area).join(", ");
+        alert(
+          resSalvar?.parcial
+            ? `Atendimento NÃO finalizado.\n\nApenas ${resSalvar.salvos} de ${resSalvar.total} área(s) foram gravadas no prontuário.\nNão gravadas: ${areasFalhas}\n\nTente salvar novamente antes de finalizar.`
+            : `Atendimento NÃO finalizado.\n\nOs parâmetros do laser não puderam ser gravados no prontuário${areasFalhas ? ` (${areasFalhas})` : ""}.\nVerifique a conexão e tente novamente.`
+        );
+        return;
+      }
+    }
+
+    parametrosJaSalvosNesteAtendimento = true;
+    await executarEdicaoEFinalizacao();
   };
 
   if (possuiSemEvolucao) {
     abrirModalTravaEvolucao(areasSemEvolucao, () => {
-      executarSalvarEFinalizar();
+      salvarParametrosEProsseguir();
     });
   } else {
-    executarSalvarEFinalizar();
+    await salvarParametrosEProsseguir();
   }
 }
 
@@ -998,6 +1174,8 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
   if (onRecarregarAgenda) callbackRecarregarAgenda = onRecarregarAgenda;
 
   state.selectedAppointment = app;
+  parametrosJaSalvosNesteAtendimento = false;
+  if (atendStatusSalvarLaser) atendStatusSalvarLaser.style.display = "none";
 
   if (atendimentoPlaceholder) atendimentoPlaceholder.style.display = "none";
   if (atendimentoContent) atendimentoContent.style.display = "flex";
@@ -1202,10 +1380,19 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     if (cardNovoParametro) cardNovoParametro.style.display = "block";
     if (cardAvaliacao) cardAvaliacao.style.display = "none";
 
+    // Inicia o histórico de parâmetros fechado por padrão (mostra apenas o título da div)
+    alternarToggleParametros(false);
+
     if (btnAtendFinalizar) {
       btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
       btnAtendFinalizar.style.background = "#16a34a";
       btnAtendFinalizar.style.borderColor = "#15803d";
+    }
+
+    if (btnSalvarParametrosLaser) {
+      btnSalvarParametrosLaser.disabled = false;
+      btnSalvarParametrosLaser.textContent = "💾 Salvar Parâmetros (Todas as Áreas)";
+      btnSalvarParametrosLaser.style.background = "";
     }
 
     // Renderiza imediatamente os formulários de registro por área
@@ -1272,11 +1459,60 @@ function renderizarServicosComSaldoFallback(app) {
   }
 }
 
+export function alternarCardArea(card, forcarAberto = null) {
+  if (!card) return;
+  const isCurrentlyOpen = card.classList.contains("param-card-open");
+  const deveAbrir = forcarAberto !== null ? forcarAberto : !isCurrentlyOpen;
+
+  // Se for abrir este card, fecha todos os outros cards primeiro (regra do acordeão: apenas 1 aberto por vez)
+  if (deveAbrir) {
+    document.querySelectorAll(".atend-param-form-card").forEach(c => {
+      if (c !== card) {
+        c.classList.remove("param-card-open");
+        const b = c.querySelector(".param-form-body");
+        if (b) b.style.display = "none";
+        const h = c.querySelector(".atend-area-toggle");
+        if (h) h.setAttribute("aria-expanded", "false");
+        const ch = c.querySelector(".param-toggle-chevron");
+        if (ch) ch.textContent = "▼";
+      }
+    });
+
+    card.classList.add("param-card-open");
+    const body = card.querySelector(".param-form-body");
+    if (body) body.style.display = "block";
+    const header = card.querySelector(".atend-area-toggle");
+    if (header) header.setAttribute("aria-expanded", "true");
+    const chevron = card.querySelector(".param-toggle-chevron");
+    if (chevron) chevron.textContent = "▲";
+  } else {
+    // Apenas fecha este card
+    card.classList.remove("param-card-open");
+    const body = card.querySelector(".param-form-body");
+    if (body) body.style.display = "none";
+    const header = card.querySelector(".atend-area-toggle");
+    if (header) header.setAttribute("aria-expanded", "false");
+    const chevron = card.querySelector(".param-toggle-chevron");
+    if (chevron) chevron.textContent = "▼";
+  }
+}
+
 export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } = {}) {
   callbackAtivarAba = onAtivarAba;
   callbackRecarregarAgenda = onRecarregarAgenda;
 
   atendListaFormsLaser?.addEventListener("click", (e) => {
+    // 0. Toggle de Acordeão da Área (Abrir/Fechar ao clicar no cabeçalho)
+    const headerToggle = e.target.closest(".atend-area-toggle");
+    if (headerToggle) {
+      e.preventDefault();
+      const card = headerToggle.closest(".atend-param-form-card");
+      if (card) {
+        alternarCardArea(card);
+      }
+      return;
+    }
+
     // 1. Alternância de status Realizada vs Não Realizada
     const toggleBtn = e.target.closest(".btn-toggle-status");
     if (toggleBtn) {
@@ -1289,6 +1525,18 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
 
       card.querySelectorAll(".btn-toggle-status").forEach(b => b.classList.remove("active"));
       toggleBtn.classList.add("active");
+
+      // Atualiza o badge no cabeçalho visível do acordeão
+      const statusBadge = card.querySelector(".param-status-badge");
+      if (statusBadge) {
+        if (newStatus === "nao_realizada") {
+          statusBadge.className = "param-status-badge badge-nao-realizada";
+          statusBadge.textContent = "✕ Não Realizada";
+        } else {
+          statusBadge.className = "param-status-badge badge-realizada";
+          statusBadge.textContent = "✓ Realizada";
+        }
+      }
 
       const secRealizada = card.querySelector(".param-section-realizada");
       const secNaoRealizada = card.querySelector(".param-section-nao-realizada");
@@ -1478,7 +1726,27 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
     }
   });
 
+  atendListaFormsLaser?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      const headerToggle = e.target.closest(".atend-area-toggle");
+      if (headerToggle) {
+        e.preventDefault();
+        const card = headerToggle.closest(".atend-param-form-card");
+        if (card) alternarCardArea(card);
+      }
+    }
+  });
+
   btnSalvarParametrosLaser?.addEventListener("click", () => {
+    if (verificarSeParametrosForamSalvos()) {
+      alert(
+        "Os parâmetros desta cliente já foram salvos hoje no prontuário do Belle!\n\n" +
+        "Para não gerar registros duplicados no mesmo dia, uma nova gravação não será realizada.\n\n" +
+        "Caso você deseje encerrar a consulta e vincular a atendente, clique em 'Finalizar Atendimento'."
+      );
+      return;
+    }
+
     const parametros = coletarParametrosDosFormularios();
     if (parametros.length === 0) {
       alert("Nenhum formulário de parâmetro preenchido para salvar.");
@@ -1502,5 +1770,17 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
 
   btnAtendVoltar?.addEventListener("click", () => {
     if (typeof callbackAtivarAba === "function") callbackAtivarAba("tab-agenda");
+  });
+
+  // Toggle abrir/fechar do Histórico de Parâmetros Anteriores
+  const headerToggleParametros = document.getElementById("atend-toggle-parametros");
+  headerToggleParametros?.addEventListener("click", () => {
+    alternarToggleParametros();
+  });
+  headerToggleParametros?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      alternarToggleParametros();
+    }
   });
 }

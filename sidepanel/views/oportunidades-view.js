@@ -15,7 +15,8 @@
 
 import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
-import { prepararOrcamentos } from '../engines/cadencia-vendas.js';
+import { prepararOrcamentos, registroPertenceAoUsuario } from '../engines/cadencia-vendas.js';
+import { ehGerente } from '../core/permissions.js';
 import { htmlCardOrcamento } from '../components/card-orcamento.js';
 
 const JANELA_DIAS = 30;
@@ -28,8 +29,10 @@ const oportResumo = document.getElementById("opor-resumo");
 const oportBusca = document.getElementById("opor-input-busca");
 const btnRefreshOpor = document.getElementById("btn-refresh-oportunidades");
 const badgeOporTotal = document.getElementById("badge-opor-total");
+const oporEscopoContainer = document.getElementById("opor-escopo-container");
 
 let orcamentos = [];
+let filtroEscopo = "meus"; // "meus" | "todos"
 let filtroFila = "todos";
 let termoBusca = "";
 let contatadosSet = new Set();
@@ -122,10 +125,34 @@ export async function carregarOportunidades(forcar = false) {
   }
 }
 
+/**
+ * Retorna os orçamentos visíveis para o usuário atual.
+ * Por padrão (ou para não-gerentes), filtra estritamente os orçamentos que pertencem ao usuário logado.
+ */
+export function obterOrcamentosVisiveis() {
+  if (ehGerente() && filtroEscopo === "todos") {
+    return orcamentos;
+  }
+  const meus = orcamentos.filter(o => registroPertenceAoUsuario(o));
+  if (meus.length === 0 && orcamentos.length > 0 && ehGerente()) {
+    return orcamentos;
+  }
+  return meus;
+}
+
 export function renderizarOportunidades() {
   if (!oportCards) return;
 
-  let lista = cruzarComAgendaDeHoje(orcamentos);
+  const gerente = ehGerente();
+  if (oporEscopoContainer) {
+    oporEscopoContainer.style.display = gerente ? "flex" : "none";
+    oporEscopoContainer.querySelectorAll(".btn-escopo-toggle").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-escopo") === filtroEscopo);
+    });
+  }
+
+  const orcamentosVisiveis = obterOrcamentosVisiveis();
+  let lista = cruzarComAgendaDeHoje(orcamentosVisiveis);
 
   if (filtroFila !== "todos") lista = lista.filter(o => o.fila === filtroFila);
 
@@ -148,7 +175,7 @@ export function renderizarOportunidades() {
   });
 
   const qtdHoje = lista.filter(o => o.vemHoje).length;
-  const totalAberto = orcamentos.length;
+  const totalAberto = orcamentosVisiveis.length;
 
   if (badgeOporTotal) {
     badgeOporTotal.textContent = String(totalAberto);
@@ -157,16 +184,21 @@ export function renderizarOportunidades() {
   }
 
   if (oportResumo) {
+    const nomeUsuario = state.currentUserName ? ` (${state.currentUserName})` : "";
+    const prefixo = (gerente && filtroEscopo === "todos")
+      ? "🏢 Todos da unidade"
+      : `👤 Seus orçamentos${nomeUsuario}`;
+
     oportResumo.textContent = totalAberto === 0
-      ? `Nenhum orçamento em aberto nos últimos ${JANELA_DIAS} dias.`
-      : `${totalAberto} orçamento(s) em aberto dos últimos ${JANELA_DIAS} dias` +
+      ? `${prefixo}: Nenhum orçamento em aberto nos últimos ${JANELA_DIAS} dias.`
+      : `${prefixo}: ${totalAberto} orçamento(s) em aberto dos últimos ${JANELA_DIAS} dias` +
         (qtdHoje > 0 ? ` • ${qtdHoje} de cliente(s) que vem hoje` : "") +
         ` • depois de ${JANELA_DIAS} dias passa para o Comercial`;
   }
 
   document.querySelectorAll(".opor-filter-btn").forEach(btn => {
     const fila = btn.getAttribute("data-fila");
-    const cont = fila === "todos" ? totalAberto : orcamentos.filter(o => o.fila === fila).length;
+    const cont = fila === "todos" ? totalAberto : orcamentosVisiveis.filter(o => o.fila === fila).length;
     const span = btn.querySelector(".opor-filter-count");
     if (span) span.textContent = cont;
     btn.classList.toggle("active", fila === filtroFila);
@@ -196,6 +228,14 @@ export function inicializarOportunidadesView() {
   oportBusca?.addEventListener("input", (e) => {
     termoBusca = e.target.value.trim();
     renderizarOportunidades();
+  });
+
+  oporEscopoContainer?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-escopo-toggle");
+    if (btn) {
+      filtroEscopo = btn.getAttribute("data-escopo") || "meus";
+      renderizarOportunidades();
+    }
   });
 
   document.querySelectorAll(".opor-filter-btn").forEach(btn => {

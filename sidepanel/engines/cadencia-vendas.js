@@ -12,6 +12,8 @@
  *   ⏸️ SUSPENSO    — pausado, revisita periódica.
  */
 
+import { state } from '../core/state.js';
+
 /** "1.917,60" -> 1917.6 */
 export function valorParaNumero(txt) {
   if (typeof txt === "number") return txt;
@@ -173,10 +175,40 @@ export function prepararOrcamentos(registros = []) {
       valorFinal: valorParaNumero(r.preco_final),
       descontoPct: valorParaNumero(r.desconto),
       formaPagamento: r.labelFormasPag || "",
-      temLink: possuiLinkPagamento(r),
-      vendedora: (r.nom_usuario || r.nom_vendedor || "").trim(),
-      codUsuario: String(r.cod_usuario || r.codUsuario || r.cod_vendedor || r.codVendedor || "").trim(),
-      loginUsuario: String(r.login || r.usuario || "").trim(),
+      vendedora: (
+        r.nom_usuario ||
+        r.nom_vendedor ||
+        r.nomeVendedor ||
+        r.nome_vendedor ||
+        r.vendedor ||
+        r.vendedora ||
+        r.nom_profissional ||
+        r.nomeProfissional ||
+        r.nom_atendente ||
+        r.atendente ||
+        r.nom_responsavel ||
+        r.responsavel ||
+        r.usuario ||
+        ""
+      ).trim(),
+      codUsuario: String(
+        r.cod_usuario ||
+        r.codUsuario ||
+        r.cod_vendedor ||
+        r.codVendedor ||
+        r.cod_profissional ||
+        r.codProfissional ||
+        r.cod_atendente ||
+        r.cod_responsavel ||
+        ""
+      ).trim(),
+      loginUsuario: String(
+        r.login ||
+        r.usuario ||
+        r.login_usuario ||
+        r.loginUsuario ||
+        ""
+      ).trim(),
       dataProposta: r.dtProp || "",
       validadeAte: r.dtValPlano || "",
       vencido: Boolean(r.vencido),
@@ -329,9 +361,40 @@ export function prepararPlanosVencendo(registros = [], horizonteDias = 90, inclu
       telefone: r.celular || "",
       nomePlano: r.nomePlano || "Plano",
       valorFinal: valorParaNumero(r.preco_final),
-      vendedora: (r.nom_usuario || r.nom_vendedor || "").trim(),
-      codUsuario: String(r.cod_usuario || r.codUsuario || r.cod_vendedor || r.codVendedor || "").trim(),
-      loginUsuario: String(r.login || r.usuario || "").trim(),
+      vendedora: (
+        r.nom_usuario ||
+        r.nom_vendedor ||
+        r.nomeVendedor ||
+        r.nome_vendedor ||
+        r.vendedor ||
+        r.vendedora ||
+        r.nom_profissional ||
+        r.nomeProfissional ||
+        r.nom_atendente ||
+        r.atendente ||
+        r.nom_responsavel ||
+        r.responsavel ||
+        r.usuario ||
+        ""
+      ).trim(),
+      codUsuario: String(
+        r.cod_usuario ||
+        r.codUsuario ||
+        r.cod_vendedor ||
+        r.codVendedor ||
+        r.cod_profissional ||
+        r.codProfissional ||
+        r.cod_atendente ||
+        r.cod_responsavel ||
+        ""
+      ).trim(),
+      loginUsuario: String(
+        r.login ||
+        r.usuario ||
+        r.login_usuario ||
+        r.loginUsuario ||
+        ""
+      ).trim(),
       dataProposta: r.dtProp || "",
       validadeAte: r.dtValPlano || "",
       validadeMeses: r.validade || null,
@@ -380,9 +443,13 @@ export function calcularKpisVencimento(itens = []) {
 export function registroPertenceAoUsuario(item, { userData, userName, codUsuario } = {}) {
   if (!item) return false;
 
-  const userCod = String(userData?.cod_usuario || codUsuario || "").trim().toLowerCase();
-  const userLogin = String(userData?.login || "").trim().toLowerCase();
-  const userNome = String(userData?.nom_usuario || userData?.nomeUsuario || userName || "").trim();
+  const resolvedUserData = userData || state?.currentUserData;
+  const resolvedUserName = userName || state?.currentUserName;
+  const resolvedCodUsuario = codUsuario || state?.currentCodUsuario;
+
+  const userCod = String(resolvedUserData?.cod_usuario || resolvedCodUsuario || "").trim().toLowerCase();
+  const userLogin = String(resolvedUserData?.login || "").trim().toLowerCase();
+  const userNome = String(resolvedUserData?.nom_usuario || resolvedUserData?.nomeUsuario || resolvedUserName || "").trim();
 
   // 1. Match por código numérico de usuário / vendedor (ex: "82700")
   const itemCod = String(item.codUsuario || item.cod_usuario || item.codVendedor || item.cod_vendedor || "").trim().toLowerCase();
@@ -396,13 +463,20 @@ export function registroPertenceAoUsuario(item, { userData, userName, codUsuario
     return true;
   }
 
-  // 3. Match por nome da consultora
+  // 3. Match por nome da consultora / vendedora
   const vendedoraNome = String(item.vendedora || item.nom_usuario || item.nomVendedor || item.nom_vendedor || "").trim();
   if (!vendedoraNome) {
     return false;
   }
 
-  const normalizar = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalizar = (s) => String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(master\s*-\s*|dra?\.?\s*|enfª?\.?\s*|esteticista\s*|biomedica\s*|consultora\s*|aplicadora\s*)/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
   const normVend = normalizar(vendedoraNome);
   const normUser = normalizar(userNome);
 
@@ -425,10 +499,18 @@ export function registroPertenceAoUsuario(item, { userData, userName, codUsuario
     }
   }
 
-  // Se o login for derivado do nome (ex: "barbara.martins")
+  // 4. Se o login for derivado do nome (ex: "barbara.martins" vs "BARBARA MARTINS")
   if (userLogin && userLogin.length >= 3) {
     const tokens = userLogin.split(/[\._\-]/).filter(t => t.length > 2);
     if (tokens.length > 0 && tokens.every(tok => normVend.includes(tok))) {
+      return true;
+    }
+  }
+
+  // 5. Se o login do item for derivado do nome do usuário logado
+  if (itemLogin && itemLogin.length >= 3) {
+    const tokens = itemLogin.split(/[\._\-]/).filter(t => t.length > 2);
+    if (tokens.length > 0 && tokens.every(tok => normUser.includes(tok))) {
       return true;
     }
   }

@@ -266,7 +266,15 @@ export function coletarParametrosDosFormularios() {
   if (!formCards || formCards.length === 0) return [];
 
   const app = state.selectedAppointment;
-  const hojeStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+  const d = new Date();
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  const hora = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const seg = String(d.getSeconds()).padStart(2, "0");
+  const dataRef = state.currentDataAgenda || `${ano}-${mes}-${dia}`;
+  const hojeStr = `${dataRef} ${hora}:${min}:${seg}`;
 
   const listaParaSalvar = [];
   formCards.forEach(card => {
@@ -322,7 +330,7 @@ export function coletarParametrosDosFormularios() {
 
       const origEnergia = parseFloat(subItem.getAttribute("data-orig-energia")) || 0;
       const currentEnergiaNum = parseFloat(energia) || 0;
-      const isSemEvolucao = isRealizada && (origEnergia > 0 && currentEnergiaNum === origEnergia);
+      const isSemEvolucao = isRealizada && (origEnergia > 0 && currentEnergiaNum <= origEnergia);
 
       const areaParaSalvar = temMultiplasSubzonas && rotulo
         ? `${areaFormatada} [${rotulo}]`

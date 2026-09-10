@@ -41,6 +41,8 @@ import {
 } from './views/cs-view.js';
 import { inicializarConfigView } from './views/config-view.js';
 import { carregarVendas, inicializarVendasView } from './views/vendas-view.js';
+import { carregarContratos, inicializarContratosView } from './views/contratos-view.js';
+import { carregarPlanos, inicializarPlanosView } from './views/planos-view.js';
 import { carregarOportunidades, inicializarOportunidadesView } from './views/oportunidades-view.js';
 
 // Elementos de Identificação
@@ -94,7 +96,7 @@ export function ativarAba(targetId) {
     console.warn(`[RBAC] 🚫 Consultora tentou acessar "${targetId}". Redirecionando para Comercial.`);
     targetId = "tab-vendas";
   }
-  if ((state.currentUserRole === "aplicadora" || state.currentUserRole === "recepcao") && (targetId === "tab-comercial" || targetId === "tab-vendas")) {
+  if ((state.currentUserRole === "aplicadora" || state.currentUserRole === "recepcao") && (targetId === "tab-comercial" || targetId === "tab-vendas" || targetId === "tab-contratos" || targetId === "tab-planos")) {
     console.warn(`[RBAC] 🚫 Aplicadora tentou acessar "${targetId}". Redirecionando para Agenda.`);
     targetId = "tab-agenda";
   }
@@ -106,7 +108,7 @@ export function ativarAba(targetId) {
 
   if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs") {
     ativarModulo("module-agenda");
-    const subTabButtons = document.querySelectorAll(".sub-tab-item");
+    const subTabButtons = document.querySelectorAll("#module-agenda .sub-tab-item");
     subTabButtons.forEach(b => {
       if (b.getAttribute("data-target") === targetId) b.classList.add("active");
       else b.classList.remove("active");
@@ -123,15 +125,27 @@ export function ativarAba(targetId) {
         renderizarCsView();
       }
     }
-  } else if (targetId === "tab-comercial" || targetId === "tab-vendas") {
-    // O módulo Comercial tem uma aba só; "tab-comercial" continua aceito como apelido.
+  } else if (targetId === "tab-comercial" || targetId === "tab-vendas" || targetId === "tab-contratos" || targetId === "tab-planos") {
     ativarModulo("module-comercial");
-    document.querySelectorAll("#module-comercial .tab-content").forEach(tc => {
-      tc.classList.toggle("active", tc.id === "tab-vendas");
+    const subTarget = (targetId === "tab-comercial") ? "tab-vendas" : targetId;
+
+    const subTabButtons = document.querySelectorAll("#module-comercial .sub-tab-item");
+    subTabButtons.forEach(b => {
+      if (b.getAttribute("data-target") === subTarget) b.classList.add("active");
+      else b.classList.remove("active");
     });
 
-    // O funil vive do vendasplanos, não da agenda: carrega ao abrir.
-    carregarVendas();
+    document.querySelectorAll("#module-comercial .tab-content").forEach(tc => {
+      tc.classList.toggle("active", tc.id === subTarget);
+    });
+
+    if (subTarget === "tab-contratos") {
+      carregarContratos();
+    } else if (subTarget === "tab-planos") {
+      carregarPlanos();
+    } else {
+      carregarVendas();
+    }
   } else if (targetId === "tab-config") {
     const tabConfig = document.getElementById("tab-config");
     if (tabConfig) {
@@ -300,8 +314,9 @@ export async function sincronizarSessao() {
 
       // 5. Carrega o módulo correspondente ao perfil
       if (state.currentUserRole === "consultora") {
-        // Consultora não manipula a UI da agenda: foca exclusivamente no funil comercial
+        // Consultora não manipula a UI da agenda: foca exclusivamente no módulo comercial
         carregarVendas();
+        carregarContratos();
       } else {
         // Carrega a Agenda Autônoma do Dia para Aplicadora / CRC / Gerente
         if (loadingAgenda) loadingAgenda.style.display = "flex";
@@ -391,6 +406,10 @@ document.addEventListener("DOMContentLoaded", () => {
   inicializarCsView();
 
   inicializarVendasView();
+
+  inicializarContratosView();
+
+  inicializarPlanosView();
 
   inicializarOportunidadesView();
 

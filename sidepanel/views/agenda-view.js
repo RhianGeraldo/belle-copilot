@@ -630,13 +630,153 @@ export function renderizarAgenda(onAbrirAtendimento) {
   agendaTimelineContainer.appendChild(fragmento);
 
   atualizarKpis();
+  atualizarDisplayDataAgenda();
 
   // Busca e atualiza os saldos de cada procedimento em segundo plano
   carregarSaldosAgenda(filtrados);
 }
 
-export function inicializarAgendaView(onAbrirAtendimento) {
+let callbackMudarDataAgenda = null;
+
+export function somarDiasIso(dataIso, deltaDias) {
+  try {
+    const partes = String(dataIso || "").split("-");
+    if (partes.length !== 3) {
+      const d = new Date();
+      d.setDate(d.getDate() + deltaDias);
+      return d.toISOString().split("T")[0];
+    }
+    const d = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+    d.setDate(d.getDate() + deltaDias);
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, "0");
+    const dia = String(d.getDate()).padStart(2, "0");
+    return `${ano}-${mes}-${dia}`;
+  } catch (e) {
+    return dataIso;
+  }
+}
+
+export function atualizarDisplayDataAgenda() {
+  const lblData = document.getElementById("agenda-date-text");
+  if (!lblData) return;
+  const dataIso = state.currentDataAgenda || new Date().toISOString().split("T")[0];
+  
+  try {
+    const partes = dataIso.split("-");
+    if (partes.length === 3) {
+      const ano = parseInt(partes[0], 10);
+      const mes = parseInt(partes[1], 10) - 1;
+      const dia = parseInt(partes[2], 10);
+      const d = new Date(ano, mes, dia);
+      
+      const hoje = new Date();
+      const hojeZero = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+      const alvoZero = new Date(ano, mes, dia);
+      const diffDias = Math.round((alvoZero - hojeZero) / (1000 * 60 * 60 * 24));
+      
+      const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+      const nomeDia = diasSemana[d.getDay()];
+      const diaFmt = String(dia).padStart(2, "0");
+      const mesFmt = String(mes + 1).padStart(2, "0");
+      
+      if (diffDias === 0) {
+        lblData.textContent = `Hoje • ${nomeDia}, ${diaFmt}/${mesFmt}`;
+      } else if (diffDias === 1) {
+        lblData.textContent = `Amanhã • ${nomeDia}, ${diaFmt}/${mesFmt}`;
+      } else if (diffDias === -1) {
+        lblData.textContent = `Ontem • ${nomeDia}, ${diaFmt}/${mesFmt}`;
+      } else {
+        lblData.textContent = `${nomeDia}, ${diaFmt}/${mesFmt}/${ano}`;
+      }
+      return;
+    }
+  } catch (e) {}
+
+  lblData.textContent = dataIso;
+}
+
+export function inicializarAgendaView(onAbrirAtendimento, options = {}) {
   callbackAbrirAtendimento = onAbrirAtendimento;
+  if (options.onMudarDataAgenda) {
+    callbackMudarDataAgenda = options.onMudarDataAgenda;
+  }
+
+  // --- Controles de Navegação de Data ---
+  const btnPrevDay = document.getElementById("btn-agenda-prev-day");
+  const btnNextDay = document.getElementById("btn-agenda-next-day");
+  const btnToday = document.getElementById("btn-agenda-today");
+  const btnRefresh = document.getElementById("btn-agenda-refresh");
+
+  if (btnPrevDay) {
+    btnPrevDay.addEventListener("click", () => {
+      const novaData = somarDiasIso(state.currentDataAgenda, -1);
+      state.currentDataAgenda = novaData;
+      atualizarDisplayDataAgenda();
+      if (typeof callbackMudarDataAgenda === "function") {
+        callbackMudarDataAgenda(novaData);
+      }
+    });
+  }
+
+  if (btnNextDay) {
+    btnNextDay.addEventListener("click", () => {
+      const novaData = somarDiasIso(state.currentDataAgenda, 1);
+      state.currentDataAgenda = novaData;
+      atualizarDisplayDataAgenda();
+      if (typeof callbackMudarDataAgenda === "function") {
+        callbackMudarDataAgenda(novaData);
+      }
+    });
+  }
+
+  if (btnToday) {
+    btnToday.addEventListener("click", () => {
+      const hoje = new Date().toISOString().split("T")[0];
+      state.currentDataAgenda = hoje;
+      atualizarDisplayDataAgenda();
+      if (typeof callbackMudarDataAgenda === "function") {
+        callbackMudarDataAgenda(hoje);
+      }
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      atualizarDisplayDataAgenda();
+      if (typeof callbackMudarDataAgenda === "function") {
+        callbackMudarDataAgenda(state.currentDataAgenda);
+      }
+    });
+  }
+
+  // --- Campo de Busca Rápida na Timeline ---
+  const inputBusca = document.getElementById("agenda-input-busca");
+  const btnLimparBusca = document.getElementById("btn-agenda-limpar-busca");
+
+  if (inputBusca) {
+    inputBusca.addEventListener("input", (e) => {
+      const valor = e.target.value.trim();
+      state.termoBuscaAtivo = valor;
+      if (btnLimparBusca) {
+        btnLimparBusca.style.display = valor ? "block" : "none";
+      }
+      renderizarAgenda();
+    });
+  }
+
+  if (btnLimparBusca) {
+    btnLimparBusca.addEventListener("click", () => {
+      if (inputBusca) inputBusca.value = "";
+      state.termoBuscaAtivo = "";
+      btnLimparBusca.style.display = "none";
+      renderizarAgenda();
+      if (inputBusca) inputBusca.focus();
+    });
+  }
+
+  // Atualiza display inicial de data
+  atualizarDisplayDataAgenda();
 
   selectProfissional?.addEventListener("change", (e) => {
     state.filtroSalaAtivo = e.target.value;

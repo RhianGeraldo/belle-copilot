@@ -91,7 +91,8 @@ export function htmlCardOrcamento(o, { contatado = false, vemHoje = false } = {}
       <div class="vendas-card-script">${escaparHtml(o.script)}</div>
 
       <div class="vendas-card-acoes">
-        <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}">📋 Copiar</button>
+        <button class="btn-vendas-copiar" data-script="${escaparHtml(o.script)}" title="Copiar script padrão da cadência">📋 Copiar</button>
+        <button class="btn-vendas-ia" data-id="${escaparHtml(o.idUnico)}" title="Gerar mensagem sob medida com Inteligência Artificial">✨ Mensagem IA</button>
         <button class="btn-vendas-feito" data-id="${escaparHtml(o.idUnico)}">${contatado ? "✅ Contatada" : "☑️ Marcar feito"}</button>
       </div>
     </div>`;

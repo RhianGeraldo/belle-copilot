@@ -672,6 +672,70 @@ label[for] {
   flex-shrink: 0;
 }
 
+.agenda-date-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.agenda-date-display {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1e293b;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agenda-date-icon {
+  font-size: 11px;
+}
+
+.btn-date-nav,
+.btn-date-today,
+.btn-date-refresh {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-date-nav:hover,
+.btn-date-today:hover,
+.btn-date-refresh:hover {
+  background: #f1f5f9;
+  color: #0284c7;
+  border-color: #0284c7;
+}
+
+.btn-date-today {
+  font-size: 10px;
+  padding: 2px 7px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
 .agenda-sala-bar {
   display: flex;
   align-items: center;
@@ -938,6 +1002,68 @@ label[for] {
 /* ========================================================= */
 /* 6. BUSCA, TABULAÇÃO DE STATUS E TIMELINE DE AGENDAMENTOS  */
 /* ========================================================= */
+.agenda-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  position: relative;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.agenda-search-bar:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.agenda-search-icon {
+  font-size: 11.5px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.agenda-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: #1e293b;
+  outline: none;
+}
+
+.agenda-search-input::placeholder {
+  color: #94a3b8;
+  font-size: 10.5px;
+}
+
+.btn-agenda-clear-search {
+  background: #e2e8f0;
+  border: none;
+  color: #64748b;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-agenda-clear-search:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}
+
 .status-tab-bar::-webkit-scrollbar {
   height: 4px;
 }
@@ -4804,4 +4930,616 @@ select.param-input {
   border-radius: 4px;
   border: 1px solid #e2e8f0;
 }
+
+/* ========================================================= */
+/* 20. INTELIGÊNCIA ARTIFICIAL: OPORTUNIDADES, VENDAS E OFERTAS */
+/* ========================================================= */
+
+/* Botão IA nos Cards de Orçamento e Vendas */
+.btn-vendas-ia {
+  background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(99, 102, 241, 0.08);
+}
+
+.btn-vendas-ia:hover {
+  background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
+  border-color: #818cf8;
+  color: #3730a3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.16);
+}
+
+/* ========================================================= */
+/* MODAL BOTTOM-SHEET: WHATSAPP COPILOT IA (OPORTUNIDADES)   */
+/* ========================================================= */
+
+.ia-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(3px);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: iaBackdropFadeIn 0.2s ease-out;
+}
+
+@keyframes iaBackdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ia-sheet-dialog {
+  width: 100%;
+  max-width: 360px;
+  background: #ffffff;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.35);
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+  overflow: hidden;
+  animation: iaSheetSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes iaSheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.ia-sheet-handle-wrap {
+  padding-top: 8px;
+  padding-bottom: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #ffffff;
+  cursor: grab;
+}
+
+.ia-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 3px;
+  background: #cbd5e1;
+}
+
+/* Header Estilo WhatsApp Pro */
+.ia-wpp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+  gap: 8px;
+}
+
+.ia-wpp-contact-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ia-wpp-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ia-wpp-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 2px 5px rgba(79, 70, 229, 0.25);
+  letter-spacing: 0.5px;
+}
+
+.ia-wpp-status-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+}
+
+.ia-wpp-contact-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.ia-wpp-contact-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ia-wpp-contact-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ia-pill-badge {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.ia-wpp-contact-meta {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.ia-sheet-close-btn {
+  background: #f1f5f9;
+  border: none;
+  color: #64748b;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.ia-sheet-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Barra de Tons / Abordagens Inteligentes com IA */
+.ia-tones-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.ia-tones-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ia-tones-scroll {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 1px;
+}
+
+.ia-tones-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.ia-tone-chip {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  border-radius: 12px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ia-tone-chip:hover {
+  border-color: #818cf8;
+  color: #3730a3;
+  background: #faf5ff;
+}
+
+.ia-tone-chip.active {
+  background: #4338ca;
+  color: #ffffff;
+  border-color: #4338ca;
+  box-shadow: 0 1px 3px rgba(67, 56, 202, 0.35);
+}
+
+/* Preview Realista do Chat WhatsApp */
+.ia-chat-preview-container {
+  background: #efeae2;
+  background-image: radial-gradient(#dfd7cc 1px, transparent 1px);
+  background-size: 12px 12px;
+  padding: 12px;
+  min-height: 170px;
+  max-height: 270px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+/* Indicador de Digitação (Typing Dots do WhatsApp) */
+.ia-typing-bubble {
+  background: #ffffff;
+  border-radius: 12px 12px 12px 2px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.12);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  animation: modalIaSlideIn 0.2s ease-out;
+}
+
+.ia-typing-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.ia-typing-dots span {
+  width: 6px;
+  height: 6px;
+  background: #94a3b8;
+  border-radius: 50%;
+  animation: iaTypingDot 1.4s infinite ease-in-out both;
+}
+
+.ia-typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.ia-typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+.ia-typing-dots span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes iaTypingDot {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1.1); opacity: 1; background: #4338ca; }
+}
+
+.ia-typing-label {
+  font-size: 11px;
+  color: #475569;
+  font-weight: 600;
+  font-style: italic;
+}
+
+/* Balão Oficial de Mensagem do WhatsApp */
+.ia-wpp-speech-bubble {
+  background: #d9fdd3;
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 10px 6px 10px;
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  position: relative;
+  animation: modalIaSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ia-bubble-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.ia-bubble-hint {
+  font-size: 9.5px;
+  color: #15803d;
+  font-weight: 700;
+}
+
+.ia-bubble-tag-ia {
+  font-size: 8.5px;
+  color: #4338ca;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.ia-bubble-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #111b21;
+  resize: none;
+  outline: none;
+  padding: 2px 0;
+  margin: 0;
+}
+
+.ia-bubble-textarea:focus {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+}
+
+.ia-bubble-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.ia-char-counter {
+  font-size: 9px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.ia-bubble-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.ia-bubble-time {
+  font-size: 9.5px;
+  color: #667781;
+  font-weight: 600;
+}
+
+.ia-bubble-checks {
+  font-size: 11px;
+  color: #53bdeb;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Footer do Bottom Sheet */
+.ia-sheet-footer {
+  padding: 10px 12px;
+  background: #ffffff;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* CTA Primário: Botão WhatsApp Oficial */
+.btn-wpp-primary-cta {
+  background: #25D366;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(37, 211, 102, 0.35);
+  border: none;
+}
+
+.btn-wpp-primary-cta:hover {
+  background: #1eb954;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(37, 211, 102, 0.45);
+}
+
+.btn-wpp-primary-cta.disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  box-shadow: none;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.icon-wpp-svg {
+  flex-shrink: 0;
+}
+
+/* Ações Secundárias em Linha */
+.ia-secondary-actions-row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.btn-ia-secondary {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.btn-ia-secondary:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.btn-ia-secondary.btn-copied {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+/* Ofertas Clínicas na Tela de Atendimento */
+.btn-oferta-ia {
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+  border: 1px solid #c4b5fd;
+  color: #5b21b6;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  transition: all 0.15s ease;
+}
+
+.btn-oferta-ia:hover {
+  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+  border-color: #8b5cf6;
+  color: #4c1d95;
+}
+
+.atend-pitch-ia-box {
+  margin-top: 8px;
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: modalIaSlideIn 0.2s ease-out;
+}
+
+.pitch-ia-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.pitch-ia-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b21a8;
+}
+
+.pitch-ia-model {
+  background: rgba(107, 33, 168, 0.1);
+  border: 1px solid #d8b4fe;
+  color: #6b21a8;
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.pitch-ia-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  font-size: 10.5px;
+  color: #6b21a8;
+  font-weight: 600;
+}
+
+.spinner-ia {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e9d5ff;
+  border-top-color: #6b21a8;
+  border-radius: 50%;
+  animation: iaSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.pitch-ia-resultado {
+  background: #ffffff;
+  border: 1px solid #f3e8ff;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #2e1065;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pitch-ia-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.btn-pitch-copiar,
+.btn-pitch-regenerar {
+  background: #ffffff;
+  border: 1px solid #d8b4fe;
+  color: #6b21a8;
+  font-size: 9.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-pitch-copiar:hover,
+.btn-pitch-regenerar:hover {
+  background: #f3e8ff;
+  border-color: #a855f7;
+  color: #581c87;
+}
+
 

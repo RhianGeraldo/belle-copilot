@@ -77,7 +77,19 @@
     <div id="module-agenda" class="module-container active">
       <!-- PAINEL FIXO DO MÓDULO AGENDA (SALAS E SUB-ABAS) -->
       <div class="fixed-agenda-panel" id="fixed-agenda-panel">
-        <!-- 1. Linha Compacta de Filtro de Sala -->
+        <!-- 1. Linha de Data Ativa e Navegação Rápida -->
+        <div class="agenda-date-bar" id="agenda-date-bar">
+          <button type="button" class="btn-date-nav" id="btn-agenda-prev-day" title="Dia anterior">◀</button>
+          <div class="agenda-date-display" id="agenda-date-display" title="Data selecionada da agenda">
+            <span class="agenda-date-icon">📅</span>
+            <span id="agenda-date-text">Carregando data...</span>
+          </div>
+          <button type="button" class="btn-date-today" id="btn-agenda-today" title="Voltar para a data de hoje">Hoje</button>
+          <button type="button" class="btn-date-nav" id="btn-agenda-next-day" title="Próximo dia">▶</button>
+          <button type="button" class="btn-date-refresh" id="btn-agenda-refresh" title="Recarregar agenda desta data">🔄</button>
+        </div>
+
+        <!-- 2. Linha Compacta de Filtro de Sala -->
         <div class="agenda-sala-bar" id="bar-filtro-salas">
           <span class="agenda-sala-icon">📍</span>
           <select id="select-profissional" class="agenda-sala-select" title="Filtrar agenda por Sala ou Recurso">
@@ -85,7 +97,7 @@
           </select>
         </div>
 
-        <!-- 2. Sub-Abas Internas da Agenda: Linha Única Slim -->
+        <!-- 3. Sub-Abas Internas da Agenda: Linha Única Slim -->
         <nav class="agenda-sub-tabs" id="agenda-sub-tabs">
           <button class="sub-tab-item active" data-target="tab-agenda" id="tab-nav-agenda" title="Agenda do Dia">
             📅 Agenda
@@ -103,6 +115,13 @@
       <div class="tabs-scroll-container">
         <!-- SUB-ABA 1: AGENDA DO DIA (TIMELINE) -->
         <section id="tab-agenda" class="tab-content active">
+          <!-- Campo de Busca Rápida na Agenda -->
+          <div class="agenda-search-bar" id="agenda-search-bar">
+            <span class="agenda-search-icon">🔍</span>
+            <input type="text" id="agenda-input-busca" class="agenda-search-input" placeholder="Buscar cliente, código ou procedimento na agenda...">
+            <button type="button" id="btn-agenda-limpar-busca" class="btn-agenda-clear-search" style="display: none;" title="Limpar busca">✕</button>
+          </div>
+
           <!-- Banner Alerta de Clientes Aguardando na Recepção (Exibido dinamicamente) -->
           <div id="agenda-alerta-aguardando" class="agenda-alerta-banner" style="display: none;">
             <div class="agenda-alerta-info">
@@ -981,6 +1000,110 @@
         <button id="btn-fechar-modal-sucesso" class="btn btn-primary" style="width: 100%;">
           Entendi, Fechar
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: MENSAGEM PERSUASIVA GERADA COM IA (GPT-4o mini)   -->
+  <!-- ========================================================= -->
+  <!-- ========================================================= -->
+  <!-- MODAL BOTTOM-SHEET: WHATSAPP COPILOT IA (GPT-4o mini)     -->
+  <!-- ========================================================= -->
+  <div id="modal-ia-oportunidade" class="modal-backdrop ia-sheet-backdrop" style="display: none;">
+    <div class="ia-sheet-dialog">
+      <!-- Barra superior de arraste / handle -->
+      <div class="ia-sheet-handle-wrap">
+        <div class="ia-sheet-handle"></div>
+      </div>
+
+      <!-- Header Estilo WhatsApp Pro -->
+      <div class="ia-wpp-header">
+        <div class="ia-wpp-contact-info">
+          <div class="ia-wpp-avatar-wrap">
+            <div id="modal-ia-avatar" class="ia-wpp-avatar">👤</div>
+            <span class="ia-wpp-status-dot" title="Disponível"></span>
+          </div>
+          <div class="ia-wpp-contact-text">
+            <div class="ia-wpp-contact-title-row">
+              <h4 id="modal-ia-cliente-nome" class="ia-wpp-contact-name">Cliente</h4>
+              <span class="ia-pill-badge" id="modal-ia-badge-modelo">✨ GPT-4o mini</span>
+            </div>
+            <div id="modal-ia-plano-info" class="ia-wpp-contact-meta">
+              💎 Carregando orçamento...
+            </div>
+          </div>
+        </div>
+        <button type="button" id="btn-modal-ia-fechar" class="ia-sheet-close-btn" title="Fechar">✕</button>
+      </div>
+
+      <!-- Barra de Tons / Abordagens Inteligentes com IA -->
+      <div class="ia-tones-bar" id="ia-tones-bar">
+        <span class="ia-tones-label">Abordagem:</span>
+        <div class="ia-tones-scroll">
+          <button type="button" class="ia-tone-chip active" data-tom="fechamento" title="Abordagem consultiva direta e leve">
+            🎯 Fechamento
+          </button>
+          <button type="button" class="ia-tone-chip" data-tom="urgencia" title="Gatilho de vagas e horários concorridos na semana">
+            ⚡ Urgência
+          </button>
+          <button type="button" class="ia-tone-chip" data-tom="empatico" title="Cuidado, acolhimento e autoestima">
+            💖 Acolhedora
+          </button>
+          <button type="button" class="ia-tone-chip" data-tom="condicao" title="Condição facilitada ou benefício especial">
+            🎁 Bônus
+          </button>
+        </div>
+      </div>
+
+      <!-- Corpo da Conversa: Preview Fiel do WhatsApp -->
+      <div class="ia-chat-preview-container">
+        <!-- Indicador de "Digitando..." (Loading do WhatsApp) -->
+        <div id="modal-ia-loading" class="ia-typing-bubble" style="display: none;">
+          <div class="ia-typing-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="ia-typing-label">A IA está redigindo a mensagem perfeita...</span>
+        </div>
+
+        <!-- Balão Verde de Mensagem do WhatsApp -->
+        <div id="modal-ia-corpo" class="ia-wpp-speech-bubble" style="display: none;">
+          <div class="ia-bubble-header">
+            <span class="ia-bubble-hint">✏️ Toque para editar o texto</span>
+            <span class="ia-bubble-tag-ia">✨ IA Copilot</span>
+          </div>
+
+          <textarea id="modal-ia-textarea" class="ia-bubble-textarea" placeholder="A mensagem sugerida aparecerá aqui..." rows="5"></textarea>
+
+          <div class="ia-bubble-footer">
+            <span id="modal-ia-char-count" class="ia-char-counter">0 carac.</span>
+            <div class="ia-bubble-meta">
+              <span id="modal-ia-timestamp" class="ia-bubble-time">10:42</span>
+              <span class="ia-bubble-checks">✓✓</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer com Ações em Hierarquia Visual Perfeita -->
+      <div class="ia-sheet-footer">
+        <!-- CTA Primário em Destaque: Botão WhatsApp Oficial -->
+        <a id="btn-modal-ia-wpp" class="btn-wpp-primary-cta" target="_blank">
+          <svg class="icon-wpp-svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm5.82 14.07c-.24.67-1.4 1.24-1.93 1.32-.51.08-1.18.11-1.9-.13-.44-.14-1.01-.33-1.74-.65-3.07-1.34-5.07-4.45-5.23-4.66-.15-.2-1.25-1.66-1.25-3.17s.78-2.25 1.06-2.56c.28-.31.62-.39.83-.39.21 0 .42 0 .6.01.2.01.46-.07.72.55.26.62.88 2.16.96 2.32.08.16.13.35.03.55-.1.2-.16.33-.31.51-.16.18-.33.39-.47.53-.16.16-.33.34-.14.67.19.33.84 1.39 1.8 2.25 1.24 1.1 2.28 1.45 2.61 1.61.33.16.52.14.71-.08.19-.22.83-.97 1.05-1.3.22-.33.44-.28.74-.17.3.11 1.9.9 2.23 1.06.33.16.55.24.63.38.08.14.08.8-.16 1.47z"/>
+          </svg>
+          <span id="btn-modal-ia-wpp-texto">Enviar pelo WhatsApp</span>
+        </a>
+
+        <!-- Ações Secundárias em Linha -->
+        <div class="ia-secondary-actions-row">
+          <button type="button" id="btn-modal-ia-copiar" class="btn-ia-secondary" title="Copiar texto para a área de transferência">
+            📋 Copiar Texto
+          </button>
+          <button type="button" id="btn-modal-ia-regenerar" class="btn-ia-secondary" title="Pedir outra variação da mensagem com IA">
+            🔄 Outra Versão
+          </button>
+        </div>
       </div>
     </div>
   </div>

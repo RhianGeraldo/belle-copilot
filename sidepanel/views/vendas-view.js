@@ -13,6 +13,7 @@ import { state } from '../core/state.js';
 import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
 import { ehGerente, aplicarVisibilidadeGerencial } from '../core/permissions.js';
 import { htmlCardOrcamento, htmlIdentificacao, escaparHtml } from '../components/card-orcamento.js';
+import { abrirModalIaOportunidade } from '../components/modal-ia-oportunidade.js';
 import {
   prepararOrcamentos,
   calcularKpisVendas,
@@ -560,6 +561,16 @@ export function inicializarVendasView() {
         copiar.textContent = "✅ Copiado!";
         setTimeout(() => { copiar.textContent = original; }, 1500);
       } catch (err) {}
+      return;
+    }
+
+    const btnIa = e.target.closest(".btn-vendas-ia");
+    if (btnIa) {
+      const id = btnIa.getAttribute("data-id");
+      const orc = orcamentos.find(o => String(o.idUnico) === String(id));
+      if (orc) {
+        abrirModalIaOportunidade(orc);
+      }
       return;
     }
 

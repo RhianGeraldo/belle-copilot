@@ -21,6 +21,7 @@ import {
   sincronizarSalasComAgendamentos, 
   processarItensAgenda, 
   atualizarKpis, 
+  atualizarDisplayDataAgenda,
   inicializarAgendaView,
   registrarSaldoCapturado,
   extrairNomeProfissional,
@@ -206,6 +207,47 @@ async function pintarCabecalhoDoCache(unidade) {
   return achou;
 }
 
+/**
+ * Carrega a agenda autônoma do dia selecionado
+ */
+export async function carregarAgendaPorData(novaData) {
+  if (novaData) {
+    state.currentDataAgenda = novaData;
+  }
+  atualizarDisplayDataAgenda();
+
+  if (state.currentUserRole === "consultora") return;
+
+  if (loadingAgenda) loadingAgenda.style.display = "flex";
+  try {
+    const rawAgenda = await buscarAgendaApi(
+      state.currentToken,
+      state.currentDataAgenda,
+      arrGridDaUnidade(state.currentCodEstab),
+      state.currentCodEstab
+    );
+    if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
+      state.appointmentsData = processarItensAgenda(rawAgenda);
+      sincronizarSalasComAgendamentos(state.appointmentsData);
+      if (loadingAgenda) loadingAgenda.style.display = "none";
+      if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
+      if (agendaEmptyState) agendaEmptyState.style.display = "none";
+      renderizarAgenda();
+      atualizarKpis();
+    } else {
+      state.appointmentsData = [];
+      if (loadingAgenda) loadingAgenda.style.display = "none";
+      if (agendaTimelineContainer) agendaTimelineContainer.innerHTML = "";
+      if (agendaEmptyState) agendaEmptyState.style.display = "block";
+      renderizarAgenda();
+      atualizarKpis();
+    }
+  } catch (err) {
+    console.error("[BelleCopilot] Erro ao carregar agenda por data:", err);
+    if (loadingAgenda) loadingAgenda.style.display = "none";
+  }
+}
+
 export async function sincronizarSessao() {
   if (sessionStatus) {
     sessionStatus.innerHTML = '<span class="status-dot"></span> Conectando...';
@@ -230,6 +272,7 @@ export async function sincronizarSessao() {
       state.currentDataAgenda = sessao.dataAgenda;
       console.log(`[BelleCopilot] 📅 Data ativa detectada na página do Belle: ${state.currentDataAgenda}`);
     }
+    atualizarDisplayDataAgenda();
 
     if (!state.currentToken) {
       if (sessionStatus) {
@@ -318,23 +361,7 @@ export async function sincronizarSessao() {
         carregarVendas();
         carregarContratos();
       } else {
-        // Carrega a Agenda Autônoma do Dia para Aplicadora / CRC / Gerente
-        if (loadingAgenda) loadingAgenda.style.display = "flex";
-        const rawAgenda = await buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab);
-        if (Array.isArray(rawAgenda) && rawAgenda.length > 0) {
-          state.appointmentsData = processarItensAgenda(rawAgenda);
-          sincronizarSalasComAgendamentos(state.appointmentsData);
-          if (loadingAgenda) loadingAgenda.style.display = "none";
-          if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
-          if (agendaEmptyState) agendaEmptyState.style.display = "none";
-          renderizarAgenda();
-          atualizarKpis();
-        } else {
-          if (loadingAgenda) loadingAgenda.style.display = "none";
-          if (state.appointmentsData.length === 0) {
-            if (agendaEmptyState) agendaEmptyState.style.display = "block";
-          }
-        }
+        await carregarAgendaPorData();
       }
 
       await promessaCs;
@@ -394,6 +421,8 @@ document.addEventListener("DOMContentLoaded", () => {
       onAtivarAba: ativarAba,
       onRecarregarAgenda: () => sincronizarSessao()
     });
+  }, {
+    onMudarDataAgenda: (novaData) => carregarAgendaPorData(novaData)
   });
 
   inicializarAtendimentoView({
@@ -518,6 +547,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     } else if (msg.data.length > 0 && msg.data[0].dt_consulta) {
       state.currentDataAgenda = msg.data[0].dt_consulta;
     }
+    atualizarDisplayDataAgenda();
 
     state.appointmentsData = processarItensAgenda(msg.data);
     sincronizarSalasComAgendamentos(state.appointmentsData);
@@ -533,22 +563,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     carregarSucessoCliente();
   } else if (msg.action === "BELLE_DATE_SELECTED" && msg.data) {
     if (msg.data !== state.currentDataAgenda) {
-      state.currentDataAgenda = msg.data;
-      console.log(`[BelleCopilot] 📅 Data alterada no Belle para: ${state.currentDataAgenda}`);
-      if (loadingAgenda) loadingAgenda.style.display = "flex";
-      buscarAgendaApi(state.currentToken, state.currentDataAgenda, arrGridDaUnidade(state.currentCodEstab), state.currentCodEstab).then(rawAgenda => {
-        if (Array.isArray(rawAgenda)) {
-          state.appointmentsData = processarItensAgenda(rawAgenda);
-          sincronizarSalasComAgendamentos(state.appointmentsData);
-          if (loadingAgenda) loadingAgenda.style.display = "none";
-          if (agendaTimelineContainer) agendaTimelineContainer.style.display = "flex";
-          if (agendaEmptyState) agendaEmptyState.style.display = "none";
-          renderizarAgenda();
-          atualizarKpis();
-        }
-      }).catch(() => {
-        if (loadingAgenda) loadingAgenda.style.display = "none";
-      });
+      console.log(`[BelleCopilot] 📅 Data alterada no Belle para: ${msg.data}`);
+      carregarAgendaPorData(msg.data);
     }
   } else if (msg.action === "BELLE_LIVE_SALAS_CAPTURED" && Array.isArray(msg.data)) {
     state.currentSalas = msg.data;

@@ -18,6 +18,7 @@ import { buscarVendasPlanosPeriodoApi } from '../core/api-client.js';
 import { prepararOrcamentos, registroPertenceAoUsuario } from '../engines/cadencia-vendas.js';
 import { ehGerente } from '../core/permissions.js';
 import { htmlCardOrcamento } from '../components/card-orcamento.js';
+import { abrirModalIaOportunidade } from '../components/modal-ia-oportunidade.js';
 
 const JANELA_DIAS = 30;
 const FILAS_DA_APLICADORA = ["aguardando", "pendente"];
@@ -254,6 +255,16 @@ export function inicializarOportunidadesView() {
         copiar.textContent = "✅ Copiado!";
         setTimeout(() => { copiar.textContent = original; }, 1500);
       } catch (err) {}
+      return;
+    }
+
+    const btnIa = e.target.closest(".btn-vendas-ia");
+    if (btnIa) {
+      const id = btnIa.getAttribute("data-id");
+      const orc = orcamentos.find(o => String(o.idUnico) === String(id));
+      if (orc) {
+        abrirModalIaOportunidade(orc);
+      }
       return;
     }
 

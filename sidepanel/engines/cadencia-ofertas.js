@@ -7,6 +7,12 @@
  */
 
 import { analisarOportunidades } from './cross-sell.js';
+import { gerarPitchOfertaIa } from '../core/ai-client.js';
+
+let ofertasAtuais = [];
+let appAtualOfertas = null;
+let historicoLaserAtual = [];
+let listenerIaInicializado = false;
 
 export function extrairNumeroSessaoArea(nomeArea, historicoLaser = [], saldoServicos = [], app = null) {
   // 1. Prioridade: lbServ nativo do agendamento (ex: "AXILAS (P) - depilação a laser - 15/40")
@@ -92,10 +98,12 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
   const pctConcluido = Math.min(100, Math.round((sessaoAtual / Math.max(1, totalSessoes)) * 100));
   const primeiroNome = (app.clienteNome || "Cliente").split(" ")[0];
 
-  // 1. Cadência por Fase da Sessão
+    // 1. Cadência por Fase da Sessão
   if (sessaoAtual <= 3 || pctConcluido <= 30) {
     // Fase Inicial: Clareamento e Cuidados Pós-Laser
     ofertas.push({
+      sessaoAtual,
+      totalSessoes,
       badge: `Sessão ${sessaoAtual}/${totalSessoes}`,
       fase: `FASE INICIAL (${sessaoAtual}ª SESSÃO • ${pctConcluido}%): CLAREAMENTO & CONFORTO`,
       destaque: "👉 O QUE VOCÊ DEVE OFERTAR HOJE:",
@@ -107,6 +115,8 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
   } else if (sessaoAtual >= 8 || pctConcluido >= 75) {
     // Reta Final: Fidelização e Manutenção Preventiva
     ofertas.push({
+      sessaoAtual,
+      totalSessoes,
       badge: `Sessão ${sessaoAtual}/${totalSessoes}`,
       fase: `RETA FINAL (${sessaoAtual}ª SESSÃO • ${pctConcluido}%): MANUTENÇÃO & RENOVAÇÃO`,
       destaque: "👉 O QUE VOCÊ DEVE OFERTAR HOJE:",
@@ -145,6 +155,8 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
       : "🖤 Black Peel a Laser: peeling de carbono para efeito porcelana e controle de oleosidade.";
 
     ofertas.push({
+      sessaoAtual,
+      totalSessoes,
       badge: `Sessão ${sessaoAtual}/${totalSessoes}`,
       fase: `FASE INTERMEDIÁRIA (${sessaoAtual}ª SESSÃO • ${pctConcluido}%): EXPANSÃO DE ÁREAS`,
       destaque: "👉 O QUE VOCÊ DEVE OFERTAR HOJE:",
@@ -158,6 +170,60 @@ export function gerarOfertasCadenciaClinica(app, saldoServicos = [], historicoLa
   return ofertas;
 }
 
+function formatarMarkdownSimples(texto = "") {
+  return String(texto)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+
+async function gerarPitchParaOferta(idx) {
+  const o = ofertasAtuais[idx];
+  const app = appAtualOfertas;
+  if (!o || !app) return;
+
+  const box = document.getElementById(`atend-pitch-ia-box-${idx}`);
+  const loading = document.getElementById(`pitch-ia-loading-${idx}`);
+  const resultado = document.getElementById(`pitch-ia-resultado-${idx}`);
+  const actions = document.getElementById(`pitch-ia-actions-${idx}`);
+
+  if (box) box.style.display = "block";
+  if (loading) loading.style.display = "flex";
+  if (resultado) resultado.style.display = "none";
+  if (actions) actions.style.display = "none";
+
+  try {
+    const procs = (app.arrServ && app.arrServ.length > 0) ? app.arrServ.map(s => s.nome) : [app.procedimento || "Depilação a Laser"];
+    const historicoNomes = (historicoLaserAtual || []).map(h => h.area || h.nomeArea).filter(Boolean);
+
+    const pitchTexto = await gerarPitchOfertaIa({
+      clienteNome: app.clienteNome || "Cliente",
+      primeiraArea: procs.join(", "),
+      sessaoAtual: o.sessaoAtual || 1,
+      totalSessoes: o.totalSessoes || 10,
+      fase: o.fase || "Intermediária",
+      sugestaoOferta: o.ofertaPrincipal,
+      motivoClinico: o.motivo,
+      historicoAreas: [...new Set(historicoNomes)],
+      observacoes: app.observacao || ""
+    });
+
+    if (resultado) {
+      resultado.innerHTML = formatarMarkdownSimples(pitchTexto);
+      resultado.style.display = "block";
+    }
+    if (actions) actions.style.display = "flex";
+  } catch (err) {
+    if (resultado) {
+      resultado.innerHTML = `<span style="color: #b91c1c;">Erro ao gerar pitch com IA: ${err.message}. Use o script padrão acima.</span>`;
+      resultado.style.display = "block";
+    }
+  } finally {
+    if (loading) loading.style.display = "none";
+  }
+}
+
 export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], historicoLaser = [], sexo = null) {
   const atendCardOfertas = document.getElementById("atend-card-ofertas");
   const atendQtdOfertas = document.getElementById("atend-qtd-ofertas");
@@ -166,6 +232,10 @@ export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], hi
   if (!atendCardOfertas || !atendListaOfertas) return;
 
   const ofertas = gerarOfertasCadenciaClinica(app, saldoServicos, historicoLaser, sexo);
+  ofertasAtuais = ofertas;
+  appAtualOfertas = app;
+  historicoLaserAtual = historicoLaser;
+
   if (!ofertas || ofertas.length === 0) {
     atendCardOfertas.style.display = "none";
     return;
@@ -177,7 +247,7 @@ export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], hi
   }
 
   let html = "";
-  ofertas.forEach(o => {
+  ofertas.forEach((o, idx) => {
     let tagClasse = "tag-cadencia-destaque";
     let iconLg = "🌟";
     if (o.fase.includes("EXPANSÃO") || o.fase.includes("INTERMEDIÁRIA")) {
@@ -192,7 +262,7 @@ export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], hi
     }
 
     html += `
-      <div class="oferta-direta-box">
+      <div class="oferta-direta-box" data-oferta-idx="${idx}">
         <div class="oferta-direta-badge-row">
           <span class="oferta-sessao-tag">📊 ${o.badge}</span>
           <span class="oferta-tipo-tag ${tagClasse}">⭐ ${o.fase}</span>
@@ -215,6 +285,29 @@ export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], hi
           <p class="oferta-script-texto">${o.script}</p>
         </div>
 
+        <!-- Bloco Interativo com IA Generativa (GPT-4o mini) -->
+        <div class="oferta-ia-action-wrap">
+          <button type="button" class="btn-oferta-ia" data-idx="${idx}" title="Personalizar abordagem falada com IA para esta cliente">
+            ✨ Personalizar Script com IA (GPT-4o mini)
+          </button>
+        </div>
+
+        <div class="atend-pitch-ia-box" id="atend-pitch-ia-box-${idx}" style="display: none;">
+          <div class="pitch-ia-top">
+            <span class="pitch-ia-badge">✨ Script Sob Medida (IA)</span>
+            <span class="pitch-ia-model">GPT-4o mini</span>
+          </div>
+          <div class="pitch-ia-loading" id="pitch-ia-loading-${idx}" style="display: none;">
+            <div class="spinner-ia"></div>
+            <span>Criando script humanizado para a maca...</span>
+          </div>
+          <div class="pitch-ia-resultado" id="pitch-ia-resultado-${idx}" style="display: none;"></div>
+          <div class="pitch-ia-actions" id="pitch-ia-actions-${idx}" style="display: none;">
+            <button type="button" class="btn-pitch-copiar" data-idx="${idx}">📋 Copiar Script</button>
+            <button type="button" class="btn-pitch-regenerar" data-idx="${idx}">🔄 Outra versão</button>
+          </div>
+        </div>
+
         ${o.secundaria ? `
           <div class="oferta-alternativa-item">
             <span>➕ <strong>Alternativa secundária:</strong> ${o.secundaria}</span>
@@ -225,4 +318,39 @@ export function atualizarOfertasSugeridasAtendimento(app, saldoServicos = [], hi
   });
 
   atendListaOfertas.innerHTML = html;
+
+  if (!listenerIaInicializado) {
+    listenerIaInicializado = true;
+    atendListaOfertas.addEventListener("click", async (e) => {
+      const btnGerar = e.target.closest(".btn-oferta-ia");
+      if (btnGerar) {
+        const idx = parseInt(btnGerar.getAttribute("data-idx"), 10);
+        gerarPitchParaOferta(idx);
+        return;
+      }
+
+      const btnRegenerar = e.target.closest(".btn-pitch-regenerar");
+      if (btnRegenerar) {
+        const idx = parseInt(btnRegenerar.getAttribute("data-idx"), 10);
+        gerarPitchParaOferta(idx);
+        return;
+      }
+
+      const btnCopiar = e.target.closest(".btn-pitch-copiar");
+      if (btnCopiar) {
+        const idx = btnCopiar.getAttribute("data-idx");
+        const resultado = document.getElementById(`pitch-ia-resultado-${idx}`);
+        if (resultado) {
+          const texto = resultado.innerText || resultado.textContent;
+          try {
+            await navigator.clipboard.writeText(texto);
+            const original = btnCopiar.textContent;
+            btnCopiar.textContent = "✅ Copiado!";
+            setTimeout(() => { btnCopiar.textContent = original; }, 1500);
+          } catch (err) {}
+        }
+        return;
+      }
+    });
+  }
 }

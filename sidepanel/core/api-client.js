@@ -772,13 +772,65 @@ export async function finalizarAtendimentoApi(token, codConsulta, codEstab = "1"
 }
 
 /**
- * Atualiza os serviços e vincula o atendente/profissional em um agendamento no Belle Software.
- * Remove áreas não realizadas para que o encerramento da consulta não debite sessões indevidamente.
+ * Normaliza o nome de uma área/serviço para correspondência robusta entre a tela e a API do Belle.
  */
-export async function atualizarServicosAgendamentoApi(token, app, servicosManter = null, codEstab = "1") {
+export function normalizarNomeAreaParaMatch(str) {
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/^\d+\s*-\s*/, "") // remove prefixo de código "55556418 - "
+    .replace(/\s*-\s*depila[cç][aã]o\s+a\s+laser.*/i, "") // remove sufixo "- depilação a laser"
+    .replace(/\s*-\s*\d+\/\d+.*/, "") // remove sufixo de sessão "- 15/40"
+    .replace(/\[.*?\]/g, "") // remove subzonas tipo "[Geral]"
+    .replace(/[^a-z0-9]/g, "") // mantém apenas alfanumérico
+    .trim();
+}
+
+/**
+ * Verifica se um serviço retornado pelo Belle corresponde a uma área informada pelo formulário.
+ */
+export function servicoCorrespondeArea(servicoBelle, areaFiltro) {
+  if (!servicoBelle || !areaFiltro) return false;
+
+  const codBelle = String(servicoBelle.cod_servico || servicoBelle.codServ || servicoBelle.codServico || servicoBelle.id || "").trim();
+  const codAlvo = String(areaFiltro.codServ || areaFiltro.cod_servico || areaFiltro.id || "").trim();
+
+  // 1. Correspondência estrita por código se ambos tiverem código numérico válido e não for genérico (555564xx)
+  if (codBelle && codAlvo && codBelle === codAlvo && !codAlvo.startsWith("555564")) {
+    return true;
+  }
+
+  // 2. Normalização textual profunda
+  const normBelle = normalizarNomeAreaParaMatch(servicoBelle.nome || servicoBelle.servico || servicoBelle.nom_servico || "");
+  const normAlvo = normalizarNomeAreaParaMatch(areaFiltro.nomeArea || areaFiltro.nome || areaFiltro.area || "");
+
+  if (!normBelle || !normAlvo) return false;
+  if (normBelle === normAlvo) return true;
+  if (normBelle.includes(normAlvo) || normAlvo.includes(normBelle)) return true;
+
+  return false;
+}
+
+/**
+ * Atualiza os serviços e vincula o atendente/profissional em um agendamento no Belle Software.
+ * Remove estritamente áreas não realizadas para que o encerramento da consulta não debite sessões indevidamente.
+ */
+export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpcoes = null, codEstab = "1") {
   const authTok = token || state.currentToken || "";
   const codConsulta = app?.codConsulta || app?.id;
   if (!authTok || !codConsulta) return { success: false, error: "Dados insuficientes" };
+
+  let areasParaRemover = [];
+  let areasRealizadas = [];
+  let servicosManter = null;
+
+  if (Array.isArray(servicosOuOpcoes)) {
+    servicosManter = servicosOuOpcoes;
+  } else if (servicosOuOpcoes && typeof servicosOuOpcoes === "object") {
+    areasParaRemover = Array.isArray(servicosOuOpcoes.areasParaRemover) ? servicosOuOpcoes.areasParaRemover : [];
+    areasRealizadas = Array.isArray(servicosOuOpcoes.areasRealizadas) ? servicosOuOpcoes.areasRealizadas : [];
+    servicosManter = Array.isArray(servicosOuOpcoes.servicosManter) ? servicosOuOpcoes.servicosManter : null;
+  }
 
   try {
     let detalhes = await buscarDetalhesAgendaApi(authTok, codConsulta, codEstab);
@@ -787,13 +839,59 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
     }
 
     const hrIni = detalhes.hrIni || app.horario || "00:00";
-    const servicos = Array.isArray(servicosManter) && servicosManter.length > 0
-      ? servicosManter
-      : (detalhes.arrServ || app.arrServ || []);
 
+    // 1. Identifica os serviços originais cadastrados no agendamento
+    let servicosOriginais = [];
+    if (Array.isArray(detalhes.arrServ) && detalhes.arrServ.length > 0) {
+      servicosOriginais = [...detalhes.arrServ];
+    } else if (Array.isArray(detalhes.obServ) && detalhes.obServ.length > 0) {
+      servicosOriginais = [...detalhes.obServ];
+    } else if (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0) {
+      servicosOriginais = [...state.currentServicosAgendadosHoje];
+    } else if (Array.isArray(app.arrServ) && app.arrServ.length > 0) {
+      servicosOriginais = [...app.arrServ];
+    }
+
+    // 2. Aplica a remoção das áreas não realizadas
+    let servicosFinais = [];
+
+    if (areasParaRemover.length > 0) {
+      console.log(`[AgendaAPI] 🔍 Filtrando serviços do agendamento #${codConsulta}: ${areasParaRemover.length} área(s) marcada(s) para remoção.`);
+      servicosFinais = servicosOriginais.filter(s => {
+        const deveRemover = areasParaRemover.some(rem => servicoCorrespondeArea(s, rem));
+        if (deveRemover) {
+          console.log(`[AgendaAPI] ✂️ Área RETIRADA do agendamento: "${s.nome || s.servico}" (Cód: ${s.cod_servico || s.codServ || 'N/A'})`);
+        }
+        return !deveRemover;
+      });
+    } else if (Array.isArray(servicosManter) && servicosManter.length > 0) {
+      servicosFinais = servicosManter;
+    } else {
+      servicosFinais = servicosOriginais;
+    }
+
+    // Se nenhuma área foi removida mas areasRealizadas foi informada com menos itens que o original, filtra pelas realizadas
+    if (areasRealizadas.length > 0 && areasParaRemover.length === 0 && areasRealizadas.length < servicosOriginais.length) {
+      servicosFinais = servicosOriginais.filter(s => {
+        return areasRealizadas.some(r => servicoCorrespondeArea(s, r));
+      });
+    }
+
+    // Fallback: se por algum motivo a lista ficou vazia mas havia serviços originais, mantém os originais para não corromper o agendamento
+    if (servicosFinais.length === 0 && servicosOriginais.length > 0 && areasRealizadas.length > 0) {
+      console.warn("[AgendaAPI] ⚠️ Nenhum serviço restou no filtro por nome, usando áreas realizadas da tela como fallback.");
+      servicosFinais = areasRealizadas.map(r => ({
+        cod_servico: r.codServ || 55556418,
+        nome: r.nomeArea || r.area || "Serviço",
+        tempo: 5,
+        valor: "0.00"
+      }));
+    }
+
+    // 3. Recalcula tempo total e horário de término
     let tempoTotal = 0;
-    servicos.forEach(s => {
-      tempoTotal += Number(s.tempo || 5);
+    servicosFinais.forEach(s => {
+      tempoTotal += Number(s.tempo || s.tempo_atendimento || 5);
     });
     if (tempoTotal <= 0) tempoTotal = Number(detalhes.tempo || app.tempo || 5);
 
@@ -801,13 +899,14 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
     const minFim = (h * 60 + m) + tempoTotal;
     const hrFimCalc = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
 
-    // Resolve atendente/profissional logada
+    // 4. Resolve atendente/profissional logada
     const codProfAlvo = (state.currentCodUsuario && state.currentCodUsuario !== "master-admin")
       ? String(state.currentCodUsuario)
       : String(detalhes.codProfiss || app.codProfissional || state.currentUserData?.cod_usuario || "");
 
     const nomProfAlvo = String(state.currentUserName || detalhes.nomProf || app.profissional || "Profissional").trim();
 
+    // 5. Monta o payload oficial de /edicaoagenda
     const payloadEdicao = {
       ...detalhes,
       codAgenda: String(codConsulta),
@@ -816,12 +915,16 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
       hrIni: hrIni,
       hrFim: hrFimCalc,
       tempo: tempoTotal,
-      arrServ: servicos,
-      obServ: servicos,
+      arrServ: servicosFinais,
+      obServ: servicosFinais,
       status: detalhes.status || app.status || "Marcado"
     };
 
-    // Vincula a atendente/profissional responsável no agendamento (Passo 12 do Belle)
+    if (servicosFinais.length > 0) {
+      payloadEdicao.lbServ = servicosFinais.map(s => s.nome || s.servico || "Serviço").join("<br>");
+    }
+
+    // 6. Vincula profissional/atendente responsável no agendamento
     if (codProfAlvo) {
       payloadEdicao.codProfiss = codProfAlvo;
       payloadEdicao.nomProf = nomProfAlvo;
@@ -836,22 +939,38 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosManter
       payloadEdicao.nomProf = nomProfAlvo;
     }
 
+    // 7. Sincroniza serviços do plano/orçamento (obOrc), mantendo apenas as áreas realizadas
     if (detalhes.obOrc && Array.isArray(detalhes.obOrc.servicos)) {
+      const obOrcFiltrado = detalhes.obOrc.servicos.filter(os => {
+        if (areasParaRemover.length > 0) {
+          const deveRemover = areasParaRemover.some(rem => servicoCorrespondeArea(os, rem));
+          return !deveRemover;
+        }
+        return servicosFinais.some(sf => servicoCorrespondeArea(os, sf));
+      });
+
       payloadEdicao.obOrc = {
         ...detalhes.obOrc,
-        servicos: servicos.map(s => ({
-          codServico: Number(s.cod_servico || s.codServ || 0),
-          saldoRestante: Number(s.saldo_atual || 1),
-          nome: s.nome
-        }))
+        servicos: obOrcFiltrado
+      };
+      console.log(`[AgendaAPI] 📦 obOrc.servicos sincronizado: ${obOrcFiltrado.length} de ${detalhes.obOrc.servicos.length} mantido(s).`);
+    }
+
+    console.log(`[AgendaAPI] 🔄 Enviando /edicaoagenda #${codConsulta} (Atendente: ${nomProfAlvo}, ${servicosFinais.length} serviços mantidos):`, payloadEdicao);
+    const res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
+
+    if (res && res.success) {
+      return {
+        success: true,
+        codConsulta: res.codConsulta || codConsulta,
+        servicosAtualizados: servicosFinais,
+        data: res.data
       };
     }
 
-    console.log(`[AgendaAPI] 🔄 Atualizando agendamento #${codConsulta} (Atendente: ${nomProfAlvo}, ${servicos.length} serviços):`, payloadEdicao);
-    const res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
-    return res;
+    return { success: false, error: res?.error || "Erro ao salvar agendamento no Belle" };
   } catch (err) {
-    console.warn("Erro ao atualizar agendamento com atendente:", err);
+    console.warn("Erro ao atualizar agendamento com atendente e serviços:", err);
     return { success: false, error: err.message };
   }
 }

@@ -932,39 +932,79 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
   }
 
   // ATENDIMENTO DE LASER:
-  // 1. Verifica se os parâmetros já foram gravados no prontuário hoje
+  // 1. Coleta os formulários preenchidos e identifica áreas realizadas vs não realizadas
   const parametrosJaSalvos = verificarSeParametrosForamSalvos();
   const parametrosFormularios = coletarParametrosDosFormularios();
   const areasRealizadas = parametrosFormularios.filter(p => p.isRealizada !== false);
   const areasNaoRealizadas = parametrosFormularios.filter(p => p.isRealizada === false);
   const areasParaRemover = areasNaoRealizadas.filter(p => p.removerDoAgendamento !== false);
 
-  // Determina quais serviços devem ser mantidos no agendamento (remove áreas não realizadas do pacote)
-  const servicosParaManter = (areasParaRemover.length > 0 && areasRealizadas.length > 0 && app.arrServ && app.arrServ.length > 0)
-    ? app.arrServ.filter(s => {
-        const sNomeNorm = (s.nome || "").toLowerCase().trim();
-        const sCod = String(s.codServ || s.cod_servico || "");
-        return areasRealizadas.some(r => {
-          const rNomeNorm = (r.nomeArea || "").toLowerCase().trim();
-          const rCod = String(r.codServ || "");
-          return (rCod && sCod && rCod === sCod) || rNomeNorm.includes(sNomeNorm) || sNomeNorm.includes(rNomeNorm);
-        });
-      })
-    : (app.arrServ || null);
+  // 2. Trava de segurança: Se TODAS as áreas forem marcadas como não realizadas, não finaliza como Atendido
+  if (parametrosFormularios.length > 0 && areasRealizadas.length === 0 && areasParaRemover.length > 0) {
+    if (!parametrosJaSalvos) {
+      const confirmarSalvar = confirm(
+        "Todas as áreas desta consulta foram marcadas como 'Não Realizada'.\n\n" +
+        "Deseja gravar a justificativa de não realização no prontuário da cliente agora?\n\n" +
+        "(O agendamento NÃO será finalizado como 'Atendido' para preservar integralmente o saldo de sessões da cliente no Belle)."
+      );
+      if (confirmarSalvar) {
+        await salvarParametrosLaserDireto(parametrosFormularios);
+      }
+    } else {
+      alert(
+        "Todas as áreas foram marcadas como 'Não Realizada'.\n\n" +
+        "Os motivos da não realização já foram gravados no prontuário da cliente.\n\n" +
+        "Para não debitar sessões do plano da cliente, o agendamento NÃO será finalizado como 'Atendido'."
+      );
+    }
+    return;
+  }
 
-  // Função central: Edita no Belle para vincular a atendente e finaliza a consulta
+  // Função central: Edita no Belle para retirar serviços não realizados, vincular atendente e finalizar
   const executarEdicaoEFinalizacao = async () => {
     if (btnAtendFinalizar) {
       btnAtendFinalizar.disabled = true;
-      btnAtendFinalizar.textContent = "⏳ Vinculando atendente...";
+      btnAtendFinalizar.textContent = "⏳ Atualizando agendamento...";
     }
 
-    // 1. Edita o agendamento no Belle: vincula a atendente e ajusta os serviços
-    console.log(`[Atendimento] 📝 Editando agendamento para vincular atendente (${state.currentUserName || 'Atendente'})...`);
-    await atualizarServicosAgendamentoApi(state.currentToken, app, servicosParaManter, state.currentCodEstab);
-    if (servicosParaManter && servicosParaManter.length > 0) {
-      app.arrServ = servicosParaManter;
+    // 1. Edita o agendamento no Belle: retira áreas não realizadas e vincula a atendente logada
+    console.log(`[Atendimento] 📝 Atualizando agendamento no Belle: ${areasParaRemover.length} área(s) para remover, vinculando atendente (${state.currentUserName || 'Atendente'})...`);
+    const resEdicao = await atualizarServicosAgendamentoApi(
+      state.currentToken,
+      app,
+      {
+        areasParaRemover,
+        areasRealizadas
+      },
+      state.currentCodEstab
+    );
+
+    if (!resEdicao || !resEdicao.success) {
+      if (btnAtendFinalizar) {
+        btnAtendFinalizar.disabled = false;
+        btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+      }
+      alert(
+        `Atendimento NÃO finalizado.\n\n` +
+        `Não foi possível atualizar os serviços do agendamento no Belle Software:\n` +
+        `${resEdicao?.error || "Falha na comunicação com o Belle"}.\n\n` +
+        `Para garantir que nenhuma sessão seja debitada indevidamente, a finalização foi interrompida. Tente novamente.`
+      );
+      return;
     }
+
+    // Sincroniza serviços atualizados na memória local
+    if (Array.isArray(resEdicao.servicosAtualizados) && resEdicao.servicosAtualizados.length > 0) {
+      app.arrServ = resEdicao.servicosAtualizados;
+      state.currentServicosAgendadosHoje = resEdicao.servicosAtualizados;
+      const appMemoria = (state.appointmentsData || []).find(a => 
+        String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)
+      );
+      if (appMemoria) {
+        appMemoria.arrServ = resEdicao.servicosAtualizados;
+      }
+    }
+
     limparCachesAtendimento();
 
     // 2. Finaliza oficialmente a consulta no Belle

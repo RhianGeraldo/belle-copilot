@@ -782,6 +782,7 @@ export function normalizarNomeAreaParaMatch(str) {
     .replace(/\s*-\s*depila[cç][aã]o\s+a\s+laser.*/i, "") // remove sufixo "- depilação a laser"
     .replace(/\s*-\s*\d+\/\d+.*/, "") // remove sufixo de sessão "- 15/40"
     .replace(/\[.*?\]/g, "") // remove subzonas tipo "[Geral]"
+    .replace(/\(.*?\)/g, "") // remove parênteses tipo "(Feminino)"
     .replace(/[^a-z0-9]/g, "") // mantém apenas alfanumérico
     .trim();
 }
@@ -800,9 +801,12 @@ export function servicoCorrespondeArea(servicoBelle, areaFiltro) {
     return true;
   }
 
-  // 2. Normalização textual profunda
-  const normBelle = normalizarNomeAreaParaMatch(servicoBelle.nome || servicoBelle.servico || servicoBelle.nom_servico || "");
-  const normAlvo = normalizarNomeAreaParaMatch(areaFiltro.nomeArea || areaFiltro.nome || areaFiltro.area || "");
+  // 2. Normalização textual profunda com suporte a múltiplos nomes possíveis no Belle
+  const nomeBelle = servicoBelle.nome || servicoBelle.servico || servicoBelle.nom_servico || servicoBelle.label || servicoBelle.desc_servico || servicoBelle.descricao || "";
+  const nomeAlvo = areaFiltro.nomeArea || areaFiltro.nome || areaFiltro.servico || areaFiltro.area || "";
+
+  const normBelle = normalizarNomeAreaParaMatch(nomeBelle);
+  const normAlvo = normalizarNomeAreaParaMatch(nomeAlvo);
 
   if (!normBelle || !normAlvo) return false;
   if (normBelle === normAlvo) return true;
@@ -840,10 +844,12 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
 
     const hrIni = detalhes.hrIni || app.horario || "00:00";
 
-    // 1. Identifica os serviços originais cadastrados no agendamento
+    // 1. Identifica os serviços originais cadastrados no agendamento (cobriu arrServ, servicos e obServ)
     let servicosOriginais = [];
     if (Array.isArray(detalhes.arrServ) && detalhes.arrServ.length > 0) {
       servicosOriginais = [...detalhes.arrServ];
+    } else if (Array.isArray(detalhes.servicos) && detalhes.servicos.length > 0) {
+      servicosOriginais = [...detalhes.servicos];
     } else if (Array.isArray(detalhes.obServ) && detalhes.obServ.length > 0) {
       servicosOriginais = [...detalhes.obServ];
     } else if (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0) {
@@ -856,11 +862,11 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
     let servicosFinais = [];
 
     if (areasParaRemover.length > 0) {
-      console.log(`[AgendaAPI] 🔍 Filtrando serviços do agendamento #${codConsulta}: ${areasParaRemover.length} área(s) marcada(s) para remoção.`);
+      console.log(`[AgendaAPI] 🔍 Filtrando serviços do agendamento #${codConsulta}: ${areasParaRemover.length} área(s) marcada(s) para remoção:`, areasParaRemover.map(a => a.nomeArea || a.area));
       servicosFinais = servicosOriginais.filter(s => {
         const deveRemover = areasParaRemover.some(rem => servicoCorrespondeArea(s, rem));
         if (deveRemover) {
-          console.log(`[AgendaAPI] ✂️ Área RETIRADA do agendamento: "${s.nome || s.servico}" (Cód: ${s.cod_servico || s.codServ || 'N/A'})`);
+          console.log(`[AgendaAPI] ✂️ Área RETIRADA do agendamento: "${s.nome || s.servico || s.label}" (Cód: ${s.cod_servico || s.codServ || 'N/A'})`);
         }
         return !deveRemover;
       });
@@ -906,7 +912,7 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
 
     const nomProfAlvo = String(state.currentUserName || detalhes.nomProf || app.profissional || "Profissional").trim();
 
-    // 5. Monta o payload oficial de /edicaoagenda
+    // 5. Monta o payload oficial de /edicaoagenda garantindo que servicos, arrServ e obServ contenham estritamente os servicos mantidos
     const payloadEdicao = {
       ...detalhes,
       codAgenda: String(codConsulta),
@@ -916,18 +922,37 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       hrFim: hrFimCalc,
       tempo: tempoTotal,
       arrServ: servicosFinais,
+      servicos: servicosFinais,
       obServ: servicosFinais,
       status: detalhes.status || app.status || "Marcado"
     };
 
     if (servicosFinais.length > 0) {
-      payloadEdicao.lbServ = servicosFinais.map(s => s.nome || s.servico || "Serviço").join("<br>");
+      payloadEdicao.lbServ = servicosFinais.map(s => s.nome || s.servico || s.label || "Serviço").join("<br>");
+    }
+
+    // Campos essenciais de identificação caso detalhes tenha vindo resumido
+    if (!payloadEdicao.codCliente && app.codCliente) payloadEdicao.codCliente = Number(app.codCliente);
+    if (!payloadEdicao.codSala && (app.codSala || app.salaId)) payloadEdicao.codSala = String(app.codSala || app.salaId || "1");
+    if (!payloadEdicao.dtAgenda) {
+      const dataIso = state.currentDataAgenda || new Date().toISOString().split("T")[0];
+      payloadEdicao.dtAgenda = `${dataIso}, 00:00:00`;
+      payloadEdicao.dtAgendaComp = `${dataIso}, 00:00:00`;
+    }
+    if (!payloadEdicao.obCli && app.codCliente) {
+      payloadEdicao.obCli = {
+        cod_paciente: Number(app.codCliente),
+        nom_paciente: app.clienteNome || "Cliente",
+        cpf: app.cpf || "",
+        celular: app.telefone || ""
+      };
     }
 
     // 6. Vincula profissional/atendente responsável no agendamento
     if (codProfAlvo) {
       payloadEdicao.codProfiss = codProfAlvo;
       payloadEdicao.nomProf = nomProfAlvo;
+      payloadEdicao.nomeProf = nomProfAlvo;
       payloadEdicao.obProf = {
         label: `${codProfAlvo}-${nomProfAlvo}`.replace(/^-/, ''),
         value: {
@@ -937,6 +962,7 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       };
     } else if (nomProfAlvo) {
       payloadEdicao.nomProf = nomProfAlvo;
+      payloadEdicao.nomeProf = nomProfAlvo;
     }
 
     // 7. Sincroniza serviços do plano/orçamento (obOrc), mantendo apenas as áreas realizadas
@@ -954,6 +980,20 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
         servicos: obOrcFiltrado
       };
       console.log(`[AgendaAPI] 📦 obOrc.servicos sincronizado: ${obOrcFiltrado.length} de ${detalhes.obOrc.servicos.length} mantido(s).`);
+    } else if (app.codOrcamento || app.codPlano) {
+      payloadEdicao.obOrc = {
+        cod_orcamento: Number(app.codOrcamento || 0),
+        cod_plano: Number(app.codPlano || 0),
+        nome: app.nomePlano || "",
+        tipo: "3",
+        forma: "p",
+        servicos: servicosFinais.map(s => ({
+          codServico: Number(s.cod_servico || s.codServ || 0),
+          saldoRestante: Number(s.saldo_atual || s.restante || 1),
+          nome: s.nome || s.servico || ""
+        }))
+      };
+      console.log(`[AgendaAPI] 📦 obOrc recriado para plano com ${payloadEdicao.obOrc.servicos.length} serviço(s) mantido(s).`);
     }
 
     console.log(`[AgendaAPI] 🔄 Enviando /edicaoagenda #${codConsulta} (Atendente: ${nomProfAlvo}, ${servicosFinais.length} serviços mantidos):`, payloadEdicao);

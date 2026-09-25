@@ -10,7 +10,8 @@ import {
   buscarSaldoVendaPlanoApi, 
   salvarParametrosLaserEmLoteApi, 
   atualizarServicosAgendamentoApi,
-  finalizarAtendimentoApi 
+  finalizarAtendimentoApi,
+  normalizarNomeAreaParaMatch
 } from '../core/api-client.js';
 import { atualizarOfertasSugeridasAtendimento } from '../engines/cadencia-ofertas.js';
 import { buscarDadosClienteApi } from '../core/api-client.js';
@@ -61,6 +62,86 @@ const btnAtendVoltar = document.getElementById("btn-atend-voltar");
 let callbackAtivarAba = null;
 let callbackRecarregarAgenda = null;
 let parametrosJaSalvosNesteAtendimento = false;
+
+// Cache em memória dos dados digitados por agendamento (indexado por codConsulta).
+// Garante que energia digitada, modo, fototipo, status e observações NUNCA sumam ao alternar áreas ou abas.
+const cacheParametrosPorConsulta = new Map();
+
+export function limparCacheParametrosConsulta(codConsulta) {
+  if (codConsulta) {
+    cacheParametrosPorConsulta.delete(String(codConsulta));
+  }
+}
+
+export function salvarEstadoFormulariosEmCache(codConsulta = null) {
+  const currentApp = state.selectedAppointment;
+  const idConsulta = codConsulta || currentApp?.id || currentApp?.codConsulta;
+  if (!idConsulta) return;
+
+  const formCards = atendListaFormsLaser?.querySelectorAll(".atend-param-form-card");
+  if (!formCards || formCards.length === 0) return;
+
+  const estadoAreas = cacheParametrosPorConsulta.get(String(idConsulta)) || {};
+
+  formCards.forEach((card, idx) => {
+    const sCod = card.getAttribute("data-cod-serv") || "";
+    const sNome = card.getAttribute("data-area-nome") || "";
+    const areaFormatada = card.getAttribute("data-area-formatada") || "";
+    const status = card.getAttribute("data-status") || "realizada";
+    const isOpen = card.classList.contains("param-card-open");
+
+    const removerChk = card.querySelector(".chk-remover-agendamento");
+    const removerDoAgendamento = removerChk ? removerChk.checked : true;
+    const skipObs = card.querySelector(".param-skip-obs")?.value || "";
+    const obsGeral = card.querySelector(".param-section-realizada .param-obs")?.value || "";
+
+    const subzonaItems = card.querySelectorAll(".param-subzona-item");
+    const subzonas = [];
+
+    subzonaItems.forEach((subItem, subIdx) => {
+      const rotulo = subItem.querySelector(".subzona-rotulo-input")?.value?.trim() || (subIdx === 0 ? "Geral" : `Sub-Zona ${subIdx + 1}`);
+      const fototipo = subItem.querySelector(".param-fototipo")?.value || "IV";
+      const modo = subItem.querySelector(".param-modo")?.value || "HR";
+      const energia = (subItem.querySelector(".param-energia")?.value || "").trim();
+      const frequencia = subItem.querySelector(".param-frequencia")?.value || "0,8";
+      const disparos = subItem.querySelector(".param-disparos")?.value || "200";
+      const obsSub = subItem.querySelector(".param-obs")?.value || "";
+
+      const origEnergia = parseFloat(subItem.getAttribute("data-orig-energia")) || 0;
+      const origFototipo = subItem.getAttribute("data-orig-fototipo") || fototipo;
+      const origModo = subItem.getAttribute("data-orig-modo") || modo;
+
+      subzonas.push({
+        rotulo,
+        fototipo,
+        modo,
+        energia,
+        frequencia,
+        disparos,
+        obs: obsSub,
+        origEnergia,
+        origFototipo,
+        origModo
+      });
+    });
+
+    const chave = `area_${idx}_${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
+    estadoAreas[chave] = {
+      idx,
+      sCod,
+      sNome,
+      areaFormatada,
+      status,
+      isOpen,
+      removerDoAgendamento,
+      skipObs,
+      obsGeral,
+      subzonas
+    };
+  });
+
+  cacheParametrosPorConsulta.set(String(idConsulta), estadoAreas);
+}
 
 export function obterDataHojeIso() {
   const d = new Date();
@@ -327,8 +408,11 @@ export function renderizarServicosComSaldo(servicosSaldo) {
 
   atendListaServicos.innerHTML = html;
 
-  // Atualiza também os formulários de registro de parâmetros estritamente com as áreas de hoje
-  renderizarFormulariosParametrosLaser(servicosHoje, state.ultimosRegistrosLaserCliente);
+  // Atualiza também os formulários de registro de parâmetros se ainda não houver nenhum formulário no DOM
+  const jaTemFormularios = atendListaFormsLaser && atendListaFormsLaser.querySelectorAll(".atend-param-form-card").length > 0;
+  if (!jaTemFormularios) {
+    renderizarFormulariosParametrosLaser(servicosHoje, state.ultimosRegistrosLaserCliente);
+  }
 
   if (state.selectedAppointment) {
     atualizarOfertasComSexo(state.selectedAppointment, servicosSaldo, state.ultimosRegistrosLaserCliente);
@@ -603,7 +687,7 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
 
       ${isMulti ? `
         <div class="param-field" style="margin-top: 6px;">
-          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="">
+          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="${sub.obs || ''}">
         </div>
       ` : ''}
     </div>
@@ -613,6 +697,13 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
 export function renderizarFormulariosParametrosLaser(listaServicos, historicoRegistros) {
   if (!atendListaFormsLaser) return;
   
+  const currentApp = state.selectedAppointment;
+  const idConsulta = String(currentApp?.id || currentApp?.codConsulta || "");
+
+  // Salva no cache em memória qualquer dado que o usuário já tenha digitado antes de re-renderizar
+  salvarEstadoFormulariosEmCache(idConsulta);
+  const cacheAtual = cacheParametrosPorConsulta.get(idConsulta) || {};
+
   // REGRA CLÍNICA: Exibe ESTRITAMENTE as áreas agendadas para a consulta de hoje.
   // Nunca deve mostrar todas as áreas do plano contratado da cliente.
   let servicosParaExibir = [];
@@ -651,107 +742,145 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const areaFormatada = `${sCod} - ${sNome}`;
     const sNomeExibicao = sNome.replace(/^\d+\s*-\s*/, '').trim() || sNome;
 
-    // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
-    const subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
-    const subzonasHtml = subzonas.map((sub, sIdx) => gerarHtmlSubzonaItem(sub, sIdx, subzonas.length, sNome)).join("");
+    const chave = `area_${idx}_${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
+    const cacheArea = cacheAtual[chave];
+
+    // Status: preserva se o usuário marcou como Não Realizada
+    const status = cacheArea?.status || "realizada";
+    const isRealizada = status === "realizada";
+
+    // Accordion: preserva se estava aberto; na primeira abertura apenas a 1ª área abre
+    const isOpen = cacheArea !== undefined ? Boolean(cacheArea.isOpen) : (idx === 0);
+
+    // Subzonas: restaura exatamente os valores de energia, disparos, fototipo e modo digitados pelo usuário
+    let subzonasParaRenderizar = [];
+    if (cacheArea && Array.isArray(cacheArea.subzonas) && cacheArea.subzonas.length > 0) {
+      subzonasParaRenderizar = cacheArea.subzonas.map(subCached => ({
+        rotulo: subCached.rotulo,
+        fototipo: subCached.fototipo || "IV",
+        modo: subCached.modo || "HR",
+        energiaValor: subCached.energia,
+        energiaAnterior: subCached.energia,
+        temEnergiaAnterior: Boolean(subCached.energia),
+        freqNum: parseFloat(String(subCached.frequencia || "0.8").replace(",", ".")) || 0.8,
+        disparosNum: parseInt(subCached.disparos, 10) || 200,
+        obs: subCached.obs || "",
+        origEnergia: parseFloat(subCached.origEnergia || subCached.energia) || 0,
+        origFototipo: subCached.origFototipo || subCached.fototipo || "IV",
+        origModo: subCached.origModo || subCached.modo || "HR"
+      }));
+    } else {
+      // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
+      subzonasParaRenderizar = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
+    }
+
+    const subzonasHtml = subzonasParaRenderizar.map((sub, sIdx) => 
+      gerarHtmlSubzonaItem(sub, sIdx, subzonasParaRenderizar.length, sNome)
+    ).join("");
+
+    const skipObsValue = cacheArea?.skipObs || "";
+    const obsGeralValue = cacheArea?.obsGeral || (cacheArea?.subzonas?.[0]?.obs || "");
+    const removerChecked = cacheArea?.removerDoAgendamento !== false ? "checked" : "";
 
     formsHtml += `
-      <div class="atend-param-form-card" 
+      <div class="atend-param-form-card ${isOpen ? 'param-card-open' : ''} ${!isRealizada ? 'param-card-skipped' : ''}" 
            data-idx="${idx}"
            data-cod-serv="${sCod}" 
            data-area-nome="${sNome}"
            data-area-formatada="${areaFormatada}"
-           data-status="realizada">
+           data-status="${status}">
         
         <!-- CABEÇALHO DO TOGGLE (Sempre visível: Título da Área + Status + Chevron) -->
-        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="false" title="Clique para abrir ou fechar os parâmetros desta área">
+        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" title="Clique para abrir ou fechar os parâmetros desta área">
           <div class="param-header-left">
             <span class="param-area-icon">✨</span>
             <span class="param-form-title" title="${areaFormatada}">${sNomeExibicao}</span>
             <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
           </div>
           <div class="param-header-right">
-            <span class="param-status-badge badge-realizada">✓ Realizada</span>
-            <span class="param-toggle-chevron">▼</span>
+            <span class="param-status-badge ${isRealizada ? 'badge-realizada' : 'badge-nao-realizada'}">
+              ${isRealizada ? '✓ Realizada' : '✕ Não Realizada'}
+            </span>
+            <span class="param-toggle-chevron">${isOpen ? '▲' : '▼'}</span>
           </div>
         </div>
 
-        <!-- CORPO EXPANSÍVEL (Apenas visível quando o toggle estiver aberto) -->
-        <div class="param-form-body" style="display: none;">
+        <!-- CORPO EXPANSÍVEL (Visível quando o toggle estiver aberto) -->
+        <div class="param-form-body" style="display: ${isOpen ? 'block' : 'none'};">
           <div class="param-status-toggle-row">
             <div class="param-status-toggle">
-              <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
+              <button type="button" class="btn-toggle-status status-realizada ${isRealizada ? 'active' : ''}" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
                 <span class="status-btn-icon">✓</span> Realizada
               </button>
-              <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
+              <button type="button" class="btn-toggle-status status-nao-realizada ${!isRealizada ? 'active' : ''}" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
                 <span class="status-btn-icon">✕</span> Não Realizada
               </button>
             </div>
           </div>
 
-        <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
-        <div class="param-section-realizada">
-          <div class="param-subzonas-container">
-            ${subzonasHtml}
-          </div>
-
-          <div class="param-add-subzona-row">
-            <button type="button" class="btn-add-subzona" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
-              ➕ Dividir Sub-Zona (Fototipo Misto)
-            </button>
-          </div>
-
-          <div class="param-obs-section">
-            <div class="param-obs-header">
-              <span class="param-obs-label">💬 Observações Clínicas:</span>
-              <span class="param-obs-hint">Toque para adicionar</span>
+          <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
+          <div class="param-section-realizada" style="display: ${isRealizada ? 'block' : 'none'};">
+            <div class="param-subzonas-container">
+              ${subzonasHtml}
             </div>
-            <div class="param-obs-pills-row">
-              <span class="obs-pill" data-text="Boa tolerância">Boa tolerância</span>
-              <span class="obs-pill" data-text="Pele íntegra">Pele íntegra</span>
-              <span class="obs-pill" data-text="Sensibilidade leve">Sensibilidade leve</span>
-              <span class="obs-pill" data-text="Hiperemia leve">Hiperemia leve</span>
-              <span class="obs-pill" data-text="Pelos finos">Pelos finos</span>
-              <span class="obs-pill" data-text="Pelos grossos">Pelos grossos</span>
-              <span class="obs-pill" data-text="Sem intercorrências">Sem intercorrências</span>
+
+            <div class="param-add-subzona-row">
+              <button type="button" class="btn-add-subzona" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
+                ➕ Dividir Sub-Zona (Fototipo Misto)
+              </button>
             </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="">
-          </div>
-        </div>
 
-        <!-- SEÇÃO QUANDO NÃO REALIZADA -->
-        <div class="param-section-nao-realizada" style="display: none;">
-          <div class="param-skip-alert">
-            <span class="param-skip-alert-icon">🛡️</span>
-            <div class="param-skip-alert-text">
-              <strong>Área não realizada na sessão de hoje.</strong><br>
-              Esta área será removida do agendamento para <strong>preservar a sessão no saldo do plano</strong> da cliente.
-            </div>
-          </div>
-
-          <div class="param-skip-options">
-            <label class="param-skip-chk-wrap">
-              <input type="checkbox" class="chk-remover-agendamento" checked>
-              <span>Remover do agendamento (preserva saldo no Belle)</span>
-            </label>
-
-            <div class="param-obs-section" style="margin-top: 6px; border-top: none;">
+            <div class="param-obs-section">
               <div class="param-obs-header">
-                <span class="param-obs-label">Motivo da Não Realização:</span>
-                <span class="param-obs-hint" style="color: #e11d48;">Motivos rápidos</span>
+                <span class="param-obs-label">💬 Observações Clínicas:</span>
+                <span class="param-obs-hint">Toque para adicionar</span>
               </div>
-              <div class="param-skip-pills-row">
-                <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">Sensibilidade / Dor</span>
-                <span class="skip-pill" data-reason="Pele sensível / Lesão no local">Pele sensível / Lesão</span>
-                <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">Sol recente / Bronzeada</span>
-                <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">Período menstrual</span>
-                <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">Sem tempo / Desistência</span>
-                <span class="skip-pill" data-reason="Área com pelos não raspados">Pelos não raspados</span>
+              <div class="param-obs-pills-row">
+                <span class="obs-pill" data-text="Boa tolerância">Boa tolerância</span>
+                <span class="obs-pill" data-text="Pele íntegra">Pele íntegra</span>
+                <span class="obs-pill" data-text="Sensibilidade leve">Sensibilidade leve</span>
+                <span class="obs-pill" data-text="Hiperemia leve">Hiperemia leve</span>
+                <span class="obs-pill" data-text="Pelos finos">Pelos finos</span>
+                <span class="obs-pill" data-text="Pelos grossos">Pelos grossos</span>
+                <span class="obs-pill" data-text="Sem intercorrências">Sem intercorrências</span>
               </div>
-              <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="">
+              <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="${obsGeralValue}">
             </div>
           </div>
-        </div>
+
+          <!-- SEÇÃO QUANDO NÃO REALIZADA -->
+          <div class="param-section-nao-realizada" style="display: ${!isRealizada ? 'block' : 'none'};">
+            <div class="param-skip-alert">
+              <span class="param-skip-alert-icon">🛡️</span>
+              <div class="param-skip-alert-text">
+                <strong>Área não realizada na sessão de hoje.</strong><br>
+                Esta área será removida do agendamento para <strong>preservar a sessão no saldo do plano</strong> da cliente.
+              </div>
+            </div>
+
+            <div class="param-skip-options">
+              <label class="param-skip-chk-wrap">
+                <input type="checkbox" class="chk-remover-agendamento" ${removerChecked}>
+                <span>Remover do agendamento (preserva saldo no Belle)</span>
+              </label>
+
+              <div class="param-obs-section" style="margin-top: 6px; border-top: none;">
+                <div class="param-obs-header">
+                  <span class="param-obs-label">Motivo da Não Realização:</span>
+                  <span class="param-obs-hint" style="color: #e11d48;">Motivos rápidos</span>
+                </div>
+                <div class="param-skip-pills-row">
+                  <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">Sensibilidade / Dor</span>
+                  <span class="skip-pill" data-reason="Pele sensível / Lesão no local">Pele sensível / Lesão</span>
+                  <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">Sol recente / Bronzeada</span>
+                  <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">Período menstrual</span>
+                  <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">Sem tempo / Desistência</span>
+                  <span class="skip-pill" data-reason="Área com pelos não raspados">Pelos não raspados</span>
+                </div>
+                <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="${skipObsValue}">
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -918,6 +1047,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       }
 
       limparCachesAtendimento();
+      limparCacheParametrosConsulta(codConsulta);
 
       if (typeof callbackRecarregarAgenda === "function") {
         callbackRecarregarAgenda();
@@ -1029,6 +1159,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       }
 
       limparCachesAtendimento();
+      limparCacheParametrosConsulta(app.id || app.codConsulta);
       parametrosJaSalvosNesteAtendimento = false;
 
       const codCli = app.codCliente;
@@ -1535,11 +1666,24 @@ export function alternarCardArea(card, forcarAberto = null) {
     const chevron = card.querySelector(".param-toggle-chevron");
     if (chevron) chevron.textContent = "▼";
   }
+
+  // Persiste no cache em memória qual card ficou aberto e os valores preenchidos
+  salvarEstadoFormulariosEmCache();
 }
 
 export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } = {}) {
   callbackAtivarAba = onAtivarAba;
   callbackRecarregarAgenda = onRecarregarAgenda;
+
+  // 1. Salva automaticamente no cache sempre que a aplicadora digitar em qualquer campo dos formulários de laser
+  atendListaFormsLaser?.addEventListener("input", () => {
+    salvarEstadoFormulariosEmCache();
+  });
+
+  // 2. Salva automaticamente no cache sempre que alterar checkboxes ou selects (fototipo, modo, remover do agendamento)
+  atendListaFormsLaser?.addEventListener("change", () => {
+    salvarEstadoFormulariosEmCache();
+  });
 
   atendListaFormsLaser?.addEventListener("click", (e) => {
     // 0. Toggle de Acordeão da Área (Abrir/Fechar ao clicar no cabeçalho)
@@ -1590,6 +1734,7 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
         if (secRealizada) secRealizada.style.display = "block";
         if (secNaoRealizada) secNaoRealizada.style.display = "none";
       }
+      salvarEstadoFormulariosEmCache();
       return;
     }
 
@@ -1721,6 +1866,7 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
       }
 
       const novoItem = container.lastElementChild;
+      salvarEstadoFormulariosEmCache();
       novoItem?.querySelector(".param-energia")?.focus();
       return;
     }
@@ -1748,6 +1894,7 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
 
       const btnAdd = card.querySelector(".btn-add-subzona");
       if (btnAdd) btnAdd.style.display = "inline-flex";
+      salvarEstadoFormulariosEmCache();
       return;
     }
 

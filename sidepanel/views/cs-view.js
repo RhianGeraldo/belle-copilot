@@ -157,12 +157,9 @@ export function sanitizarNumeroWhatsapp(telefone = "") {
 export function gerarScriptWhatsApp(cliente, tipo = "24h") {
   const nomeCompleto = (cliente.clienteNome || "Cliente").trim();
   const primeiroNome = nomeCompleto.split(" ")[0] || "Cliente";
-  const prof = cliente.profissional && cliente.profissional !== "Não informada" && cliente.profissional !== "Aplicadora"
-    ? ` com a ${cliente.profissional}`
-    : "";
 
   if (tipo === "24h") {
-    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como você está após a sessão de ontem${prof}! Teve alguma sensibilidade ou dúvida? 🥰`;
+    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como foi sua sessão de laser e como você está se sentindo! Teve alguma sensibilidade ou dúvida? 🥰`;
   } else {
     return `Oi, ${primeiroNome}! Passando só para lembrar de caprichar na hidratação da pele, porque nos próximos dias os pelinhos já começam a se soltar! Qualquer dúvida estamos por aqui! ✨`;
   }

@@ -120,31 +120,31 @@ export function gerarScriptVenda(item) {
 
   if (item.fila === "aguardando") {
     if (etapa === "Lembrete do link") {
-      return `Oi ${primeiroNome}! Aqui é da Estética e Laser 💙 Acabei de te enviar o link do seu ${plano} (${valor}). Assim que você concluir, já deixo suas sessões liberadas na agenda! Qualquer dúvida no pagamento me chama que eu te ajudo por aqui.`;
+      return `Oi, ${primeiroNome}! Tudo bem? Passando para te lembrar do link do seu plano ${plano}. Quer que eu te ajude a concluir?`;
     }
     if (etapa === "Link expirando") {
-      return `${primeiroNome}, tudo bem? Passando só para avisar que o link do seu ${plano} tem prazo e está para vencer. Quer que eu gere um novo agora? Leva 1 minutinho e aí já garantimos sua condição de ${valor}.`;
+      return `Oi, ${primeiroNome}! O link do seu plano ${plano} está prestes a expirar. Quer que eu renove para você garantir o valor?`;
     }
-    return `${primeiroNome}, vi que o link ainda não foi concluído. Se a forma de pagamento estiver atrapalhando, a gente resolve: dá para parcelar no cartão, fazer no PIX ou dividir em duas entradas. Me diz qual funciona melhor para você que eu ajusto o seu ${plano}.`;
+    return `Oi, ${primeiroNome}! Conseguiu dar uma olhada no link do seu plano ${plano}? Qualquer dúvida me avisa aqui!`;
   }
 
   if (item.fila === "pendente") {
     if (etapa === "Tirar a dúvida") {
-      return `Oi ${primeiroNome}! Foi um prazer te atender 💙 Fiquei pensando aqui no seu ${plano} — ficou alguma dúvida sobre as sessões ou sobre como funciona o tratamento? Me pergunta à vontade, sem compromisso nenhum.`;
+      return `Oi, ${primeiroNome}! Tudo bem? Ficou com alguma dúvida sobre o seu plano ${plano}? Me avisa se eu puder te ajudar!`;
     }
     if (etapa === "Condição especial") {
-      return `${primeiroNome}, consegui uma condição especial para o seu ${plano}: fica ${valor}. Consigo segurar essa condição para você por poucos dias — quer que eu já deixe reservado?`;
+      return `Oi, ${primeiroNome}! Consegui uma condição especial para o seu plano ${plano} por ${valor}. Vamos aproveitar?`;
     }
     if (etapa === "Prova social + urgência") {
-      return `${primeiroNome}, nossas clientes que começaram o ${plano} já estão vendo redução bem visível dos pelos 😍 Nossa agenda de laser está fechando rápido para as próximas semanas. Quer que eu reserve seu primeiro horário enquanto ainda tem vaga boa?`;
+      return `Oi, ${primeiroNome}! Nossos horários para iniciar o ${plano} estão bem concorridos. Quer que eu reserve sua primeira sessão?`;
     }
     if (etapa === "Última chamada") {
-      return `${primeiroNome}, seu orçamento do ${plano} está chegando ao fim da validade e essa condição de ${valor} não fica disponível depois. Ainda dá tempo de garantir — quer que eu finalize para você hoje?`;
+      return `Oi, ${primeiroNome}! Passando só para confirmar se ainda tem interesse no ${plano} antes de encerrarmos essa condição.`;
     }
-    return `Oi ${primeiroNome}! Faz um tempinho que a gente conversou sobre o ${plano} 💙 Estamos com condições novas neste mês. Quer que eu faça uma reavaliação gratuita e monte um plano do seu jeito, sem compromisso?`;
+    return `Oi, ${primeiroNome}! Tudo bem? Passando para saber se podemos dar andamento no seu plano ${plano}!`;
   }
 
-  return `Oi ${primeiroNome}! Seu plano ${plano} está pausado por aqui. Aconteceu alguma coisa que travou o andamento? Me conta que eu vejo a melhor forma de retomar 💙`;
+  return `Oi, ${primeiroNome}! Tudo bem? Como estão as coisas por aí? Gostaria de saber se quer retomar o seu plano ${plano}.`;
 }
 
 /** Telefone -> número no formato do wa.me (55 + DDD + número). */

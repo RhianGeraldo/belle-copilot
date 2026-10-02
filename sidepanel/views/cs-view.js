@@ -160,15 +160,11 @@ export function sanitizarNumeroWhatsapp(telefone = "") {
 export function gerarScriptWhatsApp(cliente, tipo = "24h") {
   const nomeCompleto = (cliente.clienteNome || "Cliente").trim();
   const primeiroNome = nomeCompleto.split(" ")[0] || "Cliente";
-  const clinicaNome = state.currentClinicaNome || "nossa clínica";
-  const areasTexto = (cliente.areasTratadas && cliente.areasTratadas.length > 0)
-    ? cliente.areasTratadas.join(", ")
-    : (cliente.procedimento || "suas áreas a laser");
 
   if (tipo === "24h") {
-    return `Olá, ${primeiroNome}! Tudo bem? 🥰\n\nAqui é da ${clinicaNome}. Passando para saber como você está se sentindo e como sua pele está reagindo após a sessão de laser de ontem em *${areasTexto}*! ✨\n\n💧 *Dica importante de 24h:* Lembre-se de manter as regiões bem hidratadas, evitar água muito quente no banho e aplicar protetor solar se a área ficar exposta ao sol.\n\nSe tiver qualquer dúvida ou sensibilidade, pode nos chamar por aqui! Tenha um ótimo dia! 💖`;
+    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como você está após a sessão de ontem! Ficou com alguma sensibilidade ou dúvida? 🥰`;
   } else {
-    return `Olá, ${primeiroNome}! Tudo bem? ✨\n\nAqui é da ${clinicaNome}. Já se passaram 3 dias da sua sessão de laser em *${areasTexto}* e passamos para saber como está a recuperação e evolução da sua pele! 🌸\n\n✨ *Acompanhamento:* Nos próximos dias, os pelinhos tratados começam a se soltar naturalmente. Mantenha a hidratação diária em dia!\n\nComo você está se sentindo? Qualquer dúvida ou suporte que precisar, conte sempre conosco! 🥰`;
+    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como está a sua pele após a sessão de laser! Tudo certinho por aí? ✨`;
   }
 }
 
@@ -550,17 +546,10 @@ export function renderizarCsView() {
 
     html += `
       <div class="cs-card ${cardExtraClass}" data-id-unico="${cliente.idUnico}">
-        <!-- Topo do Card: Nome e Badges -->
+        <!-- Topo do Card: Nome, Telefone e Badge -->
         <div class="cs-card-header">
           <div class="cs-client-info">
             <strong class="cs-client-name">👤 ${escaparHtml(cliente.clienteNome)}</strong>
-            <div class="cs-client-meta">
-              <span>⏰ ${escaparHtml(cliente.horario)}</span>
-              <span>•</span>
-              <span>📅 ${escaparHtml(cliente.dataAtendimentoBr)}</span>
-              <span>•</span>
-              <span>📍 ${escaparHtml(cliente.salaNome)}</span>
-            </div>
             <div class="cs-client-tel-row">
               ${cliente.telefone ? `
                 <button type="button" class="btn-copiar-tel" data-tel="${escaparHtml(cliente.telefone)}" data-tel-formatado="${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}" title="Clique para copiar o telefone: ${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}">
@@ -569,50 +558,29 @@ export function renderizarCsView() {
               ` : `
                 <span class="cs-tel-vazio">📱 Sem telefone cadastrado</span>
               `}
-              ${cliente.codCliente ? `<span class="cs-client-cod">🆔 #${escaparHtml(String(cliente.codCliente))}</span>` : ''}
             </div>
           </div>
           <div class="cs-header-badges">
             <span class="cs-badge-pill ${badgeTipoClass}">
               ${badgeTipoIcon} ${badgeTipoLabel}
             </span>
-            ${isContatado ? '<span class="cs-badge-pill badge-cs-feito">✅ Contatado</span>' : ''}
+            ${isContatado ? '<span class="cs-badge-pill badge-cs-feito">✅ Feito</span>' : ''}
           </div>
         </div>
 
-        <!-- Áreas Tratadas -->
-        <div class="cs-areas-container">
-          <span class="cs-areas-label">Áreas atendidas:</span>
-          <div class="cs-areas-list">
-            ${areasPills}
-          </div>
-        </div>
-
-        <!-- Prévia do Script de Mensagem -->
+        <!-- Mensagem Simples para Envio -->
         <div class="cs-script-preview-box">
-          <div class="cs-script-header">
-            <span>💬 Mensagem Personalizada sugerida:</span>
-            <button class="btn-copy-script" data-script="${encodeURIComponent(scriptMensagem)}" title="Copiar texto da mensagem">
-              📋 Copiar
-            </button>
-          </div>
-          <p class="cs-script-text">${scriptMensagem.replace(/\n/g, "<br>")}</p>
+          <p class="cs-script-text">${escaparHtml(scriptMensagem)}</p>
         </div>
 
         <!-- Barra de Ações Rápidas -->
         <div class="cs-card-actions">
-          ${cliente.telefone ? `
-            <button type="button" class="btn-cs-action btn-copiar-tel btn-cs-tel" data-tel="${escaparHtml(cliente.telefone)}" data-tel-formatado="${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}" title="Copiar telefone da cliente: ${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}">
-              📱 Copiar Tel
-            </button>
-          ` : ''}
-
           <button class="btn-cs-action btn-copy-script" data-script="${encodeURIComponent(scriptMensagem)}" style="flex: 1; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155;">
             📋 Copiar Mensagem
           </button>
 
-          <button class="btn-cs-action btn-cs-toggle-status ${isContatado ? 'btn-cs-desmarcar' : 'btn-cs-marcar'}" data-id-unico="${cliente.idUnico}" style="flex: 1.2;">
-            ${isContatado ? '↩️ Desmarcar' : '✅ Marcar como Feito'}
+          <button class="btn-cs-action btn-cs-toggle-status ${isContatado ? 'btn-cs-desmarcar' : 'btn-cs-marcar'}" data-id-unico="${cliente.idUnico}" style="flex: 1;">
+            ${isContatado ? '↩️ Desmarcar' : '✅ Marcar Feito'}
           </button>
         </div>
       </div>

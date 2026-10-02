@@ -386,47 +386,8 @@
 
       <!-- PAINEL 1: PÓS-LASER (CS 24H E 3 DIAS) -->
       <div id="panel-cs-poslaser" class="cs-subview-panel active">
-        <!-- Card Cabeçalho & KPIs de CS -->
-        <div class="card cs-header-card">
-          <div class="card-section-title-flex">
-            <div class="title-with-icon">
-              <span class="icon-bubble" style="background: #e0e7ff; color: #4338ca;">🌿</span>
-              <span style="font-weight: 800; color: #1e1b4b;">Pós-Laser (24h & 3 Dias)</span>
-            </div>
-            <button id="btn-refresh-cs" class="btn-action-mini" title="Atualizar contatos de pós-atendimento">
-              🔄 Atualizar
-            </button>
-          </div>
-          <p style="font-size: 11px; color: #64748b; margin: 4px 0 8px 0;">
-            Acompanhamento automático das clientes atendidas em <strong>24h</strong> (ontem) e <strong>3 dias</strong> após o procedimento.
-          </p>
-          <div class="cs-unidade-row">
-            <span id="cs-unidade-ativa" class="cs-unidade-tag">🏢 Carregando unidade...</span>
-          </div>
-
-          <!-- Mini Grid de KPIs CS -->
-          <div class="cs-kpi-grid">
-            <div class="cs-kpi-box">
-              <span class="cs-kpi-lbl">Total Atendidos</span>
-              <strong class="cs-kpi-val" id="cs-kpi-total">0</strong>
-            </div>
-            <div class="cs-kpi-box cs-kpi-box-24h">
-              <span class="cs-kpi-lbl">⚡ 24h Pendentes</span>
-              <strong class="cs-kpi-val" id="cs-kpi-24h">0</strong>
-            </div>
-            <div class="cs-kpi-box cs-kpi-box-3d">
-              <span class="cs-kpi-lbl">🌿 3 Dias Pendentes</span>
-              <strong class="cs-kpi-val" id="cs-kpi-3d">0</strong>
-            </div>
-            <div class="cs-kpi-box cs-kpi-box-feito">
-              <span class="cs-kpi-lbl">✅ Contatados Hoje</span>
-              <strong class="cs-kpi-val" id="cs-kpi-contatados">0</strong>
-            </div>
-          </div>
-        </div>
-
-        <!-- Barra de Filtros de CS -->
-        <div class="cs-controls-card card">
+        <!-- Barra de Filtros de CS com Atualizar -->
+        <div class="cs-controls-card card" style="margin-top: 4px;">
           <div class="cs-filter-bar">
             <button class="cs-filter-btn active" data-filter="todos">
               Todos (<span id="cs-filter-count-todos">0</span>)
@@ -439,6 +400,9 @@
             </button>
             <button class="cs-filter-btn btn-filter-contatados" data-filter="contatados">
               ✅ Feitos (<span id="cs-filter-count-contatados">0</span>)
+            </button>
+            <button id="btn-refresh-cs" class="btn-action-mini" style="margin-left: auto;" title="Atualizar contatos de pós-atendimento">
+              🔄
             </button>
           </div>
         </div>

@@ -543,16 +543,10 @@ export function renderizarAgenda(onAbrirAtendimento) {
       servicosHtml = `<div class="services-chips-box">${gerarHtmlChipsServicos(app, saldoLista)}</div>`;
     }
 
-    // Tags de Alerta (Questionário Pendente, Aniversariante, Tags)
+    // Tags de Alerta Operacional (Questionário Pendente, Aniversariante)
     let tagsHtml = "";
     if (app.questPendente) tagsHtml += `<span class="tag-alert-quest" title="Questionário de anamnese pendente">⚠️ Questionário</span>`;
     if (app.fazAniver) tagsHtml += `<span class="tag-alert-aniver" title="Cliente faz aniversário hoje!">🎂 Aniversariante</span>`;
-    if (app.tagsCliente) {
-      const clientTags = app.tagsCliente.split(",").map(t => t.trim()).filter(Boolean);
-      clientTags.forEach(tag => {
-        tagsHtml += `<span class="tag-alert-client">🏷️ ${tag}</span>`;
-      });
-    }
 
     // Botões de Ação Contextual
     const exibirBtnAgendar = (state.currentUserRole === "recepcao" || state.currentUserRole === "gerente" || state.currentUserRole === "consultora");

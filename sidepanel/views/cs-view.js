@@ -154,17 +154,17 @@ export function sanitizarNumeroWhatsapp(telefone = "") {
   return digitos;
 }
 
-/**
- * Gera mensagem personalizada e empática para contato de CS.
- */
 export function gerarScriptWhatsApp(cliente, tipo = "24h") {
   const nomeCompleto = (cliente.clienteNome || "Cliente").trim();
   const primeiroNome = nomeCompleto.split(" ")[0] || "Cliente";
+  const prof = cliente.profissional && cliente.profissional !== "Não informada" && cliente.profissional !== "Aplicadora"
+    ? ` com a ${cliente.profissional}`
+    : "";
 
   if (tipo === "24h") {
-    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como você está após a sessão de ontem! Ficou com alguma sensibilidade ou dúvida? 🥰`;
+    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como você está após a sessão de ontem${prof}! Teve alguma sensibilidade ou dúvida? 🥰`;
   } else {
-    return `Olá, ${primeiroNome}! Tudo bem? Passando para saber como está a sua pele após a sessão de laser! Tudo certinho por aí? ✨`;
+    return `Oi, ${primeiroNome}! Passando só para lembrar de caprichar na hidratação da pele, porque nos próximos dias os pelinhos já começam a se soltar! Qualquer dúvida estamos por aqui! ✨`;
   }
 }
 
@@ -218,6 +218,9 @@ function agregarAgendamentosCliente(rawList, tipo = "24h", dataAtendimento = "")
     }
     if (!reg.cpf && app.cpf) {
       reg.cpf = app.cpf;
+    }
+    if ((!reg.profissional || reg.profissional === "Aplicadora" || reg.profissional === "Não informada") && app.profissional && app.profissional !== "Não informada") {
+      reg.profissional = app.profissional;
     }
     if (!reg.agendamentosIds.includes(app.id || app.codConsulta)) {
       reg.agendamentosIds.push(app.id || app.codConsulta);
@@ -558,6 +561,9 @@ export function renderizarCsView() {
               ` : `
                 <span class="cs-tel-vazio">📱 Sem telefone cadastrado</span>
               `}
+              ${cliente.profissional && cliente.profissional !== "Não informada" && cliente.profissional !== "Aplicadora" ? `
+                <span class="cs-client-prof" title="Aplicadora que realizou o atendimento">👩‍⚕️ ${escaparHtml(cliente.profissional)}</span>
+              ` : ''}
             </div>
           </div>
           <div class="cs-header-badges">

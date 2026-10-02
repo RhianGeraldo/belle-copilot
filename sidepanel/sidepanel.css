@@ -4838,6 +4838,19 @@ select.param-input {
   font-weight: 600;
 }
 
+.cs-client-prof {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+
 .btn-cs-tel {
   flex: 1;
   background: #eff6ff !important;

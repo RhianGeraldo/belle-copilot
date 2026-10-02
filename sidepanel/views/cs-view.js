@@ -9,6 +9,7 @@ import { buscarAgendaApi, montarArrGridDeGridSala, buscarGridSalaApi } from '../
 import { resolverSessaoBelle, aplicarSessaoNoEstado } from '../core/session.js';
 import { processarItensAgenda } from './agenda-view.js';
 import { carregarOportunidades } from './oportunidades-view.js';
+import { escaparHtml, formatarTelefoneExibicao } from '../components/card-orcamento.js';
 
 // Elementos da Interface
 const tabNavCs = document.getElementById("tab-nav-cs");
@@ -213,6 +214,15 @@ function agregarAgendamentosCliente(rawList, tipo = "24h", dataAtendimento = "")
     }
 
     const reg = clienteMap.get(key);
+    if (!reg.telefone && app.telefone) {
+      reg.telefone = app.telefone;
+    }
+    if (!reg.codCliente && app.codCliente) {
+      reg.codCliente = app.codCliente;
+    }
+    if (!reg.cpf && app.cpf) {
+      reg.cpf = app.cpf;
+    }
     if (!reg.agendamentosIds.includes(app.id || app.codConsulta)) {
       reg.agendamentosIds.push(app.id || app.codConsulta);
     }
@@ -543,13 +553,23 @@ export function renderizarCsView() {
         <!-- Topo do Card: Nome e Badges -->
         <div class="cs-card-header">
           <div class="cs-client-info">
-            <strong class="cs-client-name">👤 ${cliente.clienteNome}</strong>
+            <strong class="cs-client-name">👤 ${escaparHtml(cliente.clienteNome)}</strong>
             <div class="cs-client-meta">
-              <span>⏰ ${cliente.horario}</span>
+              <span>⏰ ${escaparHtml(cliente.horario)}</span>
               <span>•</span>
-              <span>📅 ${cliente.dataAtendimentoBr}</span>
+              <span>📅 ${escaparHtml(cliente.dataAtendimentoBr)}</span>
               <span>•</span>
-              <span>📍 ${cliente.salaNome}</span>
+              <span>📍 ${escaparHtml(cliente.salaNome)}</span>
+            </div>
+            <div class="cs-client-tel-row">
+              ${cliente.telefone ? `
+                <button type="button" class="btn-copiar-tel" data-tel="${escaparHtml(cliente.telefone)}" data-tel-formatado="${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}" title="Clique para copiar o telefone: ${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}">
+                  📱 ${escaparHtml(formatarTelefoneExibicao(cliente.telefone))} <span class="copiar-tel-icon" title="Copiar">📋</span>
+                </button>
+              ` : `
+                <span class="cs-tel-vazio">📱 Sem telefone cadastrado</span>
+              `}
+              ${cliente.codCliente ? `<span class="cs-client-cod">🆔 #${escaparHtml(String(cliente.codCliente))}</span>` : ''}
             </div>
           </div>
           <div class="cs-header-badges">
@@ -581,6 +601,12 @@ export function renderizarCsView() {
 
         <!-- Barra de Ações Rápidas -->
         <div class="cs-card-actions">
+          ${cliente.telefone ? `
+            <button type="button" class="btn-cs-action btn-copiar-tel btn-cs-tel" data-tel="${escaparHtml(cliente.telefone)}" data-tel-formatado="${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}" title="Copiar telefone da cliente: ${escaparHtml(formatarTelefoneExibicao(cliente.telefone))}">
+              📱 Copiar Tel
+            </button>
+          ` : ''}
+
           <button class="btn-cs-action btn-copy-script" data-script="${encodeURIComponent(scriptMensagem)}" style="flex: 1; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155;">
             📋 Copiar Mensagem
           </button>
@@ -626,6 +652,28 @@ export function inicializarCsView() {
 
   // Ações dentro dos Cards (Copiar Script, Marcar como Contatado)
   csCardsContainer?.addEventListener("click", async (e) => {
+    // 0. Copiar Telefone do Cliente
+    const btnCopiarTel = e.target.closest(".btn-copiar-tel");
+    if (btnCopiarTel) {
+      e.stopPropagation();
+      const tel = btnCopiarTel.getAttribute("data-tel") || "";
+      if (tel) {
+        try {
+          await navigator.clipboard.writeText(tel);
+          const originalHtml = btnCopiarTel.innerHTML;
+          btnCopiarTel.innerHTML = "✅ Copiado!";
+          btnCopiarTel.classList.add("tel-copied");
+          setTimeout(() => {
+            btnCopiarTel.innerHTML = originalHtml;
+            btnCopiarTel.classList.remove("tel-copied");
+          }, 1500);
+        } catch (err) {
+          console.warn("Erro ao copiar telefone para clipboard:", err);
+        }
+      }
+      return;
+    }
+
     // 1. Copiar Script
     const btnCopy = e.target.closest(".btn-copy-script");
     if (btnCopy) {

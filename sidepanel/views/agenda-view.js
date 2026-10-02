@@ -362,7 +362,7 @@ export function processarItensAgenda(rawItems) {
       codConsulta: item.codConsulta || item.codigo || item.id,
       codCliente: item.codPaciente || item.cod_paciente || item.codCliente || "",
       clienteNome: item.nomPaciente || item.nom_paciente || item.nome_paciente || item.clienteNome || (isBloq ? "Horário Bloqueado" : "Cliente"),
-      telefone: item.celular || item.telefone || "",
+      telefone: item.celular || item.telefone || item.obCli?.celular || item.obCli?.telefone || item.tel_celular || item.tel || "",
       cpf: item.cpf || "",
       horario: item.hrIni || item.horario || item.hr_inicio || "08:00",
       hrFim: item.hrFim || item.hr_fim || "08:30",

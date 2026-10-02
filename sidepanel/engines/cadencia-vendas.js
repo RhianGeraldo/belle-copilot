@@ -167,7 +167,7 @@ export function prepararOrcamentos(registros = []) {
       codOrcamento: r.cod_orcamento,
       codCliente: r.cod_paciente,
       clienteNome: (r.nom_paciente || "Cliente").trim(),
-      telefone: r.celular || "",
+      telefone: r.celular || r.telefone || r.tel || r.cel || "",
       email: r.email || "",
       nomePlano: r.nomePlano || "Plano",
       tipoPlano: (r.lbTipo || "").trim(),
@@ -358,7 +358,7 @@ export function prepararPlanosVencendo(registros = [], horizonteDias = 90, inclu
       codOrcamento: r.cod_orcamento,
       codCliente: r.cod_paciente,
       clienteNome: (r.nom_paciente || "Cliente").trim(),
-      telefone: r.celular || "",
+      telefone: r.celular || r.telefone || r.tel || r.cel || "",
       nomePlano: r.nomePlano || "Plano",
       valorFinal: valorParaNumero(r.preco_final),
       vendedora: (

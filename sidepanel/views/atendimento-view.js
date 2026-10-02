@@ -10,7 +10,8 @@ import {
   buscarSaldoVendaPlanoApi, 
   salvarParametrosLaserEmLoteApi, 
   atualizarServicosAgendamentoApi,
-  finalizarAtendimentoApi 
+  finalizarAtendimentoApi,
+  normalizarNomeAreaParaMatch 
 } from '../core/api-client.js';
 import { atualizarOfertasSugeridasAtendimento } from '../engines/cadencia-ofertas.js';
 import { buscarDadosClienteApi } from '../core/api-client.js';
@@ -327,8 +328,11 @@ export function renderizarServicosComSaldo(servicosSaldo) {
 
   atendListaServicos.innerHTML = html;
 
-  // Atualiza também os formulários de registro de parâmetros estritamente com as áreas de hoje
-  renderizarFormulariosParametrosLaser(servicosHoje, state.ultimosRegistrosLaserCliente);
+  // Atualiza também os formulários de registro de parâmetros estritamente se ainda não houver nenhum na tela
+  const jaTemForms = atendListaFormsLaser && atendListaFormsLaser.querySelectorAll(".atend-param-form-card").length > 0;
+  if (!jaTemForms) {
+    renderizarFormulariosParametrosLaser(servicosHoje, state.ultimosRegistrosLaserCliente);
+  }
 
   if (state.selectedAppointment) {
     atualizarOfertasComSexo(state.selectedAppointment, servicosSaldo, state.ultimosRegistrosLaserCliente);
@@ -477,7 +481,7 @@ export function renderizarParametrosLaser(registros) {
 export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
   const isMulti = totalSubzonas > 1;
   const rotulo = sub.rotulo || (subIdx === 0 ? "Geral" : `Sub-Zona ${subIdx + 1}`);
-  const energiaValor = sub.energiaValor || (sub.temEnergiaAnterior ? sub.energiaAnterior : "");
+  const energiaValor = (sub.energiaValor !== undefined && sub.energiaValor !== null && sub.energiaValor !== "") ? sub.energiaValor : (sub.temEnergiaAnterior ? sub.energiaAnterior : "");
   const temEnergiaAnterior = sub.temEnergiaAnterior;
   const freqNum = sub.freqNum || 0.8;
   const disparosNum = sub.disparosNum || (subIdx > 0 ? 150 : 200);
@@ -603,15 +607,81 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
 
       ${isMulti ? `
         <div class="param-field" style="margin-top: 6px;">
-          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="">
+          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="${sub.obs || ''}">
         </div>
       ` : ''}
     </div>
   `;
 }
 
+let cacheFormularioAtendimento = new Map();
+let idConsultaCacheFormulario = null;
+
+export function salvarEstadoFormularioEmCache() {
+  const capturados = capturarValoresAtuaisDoFormulario();
+  if (capturados && capturados.size > 0) {
+    cacheFormularioAtendimento = capturados;
+  }
+}
+
+export function limparCacheFormularioLaser() {
+  cacheFormularioAtendimento = new Map();
+  idConsultaCacheFormulario = null;
+  if (atendListaFormsLaser) atendListaFormsLaser.innerHTML = "";
+}
+
+/**
+ * Lê os valores atualmente digitados nos inputs do DOM para não perder o que a aplicadora digitou
+ * caso ocorra uma re-renderização assíncrona (ex: chegada do saldo ou do histórico anterior).
+ */
+export function capturarValoresAtuaisDoFormulario() {
+  if (!atendListaFormsLaser) return cacheFormularioAtendimento || new Map();
+  const cards = atendListaFormsLaser.querySelectorAll(".atend-param-form-card");
+  if (!cards || cards.length === 0) return cacheFormularioAtendimento || new Map();
+
+  const mapa = new Map();
+  cards.forEach(card => {
+    const sCod = card.getAttribute("data-cod-serv") || "";
+    const sNome = card.getAttribute("data-area-nome") || "";
+    const status = card.getAttribute("data-status") || "realizada";
+    const isOpen = card.classList.contains("param-card-open");
+    const removerChk = card.querySelector(".chk-remover-agendamento");
+    const removerDoAgendamento = removerChk ? removerChk.checked : true;
+    const skipObs = card.querySelector(".param-skip-obs")?.value || "";
+    const obsGeral = card.querySelector(".param-section-realizada .param-obs")?.value || "";
+
+    const subzonas = [];
+    card.querySelectorAll(".param-subzona-item").forEach(subItem => {
+      const rotulo = subItem.querySelector(".subzona-rotulo-input")?.value?.trim() || "";
+      const energia = subItem.querySelector(".param-energia")?.value || "";
+      const fototipo = subItem.querySelector(".param-fototipo")?.value || "";
+      const modo = subItem.querySelector(".param-modo")?.value || "";
+      const frequencia = subItem.querySelector(".param-frequencia")?.value || "";
+      const disparos = subItem.querySelector(".param-disparos")?.value || "";
+      const obs = subItem.querySelector(".param-obs")?.value || "";
+      subzonas.push({ rotulo, energia, fototipo, modo, frequencia, disparos, obs });
+    });
+
+    const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
+    mapa.set(chave, {
+      status,
+      isOpen,
+      removerDoAgendamento,
+      skipObs,
+      obsGeral,
+      subzonas
+    });
+  });
+
+  cacheFormularioAtendimento = mapa;
+  return mapa;
+}
+
 export function renderizarFormulariosParametrosLaser(listaServicos, historicoRegistros) {
   if (!atendListaFormsLaser) return;
+
+  // 1. Captura os valores digitados na tela para nunca perder energia ou configurações
+  const valoresCapturados = capturarValoresAtuaisDoFormulario();
   
   // REGRA CLÍNICA: Exibe ESTRITAMENTE as áreas agendadas para a consulta de hoje.
   // Nunca deve mostrar todas as áreas do plano contratado da cliente.
@@ -650,47 +720,76 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sNome = s.nome || `Área #${idx + 1}`;
     const areaFormatada = `${sCod} - ${sNome}`;
     const sNomeExibicao = sNome.replace(/^\d+\s*-\s*/, '').trim() || sNome;
+    const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
+    const capturado = valoresCapturados.get(chave);
 
     // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
-    const subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
+    let subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
+    if (capturado && Array.isArray(capturado.subzonas) && capturado.subzonas.length > 0) {
+      subzonas = capturado.subzonas.map((subCap, sIdx) => {
+        const histSub = subzonas[sIdx] || subzonas[0] || {};
+        return {
+          rotulo: subCap.rotulo || histSub.rotulo || (sIdx === 0 ? "Geral" : `Sub-Zona ${sIdx + 1}`),
+          energiaValor: (subCap.energia !== "" && subCap.energia !== undefined) ? subCap.energia : (histSub.energiaValor || ""),
+          temEnergiaAnterior: histSub.temEnergiaAnterior || false,
+          energiaAnterior: histSub.energiaAnterior || "",
+          origFototipo: histSub.origFototipo || subCap.fototipo || "IV",
+          origModo: histSub.origModo || subCap.modo || "HR",
+          origEnergia: histSub.origEnergia || 0,
+          fototipo: subCap.fototipo || histSub.fototipo || "IV",
+          modo: subCap.modo || histSub.modo || "HR",
+          freqNum: subCap.frequencia || histSub.freqNum || 0.8,
+          disparosNum: subCap.disparos || histSub.disparosNum || (sIdx > 0 ? 150 : 200),
+          obs: subCap.obs !== undefined ? subCap.obs : (histSub.obs || "")
+        };
+      });
+    }
+
     const subzonasHtml = subzonas.map((sub, sIdx) => gerarHtmlSubzonaItem(sub, sIdx, subzonas.length, sNome)).join("");
 
+    const isRealizada = capturado ? capturado.status === "realizada" : true;
+    const status = isRealizada ? "realizada" : "nao_realizada";
+    const isOpen = capturado ? Boolean(capturado.isOpen) : (idx === 0);
+    const removerDoAgendamento = capturado ? capturado.removerDoAgendamento : true;
+    const skipObs = capturado ? (capturado.skipObs || "") : "";
+    const obsGeral = capturado ? (capturado.obsGeral || "") : "";
+
     formsHtml += `
-      <div class="atend-param-form-card" 
+      <div class="atend-param-form-card ${isOpen ? 'param-card-open' : ''} ${!isRealizada ? 'param-card-skipped' : ''}" 
            data-idx="${idx}"
            data-cod-serv="${sCod}" 
            data-area-nome="${sNome}"
            data-area-formatada="${areaFormatada}"
-           data-status="realizada">
+           data-status="${status}">
         
         <!-- CABEÇALHO DO TOGGLE (Sempre visível: Título da Área + Status + Chevron) -->
-        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="false" title="Clique para abrir ou fechar os parâmetros desta área">
+        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" title="Clique para abrir ou fechar os parâmetros desta área">
           <div class="param-header-left">
             <span class="param-area-icon">✨</span>
             <span class="param-form-title" title="${areaFormatada}">${sNomeExibicao}</span>
             <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
           </div>
           <div class="param-header-right">
-            <span class="param-status-badge badge-realizada">✓ Realizada</span>
-            <span class="param-toggle-chevron">▼</span>
+            <span class="param-status-badge ${isRealizada ? 'badge-realizada' : 'badge-nao-realizada'}">${isRealizada ? '✓ Realizada' : '✕ Não Realizada'}</span>
+            <span class="param-toggle-chevron">${isOpen ? '▲' : '▼'}</span>
           </div>
         </div>
 
         <!-- CORPO EXPANSÍVEL (Apenas visível quando o toggle estiver aberto) -->
-        <div class="param-form-body" style="display: none;">
+        <div class="param-form-body" style="display: ${isOpen ? 'block' : 'none'};">
           <div class="param-status-toggle-row">
             <div class="param-status-toggle">
-              <button type="button" class="btn-toggle-status status-realizada active" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
+              <button type="button" class="btn-toggle-status status-realizada ${isRealizada ? 'active' : ''}" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
                 <span class="status-btn-icon">✓</span> Realizada
               </button>
-              <button type="button" class="btn-toggle-status status-nao-realizada" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
+              <button type="button" class="btn-toggle-status status-nao-realizada ${!isRealizada ? 'active' : ''}" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
                 <span class="status-btn-icon">✕</span> Não Realizada
               </button>
             </div>
           </div>
 
         <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
-        <div class="param-section-realizada">
+        <div class="param-section-realizada" style="display: ${isRealizada ? 'block' : 'none'};">
           <div class="param-subzonas-container">
             ${subzonasHtml}
           </div>
@@ -715,12 +814,12 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
               <span class="obs-pill" data-text="Pelos grossos">Pelos grossos</span>
               <span class="obs-pill" data-text="Sem intercorrências">Sem intercorrências</span>
             </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="">
+            <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="${obsGeral}">
           </div>
         </div>
 
         <!-- SEÇÃO QUANDO NÃO REALIZADA -->
-        <div class="param-section-nao-realizada" style="display: none;">
+        <div class="param-section-nao-realizada" style="display: ${!isRealizada ? 'block' : 'none'};">
           <div class="param-skip-alert">
             <span class="param-skip-alert-icon">🛡️</span>
             <div class="param-skip-alert-text">
@@ -731,7 +830,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 
           <div class="param-skip-options">
             <label class="param-skip-chk-wrap">
-              <input type="checkbox" class="chk-remover-agendamento" checked>
+              <input type="checkbox" class="chk-remover-agendamento" ${removerDoAgendamento ? 'checked' : ''}>
               <span>Remover do agendamento (preserva saldo no Belle)</span>
             </label>
 
@@ -748,7 +847,7 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
                 <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">Sem tempo / Desistência</span>
                 <span class="skip-pill" data-reason="Área com pelos não raspados">Pelos não raspados</span>
               </div>
-              <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="">
+              <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="${skipObs}">
             </div>
           </div>
         </div>
@@ -1029,6 +1128,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       }
 
       limparCachesAtendimento();
+      limparCacheFormularioLaser();
       parametrosJaSalvosNesteAtendimento = false;
 
       const codCli = app.codCliente;
@@ -1216,6 +1316,12 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
   state.selectedAppointment = app;
   parametrosJaSalvosNesteAtendimento = false;
   if (atendStatusSalvarLaser) atendStatusSalvarLaser.style.display = "none";
+
+  const consultaId = app.id || app.codConsulta;
+  if (idConsultaCacheFormulario !== consultaId) {
+    idConsultaCacheFormulario = consultaId;
+    limparCacheFormularioLaser();
+  }
 
   if (atendimentoPlaceholder) atendimentoPlaceholder.style.display = "none";
   if (atendimentoContent) atendimentoContent.style.display = "flex";
@@ -1535,11 +1641,24 @@ export function alternarCardArea(card, forcarAberto = null) {
     const chevron = card.querySelector(".param-toggle-chevron");
     if (chevron) chevron.textContent = "▼";
   }
+
+  salvarEstadoFormularioEmCache();
 }
 
 export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } = {}) {
   callbackAtivarAba = onAtivarAba;
   callbackRecarregarAgenda = onRecarregarAgenda;
+
+  // Sincronização em tempo real do cache dos formulários de laser
+  atendListaFormsLaser?.addEventListener("input", () => {
+    salvarEstadoFormularioEmCache();
+  });
+  atendListaFormsLaser?.addEventListener("change", () => {
+    salvarEstadoFormularioEmCache();
+  });
+  atendListaFormsLaser?.addEventListener("click", () => {
+    setTimeout(salvarEstadoFormularioEmCache, 0);
+  });
 
   atendListaFormsLaser?.addEventListener("click", (e) => {
     // 0. Toggle de Acordeão da Área (Abrir/Fechar ao clicar no cabeçalho)

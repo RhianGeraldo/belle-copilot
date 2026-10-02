@@ -27,17 +27,44 @@ function textoIdade(dias) {
   return `há ${dias} dias`;
 }
 
+export function formatarTelefoneExibicao(telefone = "") {
+  if (!telefone) return "";
+  const limpo = String(telefone).replace(/\D/g, "");
+  if (limpo.length === 11) {
+    return `(${limpo.slice(0, 2)}) ${limpo.slice(2, 7)}-${limpo.slice(7)}`;
+  }
+  if (limpo.length === 10) {
+    return `(${limpo.slice(0, 2)}) ${limpo.slice(2, 6)}-${limpo.slice(6)}`;
+  }
+  if (limpo.length === 12 && limpo.startsWith("55")) {
+    const sem55 = limpo.slice(2);
+    return `(${sem55.slice(0, 2)}) ${sem55.slice(2, 6)}-${sem55.slice(6)}`;
+  }
+  if (limpo.length === 13 && limpo.startsWith("55")) {
+    const sem55 = limpo.slice(2);
+    return `(${sem55.slice(0, 2)}) ${sem55.slice(2, 7)}-${sem55.slice(7)}`;
+  }
+  return String(telefone).trim();
+}
+
 /**
- * Identificação e contato da cliente.
- * Sem o botão de WhatsApp nos cards, o telefone precisa estar à vista — e o código
- * é o que a operadora usa para achar a cliente no Belle.
+ * Identificação e contato da cliente com botão rápido para copiar o telefone.
  */
 export function htmlIdentificacao(o) {
   const partes = [];
-  if (o.codCliente) partes.push(`🆔 ${escaparHtml(String(o.codCliente))}`);
-  if (o.telefone) partes.push(`📱 ${escaparHtml(o.telefone)}`);
+  if (o.codCliente) {
+    partes.push(`<span class="ident-item ident-cod">🆔 ${escaparHtml(String(o.codCliente))}</span>`);
+  }
+  if (o.telefone) {
+    const telFormatado = formatarTelefoneExibicao(o.telefone);
+    partes.push(`
+      <button type="button" class="btn-copiar-tel" data-tel="${escaparHtml(o.telefone)}" data-tel-formatado="${escaparHtml(telFormatado)}" title="Clique para copiar o telefone (${escaparHtml(telFormatado)})">
+        📱 ${escaparHtml(telFormatado)} <span class="copiar-tel-icon">📋</span>
+      </button>
+    `);
+  }
   if (partes.length === 0) return "";
-  return `<span class="vendas-card-identificacao">${partes.join(" • ")}</span>`;
+  return `<div class="vendas-card-identificacao">${partes.join("")}</div>`;
 }
 
 function seloEtapa(etapa) {

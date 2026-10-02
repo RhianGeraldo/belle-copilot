@@ -4755,14 +4755,105 @@ select.param-input {
 
 /* Identificação da cliente no card (código do Belle + telefone) */
 .vendas-card-identificacao {
-  display: block;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 10.5px;
   font-weight: 700;
   color: #334155;
-  margin-top: 2px;
+  margin-top: 3px;
   letter-spacing: 0.01em;
-  user-select: all;            /* um clique já seleciona para copiar */
-  word-break: break-word;
+}
+
+.ident-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ident-cod {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* Botão / Tag para Copiar Telefone do Cliente */
+.btn-copiar-tel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+  vertical-align: middle;
+  font-family: inherit;
+}
+
+.btn-copiar-tel:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.btn-copiar-tel:active {
+  transform: scale(0.97);
+}
+
+.btn-copiar-tel.tel-copied {
+  background: #dcfce7 !important;
+  border-color: #86efac !important;
+  color: #166534 !important;
+  font-weight: 700 !important;
+}
+
+.copiar-tel-icon {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.cs-client-tel-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cs-tel-vazio {
+  font-size: 10.5px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.cs-client-cod {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.btn-cs-tel {
+  flex: 1;
+  background: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+
+.btn-cs-tel:hover {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+}
+
+.btn-cs-tel.tel-copied {
+  background: #dcfce7 !important;
+  border-color: #86efac !important;
+  color: #166534 !important;
 }
 
 /* === PLANOS MAIS VENDIDOS & ORÇADOS === */

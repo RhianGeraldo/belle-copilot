@@ -247,6 +247,28 @@ export function inicializarOportunidadesView() {
   });
 
   oportCards?.addEventListener("click", async (e) => {
+    // 0. Copiar Telefone
+    const btnCopiarTel = e.target.closest(".btn-copiar-tel");
+    if (btnCopiarTel) {
+      e.stopPropagation();
+      const tel = btnCopiarTel.getAttribute("data-tel") || "";
+      if (tel) {
+        try {
+          await navigator.clipboard.writeText(tel);
+          const originalHtml = btnCopiarTel.innerHTML;
+          btnCopiarTel.innerHTML = "✅ Copiado!";
+          btnCopiarTel.classList.add("tel-copied");
+          setTimeout(() => {
+            btnCopiarTel.innerHTML = originalHtml;
+            btnCopiarTel.classList.remove("tel-copied");
+          }, 1500);
+        } catch (err) {
+          console.warn("Erro ao copiar telefone:", err);
+        }
+      }
+      return;
+    }
+
     const copiar = e.target.closest(".btn-vendas-copiar");
     if (copiar) {
       try {

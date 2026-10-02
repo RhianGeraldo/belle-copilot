@@ -795,25 +795,31 @@ export function servicoCorrespondeArea(servicoBelle, areaFiltro) {
   const codBelle = String(servicoBelle.cod_servico || servicoBelle.codServ || servicoBelle.codServico || servicoBelle.id || "").trim();
   const codAlvo = String(areaFiltro.codServ || areaFiltro.cod_servico || areaFiltro.id || "").trim();
 
-  // 1. Correspondência estrita por código se ambos tiverem código numérico válido e não for genérico (555564xx)
-  if (codBelle && codAlvo && codBelle === codAlvo && !codAlvo.startsWith("555564")) {
+  // 1. Correspondência estrita por código se ambos tiverem código válido
+  if (codBelle && codAlvo && codBelle === codAlvo) {
     return true;
   }
 
   // 2. Normalização textual profunda
-  const normBelle = normalizarNomeAreaParaMatch(servicoBelle.nome || servicoBelle.servico || servicoBelle.nom_servico || "");
-  const normAlvo = normalizarNomeAreaParaMatch(areaFiltro.nomeArea || areaFiltro.nome || areaFiltro.area || "");
+  const nomeBelle = servicoBelle.nome || servicoBelle.servico || servicoBelle.nom_servico || servicoBelle.label || "";
+  const nomeAlvo = areaFiltro.nomeArea || areaFiltro.nome || areaFiltro.servico || areaFiltro.area || "";
+
+  const normBelle = normalizarNomeAreaParaMatch(nomeBelle);
+  const normAlvo = normalizarNomeAreaParaMatch(nomeAlvo);
 
   if (!normBelle || !normAlvo) return false;
   if (normBelle === normAlvo) return true;
-  if (normBelle.includes(normAlvo) || normAlvo.includes(normBelle)) return true;
+  if (normBelle.length >= 3 && normAlvo.length >= 3) {
+    if (normBelle.includes(normAlvo) || normAlvo.includes(normBelle)) return true;
+  }
 
   return false;
 }
 
 /**
  * Atualiza os serviços e vincula o atendente/profissional em um agendamento no Belle Software.
- * Remove estritamente áreas não realizadas para que o encerramento da consulta não debite sessões indevidamente.
+ * No /edicaoagenda edita ESTRITAMENTE os serviços não realizados e adiciona a profissional responsável.
+ * Preserva 100% intactos dtAgenda, codSala, obSala, obCli e todos os demais metadados originais do Belle.
  */
 export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpcoes = null, codEstab = "1") {
   const authTok = token || state.currentToken || "";
@@ -833,12 +839,11 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
   }
 
   try {
-    let detalhes = await buscarDetalhesAgendaApi(authTok, codConsulta, codEstab);
-    if (!detalhes || typeof detalhes !== "object") {
-      detalhes = {};
+    const detalhes = await buscarDetalhesAgendaApi(authTok, codConsulta, codEstab);
+    if (!detalhes || typeof detalhes !== "object" || Object.keys(detalhes).length === 0) {
+      console.warn(`[AgendaAPI] ⚠️ Não foi possível carregar os detalhes do agendamento #${codConsulta} no Belle.`);
+      return { success: false, error: "Não foi possível carregar os detalhes do agendamento no Belle para edição segura." };
     }
-
-    const hrIni = detalhes.hrIni || app.horario || "00:00";
 
     // 1. Identifica os serviços originais cadastrados no agendamento
     let servicosOriginais = [];
@@ -852,7 +857,7 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       servicosOriginais = [...app.arrServ];
     }
 
-    // 2. Aplica a remoção das áreas não realizadas
+    // 2. Aplica a remoção estrita das áreas não realizadas
     let servicosFinais = [];
 
     if (areasParaRemover.length > 0) {
@@ -877,27 +882,29 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       });
     }
 
-    // Fallback: se por algum motivo a lista ficou vazia mas havia serviços originais, mantém os originais para não corromper o agendamento
-    if (servicosFinais.length === 0 && servicosOriginais.length > 0 && areasRealizadas.length > 0) {
-      console.warn("[AgendaAPI] ⚠️ Nenhum serviço restou no filtro por nome, usando áreas realizadas da tela como fallback.");
-      servicosFinais = areasRealizadas.map(r => ({
-        cod_servico: r.codServ || 55556418,
-        nome: r.nomeArea || r.area || "Serviço",
-        tempo: 5,
-        valor: "0.00"
-      }));
+    // Trava de segurança: se a lista ficaria vazia, preserva os originais para nunca corromper ou apagar a consulta
+    if (servicosFinais.length === 0 && servicosOriginais.length > 0) {
+      console.warn("[AgendaAPI] ⚠️ Nenhum serviço restou no filtro. Mantendo os originais por segurança.");
+      servicosFinais = servicosOriginais;
     }
 
-    // 3. Recalcula tempo total e horário de término
-    let tempoTotal = 0;
-    servicosFinais.forEach(s => {
-      tempoTotal += Number(s.tempo || s.tempo_atendimento || 5);
-    });
-    if (tempoTotal <= 0) tempoTotal = Number(detalhes.tempo || app.tempo || 5);
+    // 3. Recalcula tempo e término proporcional se o número de serviços mudou
+    const hrIni = detalhes.hrIni || app.horario || "00:00";
+    let tempoFinal = Number(detalhes.tempo || app.tempo || 5);
+    let hrFimFinal = detalhes.hrFim || app.hrFim || "00:30";
 
-    const [h, m] = hrIni.split(":").map(Number);
-    const minFim = (h * 60 + m) + tempoTotal;
-    const hrFimCalc = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
+    if (servicosFinais.length !== servicosOriginais.length) {
+      let tempoCalculado = 0;
+      servicosFinais.forEach(s => {
+        tempoCalculado += Number(s.tempo || s.tempo_atendimento || 5);
+      });
+      if (tempoCalculado > 0) {
+        tempoFinal = tempoCalculado;
+        const [h, m] = hrIni.split(":").map(Number);
+        const minFim = (h * 60 + m) + tempoFinal;
+        hrFimFinal = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
+      }
+    }
 
     // 4. Resolve atendente/profissional logada
     const codProfAlvo = (state.currentCodUsuario && state.currentCodUsuario !== "master-admin")
@@ -906,28 +913,41 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
 
     const nomProfAlvo = String(state.currentUserName || detalhes.nomProf || app.profissional || "Profissional").trim();
 
-    // 5. Monta o payload oficial de /edicaoagenda
+    // 5. Monta o payload oficial de /edicaoagenda preservando 100% dos dados originais
     const payloadEdicao = {
       ...detalhes,
       codAgenda: String(codConsulta),
       tpEdicao: "A",
-      estab: String(codEstab || state.currentCodEstab || "1"),
+      estab: String(detalhes.estab || codEstab || state.currentCodEstab || "1"),
       hrIni: hrIni,
-      hrFim: hrFimCalc,
-      tempo: tempoTotal,
+      hrFim: hrFimFinal,
+      tempo: tempoFinal,
       arrServ: servicosFinais,
-      obServ: servicosFinais,
-      status: detalhes.status || app.status || "Marcado"
+      obServ: servicosFinais
     };
 
-    if (servicosFinais.length > 0) {
-      payloadEdicao.lbServ = servicosFinais.map(s => s.nome || s.servico || "Serviço").join("<br>");
+    // Mantém o status original no formato exato do Belle (nunca em minúsculo)
+    if (detalhes.status || detalhes.statusAgendamento) {
+      payloadEdicao.status = detalhes.status || detalhes.statusAgendamento;
+    } else if (app.statusFormatado) {
+      payloadEdicao.status = app.statusFormatado;
+    } else {
+      payloadEdicao.status = "Marcado";
     }
 
-    // 6. Vincula profissional/atendente responsável no agendamento
+    if (Array.isArray(detalhes.servicos)) {
+      payloadEdicao.servicos = servicosFinais;
+    }
+
+    if (servicosFinais.length > 0) {
+      payloadEdicao.lbServ = servicosFinais.map(s => s.nome || s.servico || s.label || "Serviço").join("<br>");
+    }
+
+    // 6. Vincula estritamente a profissional/aplicadora responsável (Passo 12 do Belle)
     if (codProfAlvo) {
       payloadEdicao.codProfiss = codProfAlvo;
       payloadEdicao.nomProf = nomProfAlvo;
+      if (detalhes.nomeProf !== undefined) payloadEdicao.nomeProf = nomProfAlvo;
       payloadEdicao.obProf = {
         label: `${codProfAlvo}-${nomProfAlvo}`.replace(/^-/, ''),
         value: {
@@ -937,9 +957,10 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       };
     } else if (nomProfAlvo) {
       payloadEdicao.nomProf = nomProfAlvo;
+      if (detalhes.nomeProf !== undefined) payloadEdicao.nomeProf = nomProfAlvo;
     }
 
-    // 7. Sincroniza serviços do plano/orçamento (obOrc), mantendo apenas as áreas realizadas
+    // 7. Se e SOMENTE se o agendamento já possuía obOrc nativo do Belle, filtra seus serviços
     if (detalhes.obOrc && Array.isArray(detalhes.obOrc.servicos)) {
       const obOrcFiltrado = detalhes.obOrc.servicos.filter(os => {
         if (areasParaRemover.length > 0) {

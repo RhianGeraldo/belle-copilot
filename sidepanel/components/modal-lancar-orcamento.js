@@ -14,15 +14,39 @@ let isGravando = false;
 let dadosOrcamentoAtual = null;
 let callbackSalvar = null;
 
-export function abrirPaginaPermissaoMicrofone() {
-  const url = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
+let timestampUltimaAberturaAbaMic = 0;
+
+export async function abrirPaginaPermissaoMicrofone() {
+  const agora = Date.now();
+  if (agora - timestampUltimaAberturaAbaMic < 3000) {
+    return; // Evita abrir abas repetidas em rajada (mínimo 3s de intervalo)
+  }
+  timestampUltimaAberturaAbaMic = agora;
+
+  const urlPermissao = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
     ? chrome.runtime.getURL("sidepanel/mic-permissao.html")
     : "mic-permissao.html";
 
-  if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
-    chrome.tabs.create({ url });
+  if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
+    try {
+      const tabs = await new Promise(r => chrome.tabs.query({ url: urlPermissao }, r));
+      if (Array.isArray(tabs) && tabs.length > 0) {
+        // Já existe uma aba aberta! Foca nela em vez de abrir outra
+        const abaAberta = tabs[0];
+        if (abaAberta?.id) {
+          chrome.tabs.update(abaAberta.id, { active: true });
+          if (abaAberta.windowId && chrome.windows?.update) {
+            chrome.windows.update(abaAberta.windowId, { focused: true });
+          }
+          return;
+        }
+      }
+      chrome.tabs.create({ url: urlPermissao });
+    } catch (e) {
+      chrome.tabs.create({ url: urlPermissao });
+    }
   } else {
-    window.open(url, "_blank");
+    window.open(urlPermissao, "_blank");
   }
 }
 

@@ -30,8 +30,13 @@ async function pedirPermissaoMicrofone() {
   } catch (err) {
     console.warn("Erro ao solicitar microfone:", err);
     statusEl.className = "status erro";
-    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      statusEl.innerHTML = "⚠️ Permissão bloqueada pelo navegador.<br><br>👉 Clique no ícone de <b>Cadeado / Configurações do Site</b> no topo da barra de endereço e altere o <b>Microfone</b> para <b>Permitir</b>. Depois clique no botão acima novamente.";
+    const msg = String(err.message || "").toLowerCase();
+    const nome = String(err.name || "");
+
+    if (nome === "NotFoundError" || nome === "DevicesNotFoundError" || msg.includes("device not found") || msg.includes("requested device")) {
+      statusEl.innerHTML = "⚠️ <b>Nenhum microfone detectado no computador.</b><br><br>O sistema não encontrou nenhum microfone ou headset conectado.<br><br>👉 Conecte um microfone ou fone de ouvido e clique no botão <b>Autorizar Microfone</b> acima.";
+    } else if (nome === "NotAllowedError" || nome === "PermissionDeniedError") {
+      statusEl.innerHTML = "⚠️ <b>Permissão bloqueada pelo navegador.</b><br><br>👉 Clique no ícone de <b>Cadeado / Configurações do Site</b> no topo da barra de endereço e altere o <b>Microfone</b> para <b>Permitir</b>. Depois clique no botão <b>Autorizar Microfone</b> acima.";
     } else {
       statusEl.textContent = "Erro ao acessar microfone: " + (err.message || err.name);
     }
@@ -39,13 +44,12 @@ async function pedirPermissaoMicrofone() {
 }
 
 if (btn) {
-  btn.addEventListener("click", pedirPermissaoMicrofone);
+  btn.addEventListener("click", () => pedirPermissaoMicrofone());
 }
 
-// Dispara imediatamente ao carregar a página para abrir o prompt do navegador de primeira
-document.addEventListener("DOMContentLoaded", () => {
+// Dispara uma única vez ao carregar a página
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => pedirPermissaoMicrofone());
+} else {
   pedirPermissaoMicrofone();
-});
-setTimeout(() => {
-  pedirPermissaoMicrofone();
-}, 200);
+}

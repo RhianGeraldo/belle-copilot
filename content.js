@@ -329,6 +329,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         activeSpeechRec.onerror = (errEvt) => {
           console.warn("[Belle Voz] Erro:", errEvt.error);
+          if (errEvt.error === "not-allowed" || errEvt.error === "audio-capture" || errEvt.error === "service-not-allowed") {
+            pausadoIntencionalmente = true;
+            try { 
+              activeSpeechRec.onend = null; 
+              activeSpeechRec.stop(); 
+            } catch (e) {}
+            activeSpeechRec = null;
+          }
           if (errEvt.error !== "no-speech") {
             safeSendMessage({ action: "BELLE_VOZ_EVENTO", tipo: "error", erro: errEvt.error });
           }

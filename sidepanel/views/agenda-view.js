@@ -127,6 +127,9 @@ function obterProgressoDeSaldo(nomeArea, codServico, saldoLista) {
   return "";
 }
 
+// Controle de exibição do progresso de sessões na agenda (temporariamente oculto a pedido do usuário)
+const EXIBIR_PROGRESSO_SESSOES_AGENDA = false;
+
 /**
  * Gera o HTML dos chips de procedimentos com o progresso de cada área individual
  */
@@ -136,13 +139,13 @@ function gerarHtmlChipsServicos(app, saldoLista = null) {
 
   if (app.arrServ && app.arrServ.length > 0) {
     return app.arrServ.map(s => {
-      const progresso = obterProgressoDeSaldo(s.nome, s.cod_servico, lista);
+      const progresso = EXIBIR_PROGRESSO_SESSOES_AGENDA ? obterProgressoDeSaldo(s.nome, s.cod_servico, lista) : "";
       const badgeProgresso = progresso ? `<span class="service-chip-progresso">${progresso}</span>` : "";
       const nomeLimpo = (s.nome || "").replace(/\s*-\s*\d+\/\d+/, "").trim();
       return `<span class="service-chip-pill">${badgeProgresso}${nomeLimpo}</span>`;
     }).join("");
   } else {
-    const progresso = obterProgressoDeSaldo(app.procedimento, null, lista);
+    const progresso = EXIBIR_PROGRESSO_SESSOES_AGENDA ? obterProgressoDeSaldo(app.procedimento, null, lista) : "";
     const badgeProgresso = progresso ? `<span class="service-chip-progresso">${progresso}</span>` : "";
     const procLimpo = (app.procedimento || "").replace(/\s*-\s*\d+\/\d+/, "").trim();
     return `<span class="service-chip-pill">${badgeProgresso}${procLimpo}</span>`;

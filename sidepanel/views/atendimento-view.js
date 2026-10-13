@@ -214,6 +214,9 @@ function encontrarSaldoDoServico(servicoAgendado, listaSaldo) {
   return null;
 }
 
+// Controle de exibição do stepper/progresso de sessões (temporariamente oculto a pedido do usuário)
+const EXIBIR_PROGRESSO_SESSOES = false;
+
 function gerarCardServicoHtml({ cod, nome, realizadas, contratadas, pct, temSaldo }) {
   const codLimpo = (cod && String(cod).trim() && !String(cod).toLowerCase().startsWith("área"))
     ? String(cod).replace(/^cód:\s*/i, "").trim()
@@ -225,7 +228,7 @@ function gerarCardServicoHtml({ cod, nome, realizadas, contratadas, pct, temSald
   const qtdRealizadas = Number(realizadas) || 0;
 
   let progressoHtml = "";
-  if (temSaldo && qtdContratadas > 0) {
+  if (EXIBIR_PROGRESSO_SESSOES && temSaldo && qtdContratadas > 0) {
     if (qtdContratadas <= 15) {
       let larguraFill = 0;
       if (qtdContratadas === 1) {
@@ -270,7 +273,7 @@ function gerarCardServicoHtml({ cod, nome, realizadas, contratadas, pct, temSald
         <div class="atend-service-title" title="${displayTitle}">
           ${codLimpo ? `<span class="atend-service-cod">${codLimpo}</span><span class="atend-service-sep"> - </span>` : ''}<span class="atend-service-name">${nomeLimpo}</span>
         </div>
-        ${temSaldo && qtdContratadas > 0 ? `
+        ${EXIBIR_PROGRESSO_SESSOES && temSaldo && qtdContratadas > 0 ? `
           <span class="atend-service-progress">Sessão ${qtdRealizadas}/${qtdContratadas}</span>
         ` : ''}
       </div>

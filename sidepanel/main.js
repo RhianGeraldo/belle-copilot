@@ -46,6 +46,7 @@ import { carregarContratos, inicializarContratosView } from './views/contratos-v
 import { carregarPlanos, inicializarPlanosView } from './views/planos-view.js';
 import { carregarOportunidades, inicializarOportunidadesView } from './views/oportunidades-view.js';
 import { inicializarModalLancamentoOrcamento } from './components/modal-lancar-orcamento.js';
+import { inicializarGerenciaView, carregarGestaoClientesDia } from './views/gerencia-view.js';
 
 // Elementos de Identificação
 const userDisplayName = document.getElementById("user-display-name");
@@ -94,6 +95,10 @@ export function ativarModulo(moduleId) {
 
 export function ativarAba(targetId) {
   // Trava de segurança RBAC por perfil
+  if (state.currentUserRole !== "gerente" && targetId === "tab-gerencia") {
+    console.warn(`[RBAC] 🚫 Apenas gerentes têm acesso à tela de Gestão/Auditoria.`);
+    targetId = "tab-agenda";
+  }
   if (state.currentUserRole === "consultora" && (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs" || targetId === "tab-oportunidades")) {
     console.warn(`[RBAC] 🚫 Consultora tentou acessar "${targetId}". Redirecionando para Comercial.`);
     targetId = "tab-vendas";
@@ -108,7 +113,7 @@ export function ativarAba(targetId) {
     targetId = "tab-cs";
   }
 
-  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs") {
+  if (targetId === "tab-agenda" || targetId === "tab-atendimento" || targetId === "tab-cs" || targetId === "tab-gerencia") {
     ativarModulo("module-agenda");
     const subTabButtons = document.querySelectorAll("#module-agenda .sub-tab-item");
     subTabButtons.forEach(b => {
@@ -126,6 +131,8 @@ export function ativarAba(targetId) {
       } else {
         renderizarCsView();
       }
+    } else if (targetId === "tab-gerencia") {
+      carregarGestaoClientesDia();
     }
   } else if (targetId === "tab-comercial" || targetId === "tab-vendas" || targetId === "tab-contratos" || targetId === "tab-planos") {
     ativarModulo("module-comercial");
@@ -242,6 +249,11 @@ export async function carregarAgendaPorData(novaData) {
       if (agendaEmptyState) agendaEmptyState.style.display = "block";
       renderizarAgenda();
       atualizarKpis();
+    }
+
+    const tabGerencia = document.getElementById("tab-gerencia");
+    if (tabGerencia && tabGerencia.classList.contains("active")) {
+      carregarGestaoClientesDia();
     }
   } catch (err) {
     console.error("[BelleCopilot] Erro ao carregar agenda por data:", err);
@@ -449,6 +461,8 @@ document.addEventListener("DOMContentLoaded", () => {
     onAtivarAba: ativarAba,
     onRecarregarTudo: () => sincronizarSessao()
   });
+
+  inicializarGerenciaView();
 
   // Dispara primeira sincronização
   sincronizarSessao();

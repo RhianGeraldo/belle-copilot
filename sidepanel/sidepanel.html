@@ -96,6 +96,9 @@
           <button class="sub-tab-item" data-target="tab-cs" id="tab-nav-cs" title="Sucesso do Cliente e Oportunidades">
             🤝 CS & Vendas <span class="badge-tab-count" id="badge-cs-total" style="display: none;">0</span>
           </button>
+          <button class="sub-tab-item" data-target="tab-gerencia" id="tab-nav-gerencia" title="Gestão & Auditoria de Sessões" style="display: none;">
+            👔 Gestão <span class="badge-tab-count" id="badge-gerencia-alerta" style="display: none;">0</span>
+          </button>
         </nav>
       </div>
 
@@ -410,6 +413,56 @@
         <div id="opor-empty-state" style="display: none; font-size: 11.5px; color: #64748b; padding: 10px 4px;"></div>
         <div id="opor-cards-container" class="vendas-cards"></div>
       </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- SUB-ABA 4: GESTÃO & AUDITORIA DE SESSÕES (SOMENTE GERENTES) -->
+    <!-- ========================================================= -->
+    <section id="tab-gerencia" class="tab-content">
+      <!-- Barra de Controles e Filtros -->
+      <div class="card gerencia-controls-card">
+        <div class="gerencia-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div class="gerencia-header-title" style="display: flex; align-items: center; gap: 8px;">
+            <span class="icon-bubble" style="background: #e0f2fe; color: #0284c7;">👔</span>
+            <div>
+              <div style="font-weight: 800; font-size: 12.5px; color: #0f172a;">Gestão de Clientes & Sessões</div>
+              <div id="gerencia-subtitulo-dia" style="font-size: 11px; color: #64748b;">Clientes agendados no dia</div>
+            </div>
+          </div>
+          <button type="button" class="btn-date-today" id="btn-gerencia-recarregar" title="Recarregar clientes e planos do dia" style="padding: 4px 8px; font-size: 11px; cursor: pointer;">🔄 Atualizar</button>
+        </div>
+
+        <!-- Tabulação de Filtros Rápidos de Auditoria -->
+        <div class="gerencia-filtros-bar">
+          <button type="button" class="gerencia-filter-btn active" id="btn-filtro-todos" title="Todos os clientes agendados no dia">
+            📋 Todos <span class="gerencia-filter-badge" id="count-badge-todos">0</span>
+          </button>
+          <button type="button" class="gerencia-filter-btn" id="btn-filtro-discrepancia" title="Clientes com número de sessões diferentes entre as áreas do pacote">
+            ⚠️ Discrepância <span class="gerencia-filter-badge" id="count-badge-discrepancia">0</span>
+          </button>
+          <button type="button" class="gerencia-filter-btn" id="btn-filtro-retafinal" title="Clientes com 80%+ das sessões feitas (oportunidade de renovação)">
+            🎯 Reta Final <span class="gerencia-filter-badge" id="count-badge-retafinal">0</span>
+          </button>
+        </div>
+
+        <!-- Busca Rápida -->
+        <input type="text" id="gerencia-busca-input" class="form-input gerencia-busca-input" placeholder="🔍 Buscar cliente, procedimento ou pacote...">
+      </div>
+
+      <!-- Spinner de Carregamento -->
+      <div id="loading-gerencia" class="loading-box" style="display: none;">
+        <div class="spinner"></div>
+        <span>Carregando clientes e planos do dia...</span>
+      </div>
+
+      <!-- Empty State -->
+      <div id="gerencia-empty-state" class="empty-state" style="display: none;">
+        <div class="empty-icon">📊</div>
+        <p id="gerencia-empty-text">Nenhum cliente agendado encontrado para este filtro hoje.</p>
+      </div>
+
+      <!-- Lista de Cards dos Clientes -->
+      <div id="gerencia-cards-container" class="gerencia-cards-list"></div>
     </section>
     </div> <!-- Fim de tabs-scroll-container do módulo Agenda -->
     </div> <!-- Fim de module-agenda -->

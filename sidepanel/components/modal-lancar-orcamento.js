@@ -14,6 +14,18 @@ let isGravando = false;
 let dadosOrcamentoAtual = null;
 let callbackSalvar = null;
 
+export function abrirPaginaPermissaoMicrofone() {
+  const url = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
+    ? chrome.runtime.getURL("sidepanel/mic-permissao.html")
+    : "mic-permissao.html";
+
+  if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+    chrome.tabs.create({ url });
+  } else {
+    window.open(url, "_blank");
+  }
+}
+
 function criarInstanciaReconhecimento() {
   const SpeechRecClass = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecClass) {
@@ -64,22 +76,22 @@ function criarInstanciaReconhecimento() {
   };
 
   rec.onerror = (event) => {
-    console.warn("[Voz] Evento de erro:", event.error);
+    console.warn("[Voz] Evento de erro local:", event.error);
     isGravando = false;
     
     let msgErro = "Erro ao capturar áudio.";
+    let linkPermissao = false;
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      msgErro = "⚠️ Permissão pendente. Abrindo aba para liberar microfone...";
-      if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
-        chrome.tabs.create({ url: chrome.runtime.getURL("sidepanel/mic-permissao.html") });
-      }
+      msgErro = "Microfone não autorizado. Abrindo página para liberar...";
+      linkPermissao = true;
+      abrirPaginaPermissaoMicrofone();
     } else if (event.error === "no-speech") {
       msgErro = "Nenhuma fala detectada. Toque novamente para falar.";
     } else if (event.error === "network") {
       msgErro = "Falha de rede no reconhecimento do Google.";
     }
     
-    atualizarUIGravacao(false, msgErro, true);
+    atualizarUIGravacao(false, msgErro, true, linkPermissao);
   };
 
   rec.onend = () => {
@@ -94,7 +106,7 @@ function criarInstanciaReconhecimento() {
 
 let gravandoViaAbaBelle = false;
 
-function atualizarUIGravacao(gravando, mensagemStatus = "", isErro = false) {
+function atualizarUIGravacao(gravando, mensagemStatus = "", isErro = false, linkPermissao = false) {
   const btnMic = document.getElementById("btn-mic-orcamento");
   const txtMicStatus = document.getElementById("txt-mic-status");
   const statusMic = document.getElementById("status-mic-orcamento");
@@ -127,8 +139,17 @@ function atualizarUIGravacao(gravando, mensagemStatus = "", isErro = false) {
       statusMic.className = "mic-status-label ouvindo";
     } else if (isErro && mensagemStatus) {
       statusMic.style.display = "inline-flex";
-      statusMic.innerHTML = `<span>⚠️ ${mensagemStatus}</span>`;
       statusMic.className = "mic-status-label erro";
+      if (linkPermissao) {
+        statusMic.innerHTML = `<span>⚠️ ${mensagemStatus} <a href="#" id="link-abrir-mic-perm" style="color: #0284c7; text-decoration: underline; font-weight: 700; margin-left: 4px;">Clique para autorizar</a></span>`;
+        const link = document.getElementById("link-abrir-mic-perm");
+        link?.addEventListener("click", (e) => {
+          e.preventDefault();
+          abrirPaginaPermissaoMicrofone();
+        });
+      } else {
+        statusMic.innerHTML = `<span>⚠️ ${mensagemStatus}</span>`;
+      }
     } else {
       statusMic.style.display = "none";
       statusMic.textContent = "";
@@ -168,13 +189,32 @@ async function obterAbaAtivaBelleId() {
   }
 }
 
+let usarReconhecimentoLocalDireto = false;
+
+// Verifica se a extensão já teve o microfone liberado anteriormente
+try {
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    chrome.storage.local.get(["mic_extensao_autorizado"], (res) => {
+      if (res?.mic_extensao_autorizado) {
+        usarReconhecimentoLocalDireto = true;
+      }
+    });
+  }
+} catch (e) {}
+
 async function iniciarGravacao() {
+  // Se o microfone já foi liberado diretamente para a extensão, grava local no painel sem passar pela página web
+  if (usarReconhecimentoLocalDireto) {
+    iniciarGravacaoLocal();
+    return;
+  }
+
   const tabId = await obterAbaAtivaBelleId();
   
   if (tabId) {
     gravandoViaAbaBelle = true;
     isGravando = true;
-    atualizarUIGravacao(true, "🔴 Ouvindo através da aba do Belle... Fale agora");
+    atualizarUIGravacao(true, "🔴 Ouvindo... Fale agora");
 
     try {
       chrome.tabs.sendMessage(tabId, { action: "BELLE_VOZ_INICIAR" }, (response) => {
@@ -375,9 +415,12 @@ export function inicializarModalLancamentoOrcamento() {
           processarTextoVozRecebido(msg.final, msg.interim);
         } else if (msg.tipo === "error") {
           isGravando = false;
+          gravandoViaAbaBelle = false;
           console.warn("[Voz Content Script] Erro de captura:", msg.erro);
           if (msg.erro === "not-allowed") {
-            atualizarUIGravacao(false, "Microfone bloqueado na aba do Belle. Permita no cadeado da barra.", true);
+            usarReconhecimentoLocalDireto = true;
+            atualizarUIGravacao(false, "Microfone não autorizado. Abrindo página para liberar...", true, true);
+            abrirPaginaPermissaoMicrofone();
           } else if (msg.erro === "no-speech") {
             atualizarUIGravacao(false, "Nenhuma fala detectada. Clique no microfone para tentar de novo.", true);
           } else {

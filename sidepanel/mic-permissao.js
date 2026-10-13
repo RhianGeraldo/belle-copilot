@@ -17,17 +17,21 @@ async function pedirPermissaoMicrofone() {
     // Permissão concedida com sucesso! Encerra as faixas de áudio imediatamente.
     stream.getTracks().forEach(t => t.stop());
 
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ mic_extensao_autorizado: true });
+    }
+
     statusEl.className = "status sucesso";
-    statusEl.innerHTML = "✅ Microfone liberado com sucesso!<br>Você já pode voltar para a aba do Belle e usar a voz. Esta janela fechará em breve...";
+    statusEl.innerHTML = "✅ Microfone liberado com sucesso!<br>Você já pode voltar para o Belle Copilot e usar a voz. Esta janela fechará em breve...";
 
     setTimeout(() => {
       window.close();
-    }, 2500);
+    }, 2000);
   } catch (err) {
     console.warn("Erro ao solicitar microfone:", err);
     statusEl.className = "status erro";
     if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      statusEl.innerHTML = "⚠️ Permissão bloqueada pelo navegador.<br><br>👉 Clique no ícone de <b>Cadeado / Configurações do Site</b> na barra de endereço (topo do navegador) e mude o <b>Microfone</b> para <b>Permitir</b>. Depois clique no botão acima novamente.";
+      statusEl.innerHTML = "⚠️ Permissão bloqueada pelo navegador.<br><br>👉 Clique no ícone de <b>Cadeado / Configurações do Site</b> no topo da barra de endereço e altere o <b>Microfone</b> para <b>Permitir</b>. Depois clique no botão acima novamente.";
     } else {
       statusEl.textContent = "Erro ao acessar microfone: " + (err.message || err.name);
     }
@@ -37,3 +41,11 @@ async function pedirPermissaoMicrofone() {
 if (btn) {
   btn.addEventListener("click", pedirPermissaoMicrofone);
 }
+
+// Dispara imediatamente ao carregar a página para abrir o prompt do navegador de primeira
+document.addEventListener("DOMContentLoaded", () => {
+  pedirPermissaoMicrofone();
+});
+setTimeout(() => {
+  pedirPermissaoMicrofone();
+}, 200);

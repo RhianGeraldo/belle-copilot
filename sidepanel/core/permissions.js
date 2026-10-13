@@ -115,6 +115,7 @@ export function aplicarVisibilidadeGerencial() {
   const oporEscopoContainer = document.getElementById("opor-escopo-container");
   const contratosEscopoContainer = document.getElementById("contratos-escopo-container");
   const planosEscopoContainer = document.getElementById("planos-escopo-container");
+  const tabNavGerencia = document.getElementById("tab-nav-gerencia");
 
   if (kpisVendas) kpisVendas.style.display = gerente ? "grid" : "none";
   if (rankingVendas) rankingVendas.style.display = gerente ? "block" : "none";
@@ -122,6 +123,7 @@ export function aplicarVisibilidadeGerencial() {
   if (oporEscopoContainer) oporEscopoContainer.style.display = gerente ? "flex" : "none";
   if (contratosEscopoContainer) contratosEscopoContainer.style.display = gerente ? "flex" : "none";
   if (planosEscopoContainer) planosEscopoContainer.style.display = gerente ? "flex" : "none";
+  if (tabNavGerencia) tabNavGerencia.style.display = gerente ? "inline-flex" : "none";
 }
 
 export function aplicarVisualizacaoPorPerfil(perfil, { onAtivarAba } = {}) {

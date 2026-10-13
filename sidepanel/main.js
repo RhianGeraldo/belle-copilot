@@ -45,6 +45,7 @@ import { carregarVendas, inicializarVendasView } from './views/vendas-view.js';
 import { carregarContratos, inicializarContratosView } from './views/contratos-view.js';
 import { carregarPlanos, inicializarPlanosView } from './views/planos-view.js';
 import { carregarOportunidades, inicializarOportunidadesView } from './views/oportunidades-view.js';
+import { inicializarModalLancamentoOrcamento } from './components/modal-lancar-orcamento.js';
 
 // Elementos de Identificação
 const userDisplayName = document.getElementById("user-display-name");
@@ -441,6 +442,8 @@ document.addEventListener("DOMContentLoaded", () => {
   inicializarPlanosView();
 
   inicializarOportunidadesView();
+
+  inicializarModalLancamentoOrcamento();
 
   inicializarConfigView({
     onAtivarAba: ativarAba,

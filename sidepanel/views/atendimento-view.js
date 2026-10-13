@@ -3,10 +3,11 @@
  * Gerencia a ficha clínica da cliente, histórico de parâmetros, formulários com steppers e fluxo de finalização.
  */
 
-import { state, limparCachesAtendimento } from '../core/state.js';
+import { state, limparCachesAtendimento, clientesPacotesCache, clientesSaldosCache } from '../core/state.js';
 import { 
   buscarGetServicosApi, 
   buscarParametrosLaserApi, 
+  buscarVendasPlanosClienteApi,
   buscarSaldoVendaPlanoApi, 
   salvarParametrosLaserEmLoteApi, 
   atualizarServicosAgendamentoApi,
@@ -22,7 +23,9 @@ import {
   extrairSubzonasHistorico,
   coletarParametrosDosFormularios, 
   verificarEvolucaoParametros,
-  verificarParametrosObrigatorios 
+  verificarParametrosObrigatorios,
+  isRegistroDeHoje,
+  normalizarDataParaIso 
 } from '../engines/laser-safety.js';
 import { abrirModalTravaEvolucao } from '../components/modal-trava.js';
 import { abrirModalProximoAgendamento } from '../components/modal-proximo.js';
@@ -62,6 +65,9 @@ const btnAtendVoltar = document.getElementById("btn-atend-voltar");
 let callbackAtivarAba = null;
 let callbackRecarregarAgenda = null;
 let parametrosJaSalvosNesteAtendimento = false;
+let finalizacaoEmAndamento = false;
+
+export { normalizarDataParaIso, isRegistroDeHoje };
 
 export function obterDataHojeIso() {
   const d = new Date();
@@ -69,30 +75,43 @@ export function obterDataHojeIso() {
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const dia = String(d.getDate()).padStart(2, "0");
   const localHoje = `${ano}-${mes}-${dia}`;
-  return state.currentDataAgenda || localHoje;
+  const agendaIso = normalizarDataParaIso(state.currentDataAgenda);
+  return agendaIso || localHoje;
 }
 
-export function normalizarDataParaIso(dataStr) {
-  if (!dataStr) return "";
-  const parte = dataStr.trim().split(" ")[0].split("T")[0];
-  if (parte.includes("/")) {
-    const [d, m, y] = parte.split("/");
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-  return parte;
-}
-
-export function verificarSeParametrosForamSalvos() {
+export function verificarSeParametrosForamSalvos(app = null) {
   if (parametrosJaSalvosNesteAtendimento) return true;
 
-  // Verifica se o prontuário da cliente já possui registros gravados na data de hoje
-  const hojeIso = obterDataHojeIso();
-  const registrosHoje = (state.ultimosRegistrosLaserCliente || []).filter(r => {
-    const dataReg = normalizarDataParaIso(r.data_hora || r.data);
-    return dataReg === hojeIso;
-  });
+  const appAlvo = app || state.selectedAppointment;
+  const registros = state.ultimosRegistrosLaserCliente || [];
+  const registrosHoje = registros.filter(r => isRegistroDeHoje(r, appAlvo));
 
   return registrosHoje.length > 0;
+}
+
+export function checarEAtualizarUIParametrosSalvos(app = null) {
+  const appAlvo = app || state.selectedAppointment;
+  const jaSalvo = verificarSeParametrosForamSalvos(appAlvo);
+  if (btnSalvarParametrosLaser) {
+    btnSalvarParametrosLaser.style.display = "none";
+  }
+  if (jaSalvo) {
+    parametrosJaSalvosNesteAtendimento = true;
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "block";
+      atendStatusSalvarLaser.className = "param-save-status status-success";
+      const regsHoje = (state.ultimosRegistrosLaserCliente || []).filter(r => isRegistroDeHoje(r, appAlvo));
+      atendStatusSalvarLaser.textContent = regsHoje.length > 0
+        ? `✓ Parâmetros de laser já registrados hoje no prontuário (${regsHoje.length} registro(s)).`
+        : "✓ Parâmetros de laser já registrados hoje no prontuário.";
+    }
+  } else {
+    if (atendStatusSalvarLaser) {
+      atendStatusSalvarLaser.style.display = "none";
+      atendStatusSalvarLaser.textContent = "";
+    }
+  }
+  return jaSalvo;
 }
 
 /**
@@ -126,12 +145,14 @@ async function obterSexoCliente(codCliente) {
 
 /** Recalcula o card de ofertas já com o sexo da cliente resolvido. */
 async function atualizarOfertasComSexo(app, saldoServicos, historicoLaser) {
-  // Renderiza na hora sem o sexo (áreas exclusivas ficam de fora só se a dedução
-  // por áreas já bastar) e refina quando o cadastro responde.
-  atualizarOfertasSugeridasAtendimento(app, saldoServicos, historicoLaser, null);
+  if (!app) return;
+  // Se o sexo já estiver em cache, usa direto; senão busca antes para não duplicar chamadas à IA
+  let sexo = null;
+  try {
+    sexo = await obterSexoCliente(app.codCliente);
+  } catch (e) {}
 
-  const sexo = await obterSexoCliente(app?.codCliente);
-  if (sexo && state.selectedAppointment?.codCliente === app?.codCliente) {
+  if (state.selectedAppointment?.codCliente === app.codCliente) {
     atualizarOfertasSugeridasAtendimento(app, saldoServicos, historicoLaser, sexo);
   }
 }
@@ -144,62 +165,9 @@ function formatarDataPtBr(dataIso) {
 }
 
 export function renderizarMultiplosAgendamentosHoje(appAtual) {
-  if (!atendMultiAppBox || !atendMultiButtons) return;
-  if (!appAtual) {
+  if (atendMultiAppBox) {
     atendMultiAppBox.style.display = "none";
-    return;
   }
-
-  const codCli = appAtual.codCliente;
-  const nomeCli = (appAtual.clienteNome || "").toLowerCase().trim();
-
-  const agendamentosMesmoCliente = (state.appointmentsData || []).filter(a => {
-    if (a.isBloqueado || a.status === "bloqueado") return false;
-    if (codCli && a.codCliente) {
-      return String(a.codCliente) === String(codCli);
-    }
-    if (nomeCli && a.clienteNome) {
-      return a.clienteNome.toLowerCase().trim() === nomeCli;
-    }
-    return false;
-  });
-
-  if (agendamentosMesmoCliente.length <= 1) {
-    atendMultiAppBox.style.display = "none";
-    return;
-  }
-
-  agendamentosMesmoCliente.sort((a, b) => a.horario.localeCompare(b.horario));
-  atendMultiAppBox.style.display = "block";
-  if (atendMultiQtd) atendMultiQtd.textContent = agendamentosMesmoCliente.length;
-
-  let btnsHtml = "";
-  agendamentosMesmoCliente.forEach(a => {
-    const isCurrent = String(a.id) === String(appAtual.id) || String(a.codConsulta) === String(appAtual.codConsulta);
-    const procs = (a.arrServ && a.arrServ.length > 0) ? a.arrServ.map(s => s.nome).join(", ") : (a.procedimento || "Laser");
-    const activeClass = isCurrent ? "active" : "";
-
-    btnsHtml += `
-      <button class="multi-app-btn ${activeClass}" data-id="${a.id}" data-consulta="${a.codConsulta}">
-        <span class="multi-app-time">⏰ ${a.horario}</span>
-        <span class="multi-app-proc" title="${procs}">✨ ${procs}</span>
-        <span class="app-badge ${isCurrent ? 'badge-atendimento' : 'badge-confirmado'}">${isCurrent ? 'Em Tela' : a.statusFormatado || a.status}</span>
-      </button>
-    `;
-  });
-
-  atendMultiButtons.innerHTML = btnsHtml;
-
-  atendMultiButtons.querySelectorAll(".multi-app-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const targetId = btn.getAttribute("data-id");
-      const targetCons = btn.getAttribute("data-consulta");
-      const targetApp = state.appointmentsData.find(x => String(x.id) === String(targetId) || String(x.codConsulta) === String(targetCons));
-      if (targetApp) {
-        abrirAtendimento(targetApp);
-      }
-    });
-  });
 }
 
 /**
@@ -246,6 +214,71 @@ function encontrarSaldoDoServico(servicoAgendado, listaSaldo) {
   return null;
 }
 
+function gerarCardServicoHtml({ cod, nome, realizadas, contratadas, pct, temSaldo }) {
+  const codLimpo = (cod && String(cod).trim() && !String(cod).toLowerCase().startsWith("área"))
+    ? String(cod).replace(/^cód:\s*/i, "").trim()
+    : "";
+  const nomeLimpo = nome || "Procedimento";
+  const displayTitle = codLimpo ? `${codLimpo} - ${nomeLimpo}` : nomeLimpo;
+
+  const qtdContratadas = Number(contratadas) || 0;
+  const qtdRealizadas = Number(realizadas) || 0;
+
+  let progressoHtml = "";
+  if (temSaldo && qtdContratadas > 0) {
+    if (qtdContratadas <= 15) {
+      let larguraFill = 0;
+      if (qtdContratadas === 1) {
+        larguraFill = qtdRealizadas >= 1 ? 100 : 0;
+      } else if (qtdRealizadas >= qtdContratadas) {
+        larguraFill = 100;
+      } else if (qtdRealizadas > 0) {
+        larguraFill = Math.round(((qtdRealizadas - 1) / (qtdContratadas - 1)) * 100);
+      }
+
+      let dotsItems = "";
+      for (let i = 1; i <= qtdContratadas; i++) {
+        const isDone = i <= qtdRealizadas;
+        const isCurrent = i === qtdRealizadas;
+        const dotClass = isDone ? (isCurrent ? "stepper-dot dot-done dot-current" : "stepper-dot dot-done") : "stepper-dot dot-empty";
+        const dotTitle = isDone ? (isCurrent ? `Sessão ${i} (Hoje)` : `Sessão ${i} (Concluída)`) : `Sessão ${i} (Pendente)`;
+        dotsItems += `<span class="${dotClass}" title="${dotTitle}"></span>`;
+      }
+
+      progressoHtml = `
+        <div class="atend-session-stepper" title="${qtdRealizadas} de ${qtdContratadas} sessões realizadas (${pct}%)">
+          <div class="atend-stepper-track">
+            <div class="atend-stepper-fill" style="width: ${larguraFill}%;"></div>
+          </div>
+          <div class="atend-stepper-dots">
+            ${dotsItems}
+          </div>
+        </div>
+      `;
+    } else {
+      progressoHtml = `
+        <div class="atend-session-bar-wrap" title="${qtdRealizadas} de ${qtdContratadas} sessões (${pct}%)">
+          <div class="atend-session-bar-fill" style="width: ${pct}%;"></div>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="atend-service-card">
+      <div class="atend-service-header">
+        <div class="atend-service-title" title="${displayTitle}">
+          ${codLimpo ? `<span class="atend-service-cod">${codLimpo}</span><span class="atend-service-sep"> - </span>` : ''}<span class="atend-service-name">${nomeLimpo}</span>
+        </div>
+        ${temSaldo && qtdContratadas > 0 ? `
+          <span class="atend-service-progress">Sessão ${qtdRealizadas}/${qtdContratadas}</span>
+        ` : ''}
+      </div>
+      ${progressoHtml}
+    </div>
+  `;
+}
+
 export function renderizarServicosComSaldo(servicosSaldo) {
   if (!atendListaServicos) return;
 
@@ -272,21 +305,19 @@ export function renderizarServicosComSaldo(servicosSaldo) {
   let html = "";
   servicosHoje.forEach((sHoje, idx) => {
     const sNome = sHoje.nome || sHoje.nom_servico || sHoje.procedimento || `Área #${idx + 1}`;
-    const sCod = sHoje.cod_servico || sHoje.codServ || "";
 
     // Procura o saldo correspondente desta área no pacote retornado pela API
     const saldoItem = encontrarSaldoDoServico(sHoje, servicosSaldo);
+    const sCod = sHoje.cod_servico || sHoje.codServ || (saldoItem ? (saldoItem.cod_servico || saldoItem.codServ) : "");
 
     let realizadas = 0;
     let contratadas = 0;
-    let saldo = 0;
     let pct = 0;
     let temSaldoInfo = false;
 
     if (saldoItem) {
       realizadas = parseInt(saldoItem.gasto || saldoItem.realizadas || saldoItem.qtd_executada || 0, 10);
       contratadas = parseInt(saldoItem.quantidade || saldoItem.contratadas || saldoItem.qtd_contratada || 10, 10);
-      saldo = parseInt(saldoItem.saldo_atual || saldoItem.saldo || (contratadas - realizadas), 10);
       pct = Math.min(100, Math.round((realizadas / Math.max(1, contratadas)) * 100));
       temSaldoInfo = true;
     } else {
@@ -298,7 +329,6 @@ export function renderizarServicosComSaldo(servicosSaldo) {
           if (match && (sNome.toLowerCase().includes(match[1].toLowerCase().trim()) || match[1].toLowerCase().includes(sNome.toLowerCase().substring(0, 8)))) {
             realizadas = parseInt(match[2], 10) || 0;
             contratadas = parseInt(match[3], 10) || 0;
-            saldo = Math.max(0, contratadas - realizadas);
             pct = Math.min(100, Math.round((realizadas / Math.max(1, contratadas)) * 100));
             temSaldoInfo = true;
             break;
@@ -307,23 +337,14 @@ export function renderizarServicosComSaldo(servicosSaldo) {
       }
     }
 
-    html += `
-      <div class="atend-service-card">
-        <div class="atend-service-header">
-          <span class="atend-service-name">✨ ${sNome}</span>
-          ${temSaldoInfo ? `<span class="atend-service-progress">📊 Sessão ${realizadas}/${contratadas}</span>` : ''}
-        </div>
-        ${temSaldoInfo ? `
-          <div class="atend-session-bar-wrap">
-            <div class="atend-session-bar-fill" style="width: ${pct}%;"></div>
-          </div>
-        ` : ''}
-        <div class="atend-service-footer">
-          <span class="atend-service-code">🏷️ ${sCod ? `Cód: ${sCod}` : `Área #${idx + 1}`}</span>
-          ${temSaldoInfo ? `<span class="atend-service-saldo">Restam: <strong>${saldo} sessões</strong></span>` : ''}
-        </div>
-      </div>
-    `;
+    html += gerarCardServicoHtml({
+      cod: sCod,
+      nome: sNome,
+      realizadas,
+      contratadas,
+      pct,
+      temSaldo: temSaldoInfo
+    });
   });
 
   atendListaServicos.innerHTML = html;
@@ -393,26 +414,8 @@ export function renderizarParametrosLaser(registros) {
 
   state.ultimosRegistrosLaserCliente = Array.isArray(registros) ? registros : [];
 
-  // Verifica se já existem parâmetros salvos na data de hoje
-  const hojeIso = obterDataHojeIso();
-  const registrosHoje = state.ultimosRegistrosLaserCliente.filter(r => {
-    const dataReg = normalizarDataParaIso(r.data_hora || r.data);
-    return dataReg === hojeIso;
-  });
-
-  if (registrosHoje.length > 0) {
-    parametrosJaSalvosNesteAtendimento = true;
-    if (btnSalvarParametrosLaser) {
-      btnSalvarParametrosLaser.disabled = false;
-      btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
-      btnSalvarParametrosLaser.style.background = "#16a34a";
-    }
-    if (atendStatusSalvarLaser) {
-      atendStatusSalvarLaser.style.display = "block";
-      atendStatusSalvarLaser.className = "param-save-status status-success";
-      atendStatusSalvarLaser.textContent = `✓ Parâmetros de laser já registrados hoje no prontuário (${registrosHoje.length} registro(s)).`;
-    }
-  }
+  // Atualiza imediatamente o status e botão de parâmetros salvos hoje
+  checarEAtualizarUIParametrosSalvos(state.selectedAppointment);
 
   if (!Array.isArray(registros) || registros.length === 0) {
     if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Sem registros";
@@ -421,12 +424,16 @@ export function renderizarParametrosLaser(registros) {
     return;
   }
 
-  const primeiraDataHora = registros[0].data_hora;
+  const hojeIso = obterDataHojeIso();
+  const primeiraDataHora = registros[0].data_hora || registros[0].data;
   const diaRecente = primeiraDataHora ? primeiraDataHora.split(" ")[0] : "";
-  const registrosUltimoDia = diaRecente ? registros.filter(r => r.data_hora && r.data_hora.startsWith(diaRecente)) : [registros[0]];
+  const diaRecenteIso = normalizarDataParaIso(diaRecente);
+  const registrosUltimoDia = diaRecenteIso ? registros.filter(r => {
+    const dIso = normalizarDataParaIso(r.data_hora || r.data);
+    return dIso && dIso === diaRecenteIso;
+  }) : [registros[0]];
 
   if (atendLaserDataBadge && diaRecente) {
-    const diaRecenteIso = normalizarDataParaIso(diaRecente);
     const rotuloData = (diaRecenteIso === hojeIso) ? `Hoje (${formatarDataPtBr(diaRecente)})` : formatarDataPtBr(diaRecente);
     atendLaserDataBadge.textContent = `Última Sessão: ${rotuloData}`;
   }
@@ -485,10 +492,14 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
   const temEnergiaAnterior = sub.temEnergiaAnterior;
   const freqNum = sub.freqNum || 0.8;
   const disparosNum = sub.disparosNum || (subIdx > 0 ? 150 : 200);
-  const modoHist = (sub.origModo === 'HR' || sub.modo === 'HR' || !sub.origModo) ? 'HR (Pontual)' : (sub.origModo || sub.modo || 'HR (Pontual)');
+
+  const fVal = String(sub.fototipo || "IV").toUpperCase();
+  const mVal = String(sub.modo || "HR").toUpperCase();
+  const fClean = (fVal.match(/^(I|II|III|IV|V|VI)\b/i) || [])[1] || (fVal.includes("I") ? fVal : "IV");
+  const isHR = !mVal.includes("SHR");
 
   return `
-    <div class="param-subzona-item ${isMulti ? 'param-subzona-destacada' : ''}" 
+    <div class="param-subzona-item" 
          data-sub-idx="${subIdx}"
          data-orig-fototipo="${sub.origFototipo || sub.fototipo || 'IV'}"
          data-orig-modo="${sub.origModo || sub.modo || 'HR'}"
@@ -508,108 +519,77 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
             </button>
           ` : ''}
         </div>
-
-        ${subIdx > 0 ? `
-          <div class="subzona-sugestoes-row">
-            <span class="subzona-sugestao-pill" data-rotulo="Lábios / Mais escura">Lábios</span>
-            <span class="subzona-sugestao-pill" data-rotulo="Face Interna">Face Interna</span>
-            <span class="subzona-sugestao-pill" data-rotulo="Púbis / Externa">Púbis</span>
-            <span class="subzona-sugestao-pill" data-rotulo="Buço">Buço</span>
-            <span class="subzona-sugestao-pill" data-rotulo="Face Externa">Face Externa</span>
-          </div>
-        ` : ''}
       ` : ''}
 
-      ${temEnergiaAnterior ? `
-        <div class="param-historico-ref">
-          <span class="param-hist-icon">📌</span>
-          <span class="param-hist-text">Anterior ${isMulti ? `[${rotulo}]` : ''}: <strong>${sub.energiaAnterior}J</strong> • Fototipo ${sub.origFototipo || sub.fototipo} • ${modoHist}</span>
+      <!-- LINHA 2: ENERGIA (DESTAQUE PRINCIPAL) -->
+      <div class="param-energia-row">
+        <div class="param-energia-anterior">
+          <span class="param-anterior-label">Anterior:</span>
+          <span class="param-anterior-val">${temEnergiaAnterior ? `<strong>${sub.energiaAnterior}J</strong>` : '<em style="color:#94a3b8;">1ª vez</em>'}</span>
         </div>
-      ` : `
-        <div class="param-historico-ref param-historico-novo">
-          <span class="param-hist-icon">🛡️</span>
-          <span class="param-hist-text">${isMulti ? `Sub-zona [${rotulo}]: ` : ''}Sem histórico anterior — defina os parâmetros.</span>
-        </div>
-      `}
 
-      <!-- Bloco de Energia em Destaque (Hero) -->
-      <div class="param-field-energia-hero">
-        <div class="param-energia-header">
-          <label class="param-label-energia">⚡ Energia Principal</label>
-          <span class="param-hero-badge">${temEnergiaAnterior ? `Anterior: ${sub.energiaAnterior}J` : 'Iniciando área'}</span>
-        </div>
-        <div class="param-stepper-wrap param-stepper-energia">
-          <button type="button" class="btn-param-step btn-step-minus" data-delta="-1" title="Diminuir 1J">−</button>
-          <div class="param-input-with-unit">
-            <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="Definir J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
-            <span class="param-unit-tag">J</span>
+        <div class="param-energia-hoje">
+          <span class="param-hoje-label">Hoje:</span>
+          <div class="param-stepper-wrap param-stepper-compact">
+            <button type="button" class="btn-param-step btn-step-minus" data-delta="-1" title="Diminuir 1J">−</button>
+            <div class="param-input-with-unit">
+              <input type="number" step="1" min="0" max="100" class="param-input param-energia" value="${energiaValor}" placeholder="J" ${!temEnergiaAnterior ? 'data-sem-historico="1"' : ''}>
+              <span class="param-unit-tag">J</span>
+            </div>
+            <button type="button" class="btn-param-step btn-step-plus" data-delta="1" title="Aumentar 1J">+</button>
           </div>
-          <button type="button" class="btn-param-step btn-step-plus" data-delta="1" title="Aumentar 1J">+</button>
         </div>
       </div>
 
-      <!-- Grid 2x2 de Configurações Técnicas -->
-      <div class="param-grid-duo">
-        <div class="param-field">
-          <label class="param-label">
-            <span>👤 Fototipo</span>
-          </label>
-          <select class="param-input param-fototipo">
-            <option value="I" ${sub.fototipo === 'I' ? 'selected' : ''}>I • Muito clara</option>
-            <option value="II" ${sub.fototipo === 'II' ? 'selected' : ''}>II • Clara</option>
-            <option value="III" ${sub.fototipo === 'III' ? 'selected' : ''}>III • Morena clara</option>
-            <option value="IV" ${sub.fototipo === 'IV' || !sub.fototipo ? 'selected' : ''}>IV • Morena</option>
-            <option value="V" ${sub.fototipo === 'V' ? 'selected' : ''}>V • Morena escura</option>
-            <option value="VI" ${sub.fototipo === 'VI' ? 'selected' : ''}>VI • Negra</option>
+      <!-- LINHA 3: PARÂMETROS TÉCNICOS (FOTOTIPO, MODO, FREQUÊNCIA, DISPAROS) -->
+      <div class="param-tech-row">
+        <!-- Fototipo -->
+        <div class="param-tech-item">
+          <label class="param-tech-lbl">Fototipo</label>
+          <select class="param-tech-select param-fototipo" title="Fototipo da pele">
+            <option value="I" ${fClean === 'I' ? 'selected' : ''}>I • Muito clara</option>
+            <option value="II" ${fClean === 'II' ? 'selected' : ''}>II • Clara</option>
+            <option value="III" ${fClean === 'III' ? 'selected' : ''}>III • Morena clara</option>
+            <option value="IV" ${fClean === 'IV' ? 'selected' : ''}>IV • Morena</option>
+            <option value="V" ${fClean === 'V' ? 'selected' : ''}>V • Morena escura</option>
+            <option value="VI" ${fClean === 'VI' ? 'selected' : ''}>VI • Negra</option>
           </select>
         </div>
 
-        <div class="param-field">
-          <label class="param-label">
-            <span>⚡ Modo</span>
-          </label>
-          <select class="param-input param-modo">
-            <option value="HR" ${sub.modo === 'HR' || !sub.modo ? 'selected' : ''}>HR (Pontual)</option>
-            <option value="SHR" ${sub.modo === 'SHR' ? 'selected' : ''}>SHR (Varredura)</option>
+        <!-- Modo -->
+        <div class="param-tech-item">
+          <label class="param-tech-lbl">Modo</label>
+          <select class="param-tech-select param-modo" title="Modo de disparo">
+            <option value="HR" ${isHR ? 'selected' : ''}>HR (Pontual)</option>
+            <option value="SHR" ${!isHR ? 'selected' : ''}>SHR (Varredura)</option>
           </select>
         </div>
 
-        <div class="param-field">
-          <label class="param-label">
-            <span>⏱️ Frequência</span>
-            <span class="param-label-unit">Hz</span>
-          </label>
-          <div class="param-stepper-wrap">
+        <!-- Frequência -->
+        <div class="param-tech-item">
+          <label class="param-tech-lbl">Freq</label>
+          <div class="param-stepper-wrap param-stepper-mini" title="Frequência em Hz">
             <button type="button" class="btn-param-step" data-delta="-0.1" title="Diminuir 0.1Hz">−</button>
             <div class="param-input-with-unit">
-              <input type="number" step="0.1" min="0.1" max="10.0" class="param-input param-frequencia" value="${freqNum}">
+              <input type="number" step="0.1" min="0.1" max="10" class="param-input param-frequencia" value="${freqNum}">
               <span class="param-unit-tag">Hz</span>
             </div>
             <button type="button" class="btn-param-step" data-delta="0.1" title="Aumentar 0.1Hz">+</button>
           </div>
         </div>
 
-        <div class="param-field">
-          <label class="param-label">
-            <span>🎯 Disparos</span>
-            <span class="param-label-unit">shots</span>
-          </label>
-          <div class="param-stepper-wrap">
+        <!-- Disparos -->
+        <div class="param-tech-item">
+          <label class="param-tech-lbl">Disparos</label>
+          <div class="param-stepper-wrap param-stepper-mini" title="Quantidade de disparos">
             <button type="button" class="btn-param-step" data-delta="-50" title="Diminuir 50 disparos">−</button>
             <div class="param-input-with-unit">
-              <input type="number" step="50" min="0" max="5000" class="param-input param-disparos" value="${disparosNum}">
-              <span class="param-unit-tag">qtd</span>
+              <input type="number" step="10" min="0" max="9999" class="param-input param-disparos" value="${disparosNum}">
             </div>
             <button type="button" class="btn-param-step" data-delta="50" title="Aumentar 50 disparos">+</button>
           </div>
         </div>
       </div>
-
-      ${isMulti ? `
-        <div class="param-field" style="margin-top: 6px;">
-          <input type="text" class="param-input param-obs" placeholder="Observação da sub-zona [${rotulo}] (opcional)" value="${sub.obs || ''}">
-        </div>
-      ` : ''}
     </div>
   `;
 }
@@ -643,6 +623,7 @@ export function capturarValoresAtuaisDoFormulario() {
   cards.forEach(card => {
     const sCod = card.getAttribute("data-cod-serv") || "";
     const sNome = card.getAttribute("data-area-nome") || "";
+    const codAgendamento = card.getAttribute("data-cod-agendamento") || "";
     const status = card.getAttribute("data-status") || "realizada";
     const isOpen = card.classList.contains("param-card-open");
     const removerChk = card.querySelector(".chk-remover-agendamento");
@@ -664,6 +645,7 @@ export function capturarValoresAtuaisDoFormulario() {
 
     const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
     mapa.set(chave, {
+      codAgendamento,
       status,
       isOpen,
       removerDoAgendamento,
@@ -675,6 +657,65 @@ export function capturarValoresAtuaisDoFormulario() {
 
   cacheFormularioAtendimento = mapa;
   return mapa;
+}
+
+/**
+ * Identifica com precisão a qual agendamento do dia um determinado serviço pertence,
+ * garantindo que, quando múltiplos agendamentos do mesmo cliente forem unificados na visualização,
+ * os parâmetros sejam gravados estritamente no agendamento correto no Belle.
+ */
+export function resolverCodAgendamentoParaServico(nomeArea, codServ = "", itemServ = null) {
+  if (itemServ?.codAgendamento) return String(itemServ.codAgendamento);
+
+  const app = state.selectedAppointment;
+  const codCli = app?.codCliente;
+  const nomeCli = (app?.clienteNome || "").toLowerCase().trim();
+
+  const agendamentos = (state.appointmentsData || []).filter(a => {
+    if (a.isBloqueado || a.status === "bloqueado") return false;
+    if (codCli && a.codCliente) return String(a.codCliente) === String(codCli);
+    if (nomeCli && a.clienteNome) return a.clienteNome.toLowerCase().trim() === nomeCli;
+    return false;
+  });
+
+  if (agendamentos.length === 0) {
+    return String(app?.codConsulta || app?.id || "");
+  }
+
+  const sNomeLower = String(nomeArea || "").toLowerCase().trim();
+  const sCodStr = String(codServ || "").trim();
+
+  // 1. Procura no arrServ de cada agendamento
+  for (const ag of agendamentos) {
+    if (Array.isArray(ag.arrServ) && ag.arrServ.length > 0) {
+      const match = ag.arrServ.find(item => {
+        if (sCodStr && (String(item.cod_servico) === sCodStr || String(item.codServ) === sCodStr)) return true;
+        const itemNome = String(item.nome || item.servico || "").toLowerCase().trim();
+        return itemNome && (itemNome.includes(sNomeLower) || sNomeLower.includes(itemNome));
+      });
+      if (match) return String(ag.codConsulta || ag.id);
+    }
+  }
+
+  // 2. Procura no lbServ de cada agendamento
+  for (const ag of agendamentos) {
+    if (ag.lbServ) {
+      const lbLower = String(ag.lbServ).toLowerCase();
+      if (lbLower.includes(sNomeLower) || (sNomeLower.length >= 4 && lbLower.includes(sNomeLower.substring(0, 4)))) {
+        return String(ag.codConsulta || ag.id);
+      }
+    }
+  }
+
+  // 3. Procura no procedimento ou nomePlano
+  for (const ag of agendamentos) {
+    const proc = String(ag.procedimento || ag.nomePlano || "").toLowerCase();
+    if (proc && (proc.includes(sNomeLower) || sNomeLower.includes(proc))) {
+      return String(ag.codConsulta || ag.id);
+    }
+  }
+
+  return String(app?.codConsulta || app?.id || "");
 }
 
 export function renderizarFormulariosParametrosLaser(listaServicos, historicoRegistros) {
@@ -714,6 +755,17 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     return;
   }
 
+  // Identifica se há múltiplos agendamentos do mesmo cliente hoje
+  const codCliRef = state.selectedAppointment?.codCliente;
+  const nomeCliRef = (state.selectedAppointment?.clienteNome || "").toLowerCase().trim();
+  const agsHoje = (state.appointmentsData || []).filter(a => {
+    if (a.isBloqueado || a.status === "bloqueado") return false;
+    if (codCliRef && a.codCliente) return String(a.codCliente) === String(codCliRef);
+    if (nomeCliRef && a.clienteNome) return a.clienteNome.toLowerCase().trim() === nomeCliRef;
+    return false;
+  });
+  const temMultiplosAgs = agsHoje.length > 1;
+
   let formsHtml = "";
   state.currentListaServicosRegistro.forEach((s, idx) => {
     const sCod = s.codServ || s.cod_servico || (55556400 + idx);
@@ -722,6 +774,11 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sNomeExibicao = sNome.replace(/^\d+\s*-\s*/, '').trim() || sNome;
     const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
     const capturado = valoresCapturados.get(chave);
+
+    // Identifica o agendamento de origem exato desta área
+    const codAgendamentoFinal = s.codAgendamento || capturado?.codAgendamento || resolverCodAgendamentoParaServico(sNome, sCod, s);
+    const agOrigem = agsHoje.find(a => String(a.codConsulta || a.id) === String(codAgendamentoFinal));
+    const horaOrigem = agOrigem?.horario || s.agendamentoHorario || "";
 
     // Puxa automaticamente as sub-zonas anteriores da cliente se houver histórico dividido
     let subzonas = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
@@ -747,110 +804,74 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
 
     const subzonasHtml = subzonas.map((sub, sIdx) => gerarHtmlSubzonaItem(sub, sIdx, subzonas.length, sNome)).join("");
 
-    const isRealizada = capturado ? capturado.status === "realizada" : true;
+    const jaGravadaNaoRealizada = subzonas.some(s => s.isNaoRealizadaHoje);
+    const isRealizada = capturado 
+      ? capturado.status === "realizada" 
+      : (jaGravadaNaoRealizada ? false : true);
     const status = isRealizada ? "realizada" : "nao_realizada";
     const isOpen = capturado ? Boolean(capturado.isOpen) : (idx === 0);
     const removerDoAgendamento = capturado ? capturado.removerDoAgendamento : true;
-    const skipObs = capturado ? (capturado.skipObs || "") : "";
+    const skipObs = capturado ? (capturado.skipObs || "") : (jaGravadaNaoRealizada ? (subzonas[0]?.obs || "") : "");
     const obsGeral = capturado ? (capturado.obsGeral || "") : "";
 
+    const codLimpo = (sCod && String(sCod).trim() && !String(sCod).toLowerCase().startsWith("área"))
+      ? String(sCod).replace(/^cód:\s*/i, "").trim()
+      : "";
+
+    const areaJaGravadaHoje = subzonas.some(s => s.jaSalvoHoje);
+    let badgeStatusHojeHtml = "";
+    if (jaGravadaNaoRealizada) {
+      badgeStatusHojeHtml = `<span class="badge-gravado-hoje badge-gravado-nao-feita" title="Área já registrada no prontuário hoje como Não Realizada">✕ Não Feita Hoje</span>`;
+    } else if (areaJaGravadaHoje) {
+      badgeStatusHojeHtml = `<span class="badge-gravado-hoje" title="Parâmetros desta área já foram gravados hoje no prontuário do Belle">✓ Gravado Hoje</span>`;
+    }
+
     formsHtml += `
-      <div class="atend-param-form-card ${isOpen ? 'param-card-open' : ''} ${!isRealizada ? 'param-card-skipped' : ''}" 
+      <div class="atend-param-form-card ${!isRealizada ? 'param-card-skipped' : ''}" 
            data-idx="${idx}"
            data-cod-serv="${sCod}" 
+           data-cod-agendamento="${codAgendamentoFinal}"
            data-area-nome="${sNome}"
            data-area-formatada="${areaFormatada}"
            data-status="${status}">
         
-        <!-- CABEÇALHO DO TOGGLE (Sempre visível: Título da Área + Status + Chevron) -->
-        <div class="param-form-header atend-area-toggle" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" title="Clique para abrir ou fechar os parâmetros desta área">
-          <div class="param-header-left">
-            <span class="param-area-icon">✨</span>
-            <span class="param-form-title" title="${areaFormatada}">${sNomeExibicao}</span>
-            <span class="param-form-tag">Área ${idx + 1} de ${state.currentListaServicosRegistro.length}</span>
+        <!-- LINHA 1: TÍTULO DA ÁREA + TOGGLE DE STATUS COMPACTO -->
+        <div class="param-card-top-row">
+          <div class="param-card-title-wrap" title="${areaFormatada} (Vinculado ao agendamento #${codAgendamentoFinal})">
+            ${codLimpo ? `<span class="param-card-cod">${codLimpo}</span><span class="param-card-sep"> - </span>` : ''}<span class="param-card-name">${sNomeExibicao}</span>
+            ${temMultiplosAgs && horaOrigem ? `<span class="param-card-hora-tag" title="Vinculado ao agendamento das ${horaOrigem} (#${codAgendamentoFinal})">⏰ ${horaOrigem}</span>` : ''}
+            ${badgeStatusHojeHtml}
           </div>
-          <div class="param-header-right">
-            <span class="param-status-badge ${isRealizada ? 'badge-realizada' : 'badge-nao-realizada'}">${isRealizada ? '✓ Realizada' : '✕ Não Realizada'}</span>
-            <span class="param-toggle-chevron">${isOpen ? '▲' : '▼'}</span>
+          <div class="param-status-toggle-clean">
+            <button type="button" class="btn-toggle-status status-realizada ${isRealizada ? 'active' : ''}" data-status="realizada" title="Área feita hoje">
+              ✓ Feito
+            </button>
+            <button type="button" class="btn-toggle-status status-nao-realizada ${!isRealizada ? 'active' : ''}" data-status="nao_realizada" title="Área não feita hoje">
+              ✕ Não Feito
+            </button>
           </div>
         </div>
 
-        <!-- CORPO EXPANSÍVEL (Apenas visível quando o toggle estiver aberto) -->
-        <div class="param-form-body" style="display: ${isOpen ? 'block' : 'none'};">
-          <div class="param-status-toggle-row">
-            <div class="param-status-toggle">
-              <button type="button" class="btn-toggle-status status-realizada ${isRealizada ? 'active' : ''}" data-status="realizada" title="Área realizada normalmente na sessão de hoje">
-                <span class="status-btn-icon">✓</span> Realizada
-              </button>
-              <button type="button" class="btn-toggle-status status-nao-realizada ${!isRealizada ? 'active' : ''}" data-status="nao_realizada" title="Área não realizada (sensibilidade, dor, etc.)">
-                <span class="status-btn-icon">✕</span> Não Realizada
-              </button>
-            </div>
-          </div>
-
-        <!-- SEÇÃO QUANDO REALIZADA (Com Suporte a Subzonas de Fototipo Misto) -->
+        <!-- SEÇÃO QUANDO REALIZADA (ENXUTA: ENERGIA + OBSERVAÇÃO) -->
         <div class="param-section-realizada" style="display: ${isRealizada ? 'block' : 'none'};">
           <div class="param-subzonas-container">
             ${subzonasHtml}
           </div>
 
-          <div class="param-add-subzona-row">
-            <button type="button" class="btn-add-subzona" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
-              ➕ Dividir Sub-Zona (Fototipo Misto)
-            </button>
-          </div>
-
-          <div class="param-obs-section">
-            <div class="param-obs-header">
-              <span class="param-obs-label">💬 Observações Clínicas:</span>
-              <span class="param-obs-hint">Toque para adicionar</span>
-            </div>
-            <div class="param-obs-pills-row">
-              <span class="obs-pill" data-text="Boa tolerância">Boa tolerância</span>
-              <span class="obs-pill" data-text="Pele íntegra">Pele íntegra</span>
-              <span class="obs-pill" data-text="Sensibilidade leve">Sensibilidade leve</span>
-              <span class="obs-pill" data-text="Hiperemia leve">Hiperemia leve</span>
-              <span class="obs-pill" data-text="Pelos finos">Pelos finos</span>
-              <span class="obs-pill" data-text="Pelos grossos">Pelos grossos</span>
-              <span class="obs-pill" data-text="Sem intercorrências">Sem intercorrências</span>
-            </div>
-            <input type="text" class="param-input param-obs" placeholder="ex: ${sNomeExibicao} • Boa tolerância" value="${obsGeral}">
+          <div class="param-obs-row">
+            <input type="text" class="param-input param-obs" placeholder="💬 Observação (opcional, ex: Boa tolerância)..." value="${obsGeral}">
           </div>
         </div>
 
         <!-- SEÇÃO QUANDO NÃO REALIZADA -->
         <div class="param-section-nao-realizada" style="display: ${!isRealizada ? 'block' : 'none'};">
-          <div class="param-skip-alert">
-            <span class="param-skip-alert-icon">🛡️</span>
-            <div class="param-skip-alert-text">
-              <strong>Área não realizada na sessão de hoje.</strong><br>
-              Esta área será removida do agendamento para <strong>preservar a sessão no saldo do plano</strong> da cliente.
-            </div>
-          </div>
-
-          <div class="param-skip-options">
-            <label class="param-skip-chk-wrap">
+          <div class="param-skip-box">
+            <label class="param-skip-chk-label">
               <input type="checkbox" class="chk-remover-agendamento" ${removerDoAgendamento ? 'checked' : ''}>
               <span>Remover do agendamento (preserva saldo no Belle)</span>
             </label>
-
-            <div class="param-obs-section" style="margin-top: 6px; border-top: none;">
-              <div class="param-obs-header">
-                <span class="param-obs-label">Motivo da Não Realização:</span>
-                <span class="param-obs-hint" style="color: #e11d48;">Motivos rápidos</span>
-              </div>
-              <div class="param-skip-pills-row">
-                <span class="skip-pill" data-reason="Sensibilidade / Não tolerou o laser">Sensibilidade / Dor</span>
-                <span class="skip-pill" data-reason="Pele sensível / Lesão no local">Pele sensível / Lesão</span>
-                <span class="skip-pill" data-reason="Exposição solar recente / Bronzeada">Sol recente / Bronzeada</span>
-                <span class="skip-pill" data-reason="Período menstrual / Hipersensibilidade">Período menstrual</span>
-                <span class="skip-pill" data-reason="Cliente desistiu / Sem tempo hoje">Sem tempo / Desistência</span>
-                <span class="skip-pill" data-reason="Área com pelos não raspados">Pelos não raspados</span>
-              </div>
-              <input type="text" class="param-input param-skip-obs" placeholder="ex: Sensibilidade excessiva / Pele reativa no dia" value="${skipObs}">
-            </div>
+            <input type="text" class="param-input param-skip-obs" placeholder="Motivo (ex: Sensibilidade / Sol recente / Menstruada)..." value="${skipObs}">
           </div>
-        </div>
         </div>
       </div>
     `;
@@ -866,9 +887,7 @@ export async function salvarParametrosLaserDireto(parametros) {
   if (verificarSeParametrosForamSalvos()) {
     console.log("[Atendimento] ℹ️ Parâmetros já constam como gravados hoje no prontuário. Salvamento ignorado para evitar duplicidade.");
     if (btnSalvarParametrosLaser) {
-      btnSalvarParametrosLaser.disabled = false;
-      btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
-      btnSalvarParametrosLaser.style.background = "#16a34a";
+      btnSalvarParametrosLaser.style.display = "none";
     }
     if (atendStatusSalvarLaser) {
       atendStatusSalvarLaser.style.display = "block";
@@ -902,8 +921,9 @@ export async function salvarParametrosLaserDireto(parametros) {
 
   document.querySelectorAll(".param-energia.param-input-erro").forEach(inp => inp.classList.remove("param-input-erro"));
 
-  btnSalvarParametrosLaser.disabled = true;
-  btnSalvarParametrosLaser.textContent = "⏳ Gravando no Belle...";
+  if (btnSalvarParametrosLaser) {
+    btnSalvarParametrosLaser.style.display = "none";
+  }
 
   if (atendStatusSalvarLaser) {
     atendStatusSalvarLaser.style.display = "block";
@@ -922,14 +942,28 @@ export async function salvarParametrosLaserDireto(parametros) {
       msgSucesso += ` (${qtdNaoRealizadas} área(s) não realizada(s) registrada(s))`;
     }
 
-    btnSalvarParametrosLaser.disabled = false;
-    btnSalvarParametrosLaser.textContent = "✅ Parâmetros Já Gravados Hoje";
-    btnSalvarParametrosLaser.style.background = "#16a34a";
+    if (btnSalvarParametrosLaser) {
+      btnSalvarParametrosLaser.style.display = "none";
+    }
     parametrosJaSalvosNesteAtendimento = true;
     if (atendStatusSalvarLaser) {
       atendStatusSalvarLaser.className = "param-save-status status-success";
       atendStatusSalvarLaser.textContent = msgSucesso;
     }
+
+    // Mantém no cache em memória o status exato (realizada / não realizada) de cada área
+    parametros.forEach(p => {
+      const sCod = p.codServ || "";
+      const sNome = p.nomeArea || p.area || "";
+      const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
+      const existente = cacheFormularioAtendimento.get(chave) || {};
+      cacheFormularioAtendimento.set(chave, {
+        ...existente,
+        status: p.isRealizada === false ? "nao_realizada" : "realizada",
+        skipObs: p.obs || existente.skipObs || "",
+        removerDoAgendamento: p.removerDoAgendamento !== false
+      });
+    });
 
     // Persiste no cache da cliente a configuração de subzonas
     if (state.selectedAppointment?.codCliente) {
@@ -972,9 +1006,9 @@ export async function salvarParametrosLaserDireto(parametros) {
       }
     }, 4000);
   } else {
-    btnSalvarParametrosLaser.disabled = false;
-    btnSalvarParametrosLaser.textContent = "💾 Salvar Parâmetros (Todas as Áreas)";
-    btnSalvarParametrosLaser.style.background = "";
+    if (btnSalvarParametrosLaser) {
+      btnSalvarParametrosLaser.style.display = "none";
+    }
     if (atendStatusSalvarLaser) {
       atendStatusSalvarLaser.style.display = "block";
       atendStatusSalvarLaser.className = "param-save-status status-error";
@@ -991,6 +1025,23 @@ export async function salvarParametrosLaserDireto(parametros) {
 export async function executarFluxoFinalizacaoAtendimento(app) {
   if (!app) return;
 
+  if (finalizacaoEmAndamento) {
+    console.warn("[Atendimento] Finalização já em andamento, ignorando clique duplo.");
+    return;
+  }
+
+  const statusStr = String(app.status || "").toLowerCase();
+  const statusFmtStr = String(app.statusFormatado || "").toLowerCase();
+  const stsStr = String(app.sts || "").toLowerCase();
+  const isJaFinalizado = statusStr === "finalizado" || statusStr === "atendido" ||
+                         statusFmtStr === "atendido" || stsStr === "atendido";
+  if (isJaFinalizado) {
+    alert("Este atendimento já foi finalizado no Belle.");
+    return;
+  }
+
+  finalizacaoEmAndamento = true;
+
   const isAval = app.isAvaliacao ?? ehAgendamentoAvaliacao(app);
 
   // Se for AVALIAÇÃO: não há parâmetros técnicos de laser nem evolução a validar
@@ -1003,17 +1054,22 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
     const codConsulta = app.codConsulta || app.id;
     const sucesso = await finalizarAtendimentoApi(state.currentToken, codConsulta, state.currentCodEstab);
 
-    if (btnAtendFinalizar) {
-      btnAtendFinalizar.disabled = false;
-      btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
-    }
-
     if (sucesso) {
+      finalizacaoEmAndamento = false;
       app.status = "finalizado";
       app.statusFormatado = "Atendido";
       if (atendStatusBadge) {
         atendStatusBadge.className = "app-badge badge-finalizado";
         atendStatusBadge.textContent = "Atendido";
+      }
+
+      if (btnAtendFinalizar) {
+        btnAtendFinalizar.disabled = true;
+        btnAtendFinalizar.textContent = "✅ Atendimento Já Finalizado";
+        btnAtendFinalizar.style.background = "#64748b";
+        btnAtendFinalizar.style.borderColor = "#475569";
+        btnAtendFinalizar.style.cursor = "not-allowed";
+        btnAtendFinalizar.title = "Este atendimento já foi finalizado no Belle.";
       }
 
       limparCachesAtendimento();
@@ -1025,6 +1081,11 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       // Sugere agendar primeira sessão ou pacote
       abrirModalProximoAgendamento(app, []);
     } else {
+      finalizacaoEmAndamento = false;
+      if (btnAtendFinalizar) {
+        btnAtendFinalizar.disabled = false;
+        btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
+      }
       alert("Não foi possível concluir a avaliação no Belle. Verifique a conexão e tente novamente.");
     }
     return;
@@ -1040,6 +1101,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
 
   // 2. Trava de segurança: Se TODAS as áreas forem marcadas como não realizadas, não finaliza como Atendido
   if (parametrosFormularios.length > 0 && areasRealizadas.length === 0 && areasParaRemover.length > 0) {
+    finalizacaoEmAndamento = false;
     if (!parametrosJaSalvos) {
       const confirmarSalvar = confirm(
         "Todas as áreas desta consulta foram marcadas como 'Não Realizada'.\n\n" +
@@ -1066,60 +1128,78 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
       btnAtendFinalizar.textContent = "⏳ Atualizando agendamento...";
     }
 
-    // 1. Edita o agendamento no Belle: retira áreas não realizadas e vincula a atendente logada
-    console.log(`[Atendimento] 📝 Atualizando agendamento no Belle: ${areasParaRemover.length} área(s) para remover, vinculando atendente (${state.currentUserName || 'Atendente'})...`);
-    const resEdicao = await atualizarServicosAgendamentoApi(
-      state.currentToken,
-      app,
-      {
-        areasParaRemover,
-        areasRealizadas
-      },
-      state.currentCodEstab
-    );
+    const codCli = app.codCliente;
+    const nomeCli = (app.clienteNome || "").toLowerCase().trim();
 
-    if (!resEdicao || !resEdicao.success) {
+    // Identifica todos os agendamentos do mesmo cliente hoje que devem ser finalizados juntos
+    const agendamentosParaFinalizar = (state.appointmentsData || []).filter(a => {
+      if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado") return false;
+      if (codCli && a.codCliente) {
+        return String(a.codCliente) === String(codCli);
+      }
+      if (nomeCli && a.clienteNome) {
+        return a.clienteNome.toLowerCase().trim() === nomeCli;
+      }
+      return false;
+    });
+
+    const listaAlvo = (agendamentosParaFinalizar.length > 0) ? agendamentosParaFinalizar : [app];
+
+    console.log(`[Atendimento] 📝 Finalizando ${listaAlvo.length} agendamento(s) do cliente simultaneamente...`);
+
+    let falhasFinalizacao = 0;
+    for (let i = 0; i < listaAlvo.length; i++) {
+      const ag = listaAlvo[i];
+      const codAgStr = String(ag.codConsulta || ag.id);
+      const horaAg = ag.horario ? ` (${ag.horario})` : "";
+
       if (btnAtendFinalizar) {
-        btnAtendFinalizar.disabled = false;
-        btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+        btnAtendFinalizar.textContent = listaAlvo.length > 1 
+          ? `⏳ Finalizando ${i + 1} de ${listaAlvo.length}${horaAg}...`
+          : "⏳ Editando e finalizando no Belle...";
       }
-      alert(
-        `Atendimento NÃO finalizado.\n\n` +
-        `Não foi possível atualizar os serviços do agendamento no Belle Software:\n` +
-        `${resEdicao?.error || "Falha na comunicação com o Belle"}.\n\n` +
-        `Para garantir que nenhuma sessão seja debitada indevidamente, a finalização foi interrompida. Tente novamente.`
-      );
-      return;
-    }
 
-    // Sincroniza serviços atualizados na memória local
-    if (Array.isArray(resEdicao.servicosAtualizados) && resEdicao.servicosAtualizados.length > 0) {
-      app.arrServ = resEdicao.servicosAtualizados;
-      state.currentServicosAgendadosHoje = resEdicao.servicosAtualizados;
-      const appMemoria = (state.appointmentsData || []).find(a => 
-        String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)
+      // Filtra estritamente as áreas deste agendamento
+      const areasParaRemoverDesteAg = areasParaRemover.filter(p => {
+        if (p.codAgendamento) return String(p.codAgendamento) === codAgStr;
+        return listaAlvo.length === 1;
+      });
+      const areasRealizadasDesteAg = areasRealizadas.filter(p => {
+        if (p.codAgendamento) return String(p.codAgendamento) === codAgStr;
+        return listaAlvo.length === 1;
+      });
+
+      console.log(`[Atendimento] 🔄 [${i + 1}/${listaAlvo.length}] Editando agendamento #${codAgStr}${horaAg}...`);
+      const resEdicao = await atualizarServicosAgendamentoApi(
+        state.currentToken,
+        ag,
+        {
+          areasParaRemover: areasParaRemoverDesteAg,
+          areasRealizadas: areasRealizadasDesteAg
+        },
+        state.currentCodEstab
       );
-      if (appMemoria) {
-        appMemoria.arrServ = resEdicao.servicosAtualizados;
+
+      if (!resEdicao || !resEdicao.success) {
+        console.warn(`[Atendimento] ❌ Falha ao atualizar agendamento #${codAgStr} no Belle:`, resEdicao?.error);
+        falhasFinalizacao++;
+        alert(`Não foi possível salvar a edição do agendamento #${codAgStr}${horaAg} no Belle:\n\n${resEdicao?.error || 'Erro desconhecido'}\n\nA finalização foi interrompida para proteger a integridade da sua agenda.`);
+        continue;
+      }
+
+      console.log(`[Atendimento] 🏁 [${i + 1}/${listaAlvo.length}] Finalizando agendamento #${codAgStr}${horaAg}...`);
+      const codConsultaAg = ag.codConsulta || ag.id;
+      const sucesso = await finalizarAtendimentoApi(state.currentToken, codConsultaAg, state.currentCodEstab);
+      if (sucesso) {
+        ag.status = "finalizado";
+        ag.statusFormatado = "Atendido";
+      } else {
+        falhasFinalizacao++;
       }
     }
 
-    limparCachesAtendimento();
-
-    // 2. Finaliza oficialmente a consulta no Belle
-    if (btnAtendFinalizar) {
-      btnAtendFinalizar.textContent = "⏳ Finalizando consulta...";
-    }
-
-    const codConsulta = app.codConsulta || app.id;
-    const sucesso = await finalizarAtendimentoApi(state.currentToken, codConsulta, state.currentCodEstab);
-
-    if (btnAtendFinalizar) {
-      btnAtendFinalizar.disabled = false;
-      btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
-    }
-
-    if (sucesso) {
+    if (falhasFinalizacao === 0) {
+      finalizacaoEmAndamento = false;
       app.status = "finalizado";
       app.statusFormatado = "Atendido";
       if (atendStatusBadge) {
@@ -1127,60 +1207,58 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
         atendStatusBadge.textContent = "Atendido";
       }
 
+      if (btnAtendFinalizar) {
+        btnAtendFinalizar.disabled = true;
+        btnAtendFinalizar.textContent = "✅ Atendimento Já Finalizado";
+        btnAtendFinalizar.style.background = "#64748b";
+        btnAtendFinalizar.style.borderColor = "#475569";
+        btnAtendFinalizar.style.cursor = "not-allowed";
+        btnAtendFinalizar.title = "Este atendimento já foi finalizado no Belle.";
+      }
+
       limparCachesAtendimento();
       limparCacheFormularioLaser();
       parametrosJaSalvosNesteAtendimento = false;
 
-      const codCli = app.codCliente;
-      const nomeCli = (app.clienteNome || "").toLowerCase().trim();
+      // Como todos os pacotes deste cliente já foram finalizados simultaneamente,
+      // busca diretamente a próxima cliente da fila ou agenda
       const horaAtual = app.horario || "00:00";
-
-      const proximoAgendamentoHoje = (state.appointmentsData || []).find(a => {
+      const proximaClienteFila = (state.appointmentsData || []).find(a => {
         if (String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)) return false;
-        if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado") return false;
+        if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado" || a.status === "falta") return false;
+        
+        const mesmoCli = (codCli && a.codCliente && String(a.codCliente) === String(codCli)) ||
+                         (nomeCli && a.clienteNome && a.clienteNome.toLowerCase().trim() === nomeCli);
+        if (mesmoCli) return false;
 
-        const mesmoCliente = (codCli && a.codCliente && String(a.codCliente) === String(codCli)) ||
-                             (nomeCli && a.clienteNome && a.clienteNome.toLowerCase().trim() === nomeCli);
-        if (!mesmoCliente) return false;
+        return a.status === "aguardando";
+      }) || (state.appointmentsData || []).find(a => {
+        if (String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)) return false;
+        if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado" || a.status === "falta") return false;
+        
+        const mesmoCli = (codCli && a.codCliente && String(a.codCliente) === String(codCli)) ||
+                         (nomeCli && a.clienteNome && a.clienteNome.toLowerCase().trim() === nomeCli);
+        if (mesmoCli) return false;
 
         return a.horario >= horaAtual;
       });
 
-      if (proximoAgendamentoHoje) {
-        abrirModalProximoAgendamento(app.clienteNome, proximoAgendamentoHoje, (prox) => {
-          abrirAtendimento(prox);
-        });
+      if (proximaClienteFila) {
+        abrirAtendimento(proximaClienteFila);
       } else {
-        // Encontra a próxima cliente da fila (preferência: status "aguardando", ou próximo agendamento do dia)
-        const proximaClienteFila = (state.appointmentsData || []).find(a => {
-          if (String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)) return false;
-          if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado" || a.status === "falta") return false;
-          
-          const mesmoCli = (codCli && a.codCliente && String(a.codCliente) === String(codCli)) ||
-                           (nomeCli && a.clienteNome && a.clienteNome.toLowerCase().trim() === nomeCli);
-          if (mesmoCli) return false;
-
-          return a.status === "aguardando";
-        }) || (state.appointmentsData || []).find(a => {
-          if (String(a.id) === String(app.id) || String(a.codConsulta) === String(app.codConsulta)) return false;
-          if (a.isBloqueado || a.status === "bloqueado" || a.status === "finalizado" || a.status === "falta") return false;
-          
-          const mesmoCli = (codCli && a.codCliente && String(a.codCliente) === String(codCli)) ||
-                           (nomeCli && a.clienteNome && a.clienteNome.toLowerCase().trim() === nomeCli);
-          if (mesmoCli) return false;
-
-          return a.horario >= horaAtual;
-        });
-
-        if (proximaClienteFila) {
-          abrirAtendimento(proximaClienteFila);
-        } else {
-          if (typeof callbackAtivarAba === "function") callbackAtivarAba("tab-agenda");
-        }
-        if (typeof callbackRecarregarAgenda === "function") callbackRecarregarAgenda();
+        if (typeof callbackAtivarAba === "function") callbackAtivarAba("tab-agenda");
       }
+      if (typeof callbackRecarregarAgenda === "function") callbackRecarregarAgenda();
     } else {
-      alert("Não foi possível finalizar o atendimento no Belle. Verifique a conexão e tente novamente.");
+      finalizacaoEmAndamento = false;
+      if (btnAtendFinalizar) {
+        btnAtendFinalizar.disabled = false;
+        btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+        btnAtendFinalizar.style.background = "#16a34a";
+        btnAtendFinalizar.style.borderColor = "#15803d";
+        btnAtendFinalizar.style.cursor = "";
+      }
+      alert("Não foi possível finalizar todos os agendamentos no Belle. Verifique a conexão e tente novamente.");
     }
   };
 
@@ -1197,6 +1275,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
   // Trava clínica: área realizada sem energia não pode ser salva nem finalizada
   const { possuiPendencia, areasSemEnergia } = verificarParametrosObrigatorios(parametrosFormularios);
   if (possuiPendencia) {
+    finalizacaoEmAndamento = false;
     const nomes = areasSemEnergia.map(a => a.nomeArea || a.area).join(", ");
     document.querySelectorAll('.param-energia[data-sem-historico="1"]').forEach(inp => {
       if (!(parseFloat(inp.value) > 0)) {
@@ -1228,6 +1307,7 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
     if (parametrosFormularios.length > 0) {
       const resSalvar = await salvarParametrosLaserDireto(parametrosFormularios);
       if (!resSalvar || !resSalvar.success) {
+        finalizacaoEmAndamento = false;
         if (btnAtendFinalizar) {
           btnAtendFinalizar.disabled = false;
           btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
@@ -1249,6 +1329,8 @@ export async function executarFluxoFinalizacaoAtendimento(app) {
   if (possuiSemEvolucao) {
     abrirModalTravaEvolucao(areasSemEvolucao, () => {
       salvarParametrosEProsseguir();
+    }, () => {
+      finalizacaoEmAndamento = false;
     });
   } else {
     await salvarParametrosEProsseguir();
@@ -1314,8 +1396,12 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
   if (onRecarregarAgenda) callbackRecarregarAgenda = onRecarregarAgenda;
 
   state.selectedAppointment = app;
-  parametrosJaSalvosNesteAtendimento = false;
-  if (atendStatusSalvarLaser) atendStatusSalvarLaser.style.display = "none";
+  if (state.lastClienteLaserRegistrosCod && String(state.lastClienteLaserRegistrosCod) !== String(app.codCliente)) {
+    state.ultimosRegistrosLaserCliente = [];
+    parametrosJaSalvosNesteAtendimento = false;
+  }
+  state.lastClienteLaserRegistrosCod = app.codCliente;
+  checarEAtualizarUIParametrosSalvos(app);
 
   const consultaId = app.id || app.codConsulta;
   if (idConsultaCacheFormulario !== consultaId) {
@@ -1323,10 +1409,33 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     limparCacheFormularioLaser();
   }
 
+  const codCli = app.codCliente;
+  const nomeCli = (app.clienteNome || "").toLowerCase().trim();
+
+  const agendamentosMesmoCliente = (state.appointmentsData || []).filter(a => {
+    if (a.isBloqueado || a.status === "bloqueado") return false;
+    if (codCli && a.codCliente) {
+      return String(a.codCliente) === String(codCli);
+    }
+    if (nomeCli && a.clienteNome) {
+      return a.clienteNome.toLowerCase().trim() === nomeCli;
+    }
+    return false;
+  });
+  agendamentosMesmoCliente.sort((a, b) => (a.horario || "").localeCompare(b.horario || ""));
+
   if (atendimentoPlaceholder) atendimentoPlaceholder.style.display = "none";
   if (atendimentoContent) atendimentoContent.style.display = "flex";
 
-  if (atendHorario) atendHorario.textContent = `⏰ ${app.horario || '00:00'} - ${app.hrFim || '00:00'} (${app.duracaoMin || 0}m)`;
+  if (atendHorario) {
+    if (agendamentosMesmoCliente.length > 1) {
+      const horaIni = agendamentosMesmoCliente[0].horario || app.horario || "00:00";
+      const horaFim = agendamentosMesmoCliente[agendamentosMesmoCliente.length - 1].hrFim || app.hrFim || "00:00";
+      atendHorario.textContent = `⏰ ${horaIni} - ${horaFim}`;
+    } else {
+      atendHorario.textContent = `⏰ ${app.horario || '00:00'} - ${app.hrFim || '00:00'}`;
+    }
+  }
   
   if (atendStatusBadge) {
     let badgeClass = "badge-agendado";
@@ -1345,70 +1454,119 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
 
   renderizarProximaClienteAguardando(app);
 
-  if (atendNomeCliente) atendNomeCliente.textContent = app.clienteNome || "Cliente";
+  const codTxt = app.codCliente ? `${app.codCliente} - ` : "";
+  if (atendNomeCliente) atendNomeCliente.textContent = `👤 ${codTxt}${app.clienteNome || "Cliente"}`;
   if (atendCodPaciente) atendCodPaciente.textContent = app.codCliente ? `#${app.codCliente}` : "N/A";
   if (atendCpf) atendCpf.textContent = app.cpf || "Não informado";
   if (atendTelefone) atendTelefone.textContent = app.telefone || "Não informado";
   if (atendSala) atendSala.textContent = app.salaNome || app.sala || "Geral";
   if (atendProfissional) atendProfissional.textContent = app.profissional || "Não informada";
   if (atendCodConsulta) atendCodConsulta.textContent = app.codConsulta ? `#${app.codConsulta}` : (app.id ? `#${app.id}` : "N/A");
-
-  if (atendTagsBox) {
-    let tagsHtml = "";
-    if (app.questPendente) tagsHtml += `<span class="tag-alert-quest">⚠️ Questionário Pendente</span>`;
-    if (app.fazAniver) tagsHtml += `<span class="tag-alert-aniver">🎂 Aniversariante</span>`;
-    if (app.tagsCliente) {
-      const clientTags = app.tagsCliente.split(",").map(t => t.trim()).filter(Boolean);
-      clientTags.forEach(tag => {
-        tagsHtml += `<span class="tag-alert-client">🏷️ ${tag}</span>`;
-      });
-    }
-
-    if (tagsHtml) {
-      atendTagsBox.innerHTML = tagsHtml;
-      atendTagsBox.style.display = "flex";
-    } else {
-      atendTagsBox.style.display = "none";
-    }
-  }
+  if (atendTagsBox) atendTagsBox.style.display = "none";
 
   renderizarMultiplosAgendamentosHoje(app);
 
-  // Pacote / Contrato
-  if (atendNomePlano) atendNomePlano.textContent = app.nomePlano || app.procedimento || "Atendimento Avulso / Procedimento";
-  if (atendCodOrcamento) {
-    if (app.codOrcamento) {
-      atendCodOrcamento.textContent = `Orçamento / Venda: #${app.codOrcamento}`;
-      atendCodOrcamento.style.display = "inline-block";
+  const badgeMultiPacotes = document.getElementById("atend-multi-pacotes-badge");
+  if (badgeMultiPacotes) {
+    if (agendamentosMesmoCliente.length > 1) {
+      badgeMultiPacotes.textContent = `${agendamentosMesmoCliente.length} Pacotes`;
+      badgeMultiPacotes.style.display = "inline-block";
     } else {
-      atendCodOrcamento.style.display = "none";
+      badgeMultiPacotes.style.display = "none";
     }
   }
 
-  // Lista de Serviços & Áreas
-  let listaServicos = (app.arrServ && app.arrServ.length > 0) ? [...app.arrServ] : [];
-
-  if (listaServicos.length === 0 && !servicosExtras && app.codConsulta && state.currentToken) {
-    try {
-      servicosExtras = await buscarGetServicosApi(state.currentToken, app.codConsulta, state.currentCodEstab);
-    } catch (e) {}
+  // Pacotes Agendados: design limpo e escaneável direto no cabeçalho
+  if (agendamentosMesmoCliente.length > 1) {
+    if (atendNomePlano) {
+      atendNomePlano.innerHTML = agendamentosMesmoCliente.map((a, idx) => `
+        <div class="atend-pacote-row">
+          <span class="atend-pacote-tag-hora">⏰ ${a.horario}</span>
+          <span class="atend-pacote-title" title="${a.nomePlano || a.procedimento || 'Tratamento'}">${a.nomePlano || a.procedimento || "Tratamento"}</span>
+          ${a.codOrcamento ? `<span class="atend-pacote-orc-badge">#${a.codOrcamento}</span>` : ''}
+        </div>
+      `).join("");
+    }
+    if (atendCodOrcamento) {
+      const orcs = agendamentosMesmoCliente.map(a => a.codOrcamento).filter(Boolean);
+      if (orcs.length > 0) {
+        atendCodOrcamento.textContent = `${orcs.length} Vendas: ${orcs.map(o => `#${o}`).join(", ")}`;
+      }
+    }
+  } else {
+    if (atendNomePlano) {
+      atendNomePlano.innerHTML = `
+        <div class="atend-pacote-row single">
+          <span class="atend-pacote-icon">📦</span>
+          <span class="atend-pacote-title" title="${app.nomePlano || app.procedimento || 'Atendimento Avulso / Procedimento'}">${app.nomePlano || app.procedimento || "Atendimento Avulso / Procedimento"}</span>
+          ${app.codOrcamento ? `<span class="atend-pacote-orc-badge">#${app.codOrcamento}</span>` : ''}
+        </div>
+      `;
+    }
+    if (atendCodOrcamento) {
+      if (app.codOrcamento) {
+        atendCodOrcamento.textContent = `Orçamento / Venda: #${app.codOrcamento}`;
+      }
+    }
   }
 
-  if (listaServicos.length === 0 && servicosExtras && servicosExtras.servicos) {
-    const nomes = servicosExtras.servicos.split(",").map(s => s.trim()).filter(Boolean);
-    nomes.forEach((nome, idx) => {
-      listaServicos.push({
-        nome: nome,
-        cod_servico: idx === 0 && servicosExtras.cod_serv ? servicosExtras.cod_serv : ""
+  // Lista de Serviços & Áreas: unifica áreas de todos os pacotes agendados hoje
+  let listaServicos = [];
+  if (agendamentosMesmoCliente.length > 1) {
+    agendamentosMesmoCliente.forEach(ag => {
+      let servsAg = (ag.arrServ && ag.arrServ.length > 0) ? [...ag.arrServ] : [];
+      if (servsAg.length === 0 && ag.lbServ) {
+        const linhas = ag.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
+        linhas.forEach(l => {
+          const match = l.match(/(.+?)\s*-\s*(\d+\/\d+)/);
+          const nomeServ = match ? match[1].trim() : l;
+          if (nomeServ) {
+            servsAg.push({ nome: nomeServ, cod_servico: ag.codTipo || "" });
+          }
+        });
+      }
+      if (servsAg.length === 0 && ag.procedimento) {
+        servsAg = [{ nome: ag.procedimento, cod_servico: ag.codTipo || "" }];
+      }
+      servsAg.forEach(s => {
+        listaServicos.push({
+          ...s,
+          codAgendamento: String(ag.codConsulta || ag.id),
+          agendamentoHorario: ag.horario,
+          codOrcamento: ag.codOrcamento,
+          pacoteNome: ag.nomePlano || ag.procedimento
+        });
       });
     });
-  }
+  } else {
+    listaServicos = (app.arrServ && app.arrServ.length > 0) ? [...app.arrServ] : [];
 
-  if (listaServicos.length === 0 && app.procedimento) {
-    listaServicos.push({
-      nome: app.procedimento,
-      cod_servico: app.codTipo || ""
-    });
+    if (listaServicos.length === 0 && !servicosExtras && app.codConsulta && state.currentToken) {
+      try {
+        servicosExtras = await buscarGetServicosApi(state.currentToken, app.codConsulta, state.currentCodEstab);
+      } catch (e) {}
+    }
+
+    if (listaServicos.length === 0 && servicosExtras && servicosExtras.servicos) {
+      const nomes = servicosExtras.servicos.split(",").map(s => s.trim()).filter(Boolean);
+      nomes.forEach((nome, idx) => {
+        listaServicos.push({
+          nome: nome,
+          cod_servico: idx === 0 && servicosExtras.cod_serv ? servicosExtras.cod_serv : "",
+          codAgendamento: app.codConsulta || app.id,
+          codOrcamento: app.codOrcamento
+        });
+      });
+    }
+
+    if (listaServicos.length === 0 && app.procedimento) {
+      listaServicos.push({
+        nome: app.procedimento,
+        cod_servico: app.codTipo || "",
+        codAgendamento: app.codConsulta || app.id,
+        codOrcamento: app.codOrcamento
+      });
+    }
   }
 
   state.currentServicosAgendadosHoje = [...listaServicos];
@@ -1418,57 +1576,53 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
 
   // Mapeamento de progresso de lbServ (ex: "AXILAS (P) - depilação a laser - 15/40")
   const progressoMap = new Map();
-  if (app.lbServ) {
-    const linhas = app.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
-    linhas.forEach(l => {
-      const match = l.match(/(.+?)\s*-\s*(\d+\/\d+)/);
-      if (match) {
-        progressoMap.set(match[1].trim().toLowerCase(), match[2]);
-      }
-    });
-  }
+  const appsParaProgresso = (agendamentosMesmoCliente.length > 1) ? agendamentosMesmoCliente : [app];
+  appsParaProgresso.forEach(agItem => {
+    if (agItem.lbServ) {
+      const linhas = agItem.lbServ.split("<br>").map(l => l.trim()).filter(Boolean);
+      linhas.forEach(l => {
+        const match = l.match(/(.+?)\s*-\s*(\d+\/\d+)/);
+        if (match) {
+          progressoMap.set(match[1].trim().toLowerCase(), match[2]);
+        }
+      });
+    }
+  });
 
   // 1. Renderização visual IMEDIATA das áreas com barras de sessões (0ms)
   let cardsHtml = "";
   listaServicos.forEach((s, idx) => {
     const sNome = s.nome || `Procedimento #${idx + 1}`;
-    const sCod = s.cod_servico ? `Cód: ${s.cod_servico}` : `Área #${idx + 1}`;
+    const sCod = s.cod_servico || "";
     
     // Procura progresso de sessões no lbServ
-    let progressoTxt = "";
     let sFeitas = 0;
     let sTotal = 0;
     let perc = 0;
+    let temSaldo = false;
     for (const [k, v] of progressoMap.entries()) {
       if (sNome.toLowerCase().includes(k) || k.includes(sNome.toLowerCase().substring(0, 8))) {
-        progressoTxt = `📊 Sessão ${v}`;
         const parts = v.split("/");
         if (parts.length === 2) {
           sFeitas = Number(parts[0]) || 0;
           sTotal = Number(parts[1]) || 0;
-          if (sTotal > 0) perc = Math.min(100, Math.round((sFeitas / sTotal) * 100));
+          if (sTotal > 0) {
+            perc = Math.min(100, Math.round((sFeitas / sTotal) * 100));
+            temSaldo = true;
+          }
         }
         break;
       }
     }
 
-    cardsHtml += `
-      <div class="atend-service-card">
-        <div class="atend-service-header">
-          <span class="atend-service-name">✨ ${sNome}</span>
-          ${progressoTxt ? `<span class="atend-service-progress">${progressoTxt}</span>` : ''}
-        </div>
-        ${sTotal > 0 ? `
-          <div class="atend-session-bar-wrap">
-            <div class="atend-session-bar-fill" style="width: ${perc}%;"></div>
-          </div>
-        ` : ''}
-        <div class="atend-service-footer">
-          <span class="atend-service-code">🏷️ ${sCod}</span>
-          ${sTotal > 0 ? `<span class="atend-service-saldo">Restam: <strong>${sTotal - sFeitas} sessões</strong></span>` : ''}
-        </div>
-      </div>
-    `;
+    cardsHtml += gerarCardServicoHtml({
+      cod: sCod,
+      nome: sNome,
+      realizadas: sFeitas,
+      contratadas: sTotal,
+      pct: perc,
+      temSaldo: temSaldo
+    });
   });
 
   if (atendListaServicos) {
@@ -1476,6 +1630,11 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
   }
 
   const isAvaliacao = app.isAvaliacao ?? ehAgendamentoAvaliacao(app);
+  const statusStr = String(app.status || "").toLowerCase();
+  const statusFmtStr = String(app.statusFormatado || "").toLowerCase();
+  const stsStr = String(app.sts || "").toLowerCase();
+  const isJaFinalizado = statusStr === "finalizado" || statusStr === "atendido" ||
+                         statusFmtStr === "atendido" || stsStr === "atendido";
 
   const cardParametros = document.getElementById("atend-card-parametros");
   const cardNovoParametro = document.getElementById("atend-card-novo-parametro");
@@ -1517,9 +1676,21 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     }
 
     if (btnAtendFinalizar) {
-      btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
-      btnAtendFinalizar.style.background = "#0284c7";
-      btnAtendFinalizar.style.borderColor = "#0369a1";
+      if (isJaFinalizado) {
+        btnAtendFinalizar.disabled = true;
+        btnAtendFinalizar.textContent = "✅ Atendimento Já Finalizado";
+        btnAtendFinalizar.style.background = "#64748b";
+        btnAtendFinalizar.style.borderColor = "#475569";
+        btnAtendFinalizar.style.cursor = "not-allowed";
+        btnAtendFinalizar.title = "Este atendimento já foi finalizado no Belle.";
+      } else {
+        btnAtendFinalizar.disabled = false;
+        btnAtendFinalizar.textContent = "✅ Concluir Avaliação";
+        btnAtendFinalizar.style.background = "#0284c7";
+        btnAtendFinalizar.style.borderColor = "#0369a1";
+        btnAtendFinalizar.style.cursor = "";
+        btnAtendFinalizar.title = "";
+      }
     }
   } else {
     if (cardParametros) cardParametros.style.display = "block";
@@ -1530,16 +1701,28 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     alternarToggleParametros(false);
 
     if (btnAtendFinalizar) {
-      btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
-      btnAtendFinalizar.style.background = "#16a34a";
-      btnAtendFinalizar.style.borderColor = "#15803d";
+      if (isJaFinalizado) {
+        btnAtendFinalizar.disabled = true;
+        btnAtendFinalizar.textContent = "✅ Atendimento Já Finalizado";
+        btnAtendFinalizar.style.background = "#64748b";
+        btnAtendFinalizar.style.borderColor = "#475569";
+        btnAtendFinalizar.style.cursor = "not-allowed";
+        btnAtendFinalizar.title = "Este atendimento já foi finalizado no Belle.";
+      } else {
+        btnAtendFinalizar.disabled = false;
+        btnAtendFinalizar.textContent = "✅ Finalizar Atendimento";
+        btnAtendFinalizar.style.background = "#16a34a";
+        btnAtendFinalizar.style.borderColor = "#15803d";
+        btnAtendFinalizar.style.cursor = "";
+        btnAtendFinalizar.title = "";
+      }
     }
 
     if (btnSalvarParametrosLaser) {
-      btnSalvarParametrosLaser.disabled = false;
-      btnSalvarParametrosLaser.textContent = "💾 Salvar Parâmetros (Todas as Áreas)";
-      btnSalvarParametrosLaser.style.background = "";
+      btnSalvarParametrosLaser.style.display = "none";
     }
+
+    checarEAtualizarUIParametrosSalvos(app);
 
     // Renderiza imediatamente os formulários de registro por área
     renderizarFormulariosParametrosLaser(listaServicos, state.ultimosRegistrosLaserCliente);
@@ -1567,18 +1750,75 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
     callbackAtivarAba("tab-atendimento");
   }
 
-  // 2. Busca o saldo exato e oficial de cada área via saldovendaplano usando cod_plano_paciente (se houver pacote)
-  if (!isAvaliacao && app.codOrcamento && state.currentToken) {
-    buscarSaldoVendaPlanoApi(state.currentToken, app.codOrcamento, app.codPlano, app.idGeinfo, state.currentCodEstab)
-      .then(resSaldo => {
-        if (Array.isArray(resSaldo) && resSaldo.length > 0) {
-          renderizarServicosComSaldo(resSaldo);
-          if (app.codOrcamento) {
-            registrarSaldoCapturado(app.codOrcamento, resSaldo);
-          }
+  // 2. Consulta de Saldos e Planos (Reaproveita cache da agenda com 0ms de espera!)
+  if (!isAvaliacao && state.currentToken) {
+    const appsComOrc = (agendamentosMesmoCliente.length > 1 ? agendamentosMesmoCliente : [app]).filter(a => a.codOrcamento);
+    const codClienteStr = String(app.codCliente || "").trim();
+
+    // A. Verifica se o cliente já teve os pacotes e saldos pré-carregados na Agenda
+    const pacotesPreCarregados = codClienteStr ? clientesPacotesCache.get(codClienteStr) : null;
+    const saldosPreCarregados = codClienteStr ? clientesSaldosCache.get(codClienteStr) : null;
+
+    if (pacotesPreCarregados && saldosPreCarregados) {
+      console.log(`[Atendimento] ⚡ Cliente #${codClienteStr} já pré-carregado na Agenda! 0ms de espera.`);
+      state.todosPacotesCliente = pacotesPreCarregados;
+      state.todosSaldosCliente = saldosPreCarregados;
+      renderizarServicosComSaldo(saldosPreCarregados);
+
+      if (state.selectedAppointment) {
+        atualizarOfertasComSexo(state.selectedAppointment, saldosPreCarregados, state.ultimosRegistrosLaserCliente);
+      }
+    } else {
+      // B. Fallback sob demanda: consulta apenas se não estiver em cache
+      console.log(`[Atendimento] 🔍 Buscando saldos e planos sob demanda para #${codClienteStr}...`);
+      
+      const buscarSaldosAgendados = appsComOrc.length > 0
+        ? Promise.all(appsComOrc.map(a => 
+            buscarSaldoVendaPlanoApi(state.currentToken, a.codOrcamento, a.codPlano, a.idGeinfo, state.currentCodEstab)
+          )).then(resps => resps.flat().filter(Boolean))
+        : Promise.resolve([]);
+
+      const buscarTodosPacotes = codClienteStr
+        ? buscarVendasPlanosClienteApi(state.currentToken, codClienteStr, state.currentCodEstab)
+        : Promise.resolve([]);
+
+      Promise.all([buscarSaldosAgendados, buscarTodosPacotes]).then(async ([saldosAgendados, vendasCliente]) => {
+        state.todosPacotesCliente = Array.isArray(vendasCliente) ? vendasCliente : [];
+        if (codClienteStr && Array.isArray(vendasCliente)) {
+          clientesPacotesCache.set(codClienteStr, vendasCliente);
         }
-      })
-      .catch(() => {});
+
+        let saldosFinais = [...saldosAgendados];
+
+        // Se o cliente tem outros pacotes não agendados hoje, busca seus saldos também
+        const orcsAdicionais = state.todosPacotesCliente
+          .filter(p => p.cod_orcamento && !appsComOrc.some(a => String(a.codOrcamento) === String(p.cod_orcamento)));
+
+        if (orcsAdicionais.length > 0) {
+          const respsExtras = await Promise.all(orcsAdicionais.map(p =>
+            buscarSaldoVendaPlanoApi(state.currentToken, p.cod_orcamento, p.cod_plano || 0, p.id_geinfo, state.currentCodEstab)
+          ));
+          const saldosExtras = respsExtras.flat().filter(Boolean);
+          saldosFinais.push(...saldosExtras);
+        }
+
+        state.todosSaldosCliente = saldosFinais;
+        if (codClienteStr) {
+          clientesSaldosCache.set(codClienteStr, saldosFinais);
+        }
+
+        renderizarServicosComSaldo(saldosFinais);
+        appsComOrc.forEach(a => {
+          if (a.codOrcamento) registrarSaldoCapturado(a.codOrcamento, saldosFinais);
+        });
+
+        if (state.selectedAppointment) {
+          atualizarOfertasComSexo(state.selectedAppointment, saldosFinais, state.ultimosRegistrosLaserCliente);
+        }
+      }).catch(err => {
+        console.warn("[Atendimento] Erro na busca sob demanda:", err);
+      });
+    }
   }
 }
 

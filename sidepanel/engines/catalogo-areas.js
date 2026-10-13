@@ -80,11 +80,11 @@ export const REGIOES = [
   ]},
   { id: "gluteos", nome: "Glúteos", areas: [
     { id: "gluteos",        nome: "Glúteos",          tags: ["pelos"], sinonimos: ["gluteo", "bumbum", "nadegas"] },
-    { id: "interglúteo",    nome: "Interglúteo",      tags: ["pelos", "hipercromia"], sinonimos: ["intergluteo", "entre gluteos", "sulco intergluteo"] },
-    { id: "anus",           nome: "Ânus",             tags: ["pelos", "hipercromia"], sinonimos: ["anus", "anal", "perianal", "peri anal"] }
+    { id: "interglúteo",    nome: "Interglúteo",      tags: ["pelos", "hipercromia"], sinonimos: ["intergluteo", "entre gluteos", "sulco intergluteo"], equivalentes: ["anus"] },
+    { id: "anus",           nome: "Ânus",             tags: ["pelos", "hipercromia"], sinonimos: ["anus", "anal", "perianal", "peri anal"], equivalentes: ["interglúteo"] }
   ]},
   { id: "pernas", nome: "Pernas", areas: [
-    { id: "coxa-anterior",  nome: "Anterior de Coxa", tags: ["pelos"], sinonimos: ["anterior de coxa", "frente da coxa"] },
+    { id: "coxa-anterior",  nome: "Anterior de Coxa", tags: ["pelos"], sinonimos: ["anterior de coxa", "frente da coxa", "coxa", "coxa completa", "coxas"] },
     { id: "coxa-posterior", nome: "Posterior de Coxa",tags: ["pelos"], sinonimos: ["posterior de coxa", "atras da coxa"] },
     { id: "coxa-interior",  nome: "Interior de Coxa", tags: ["pelos", "hipercromia"], sinonimos: ["interior de coxa", "interno de coxa", "parte interna da coxa"] },
     { id: "coxa-laterais",  nome: "Laterais de Coxa", tags: ["pelos"], sinonimos: ["laterais de coxa", "lateral da coxa", "culote"] },
@@ -117,7 +117,7 @@ export const AFINIDADES = [
   { de: "cavanhaque",  para: ["bigode", "mento", "maxilar"], peso: 2, motivo: "Cavanhaque isolado deixa o restante do contorno em desalinho." },
 
   // Face feminina
-  { de: "buco",        para: ["mento", "maxilar", "laterais-face"], peso: 3, motivo: "Quem trata o buço quase sempre incomoda também com queixo e laterais." },
+  { de: "buco",        para: ["mento", "maxilar", "laterais-face"], peso: 1, motivo: "Quem trata o buço pode se interessar em alinhar o contorno facial." },
   { de: "mento",       para: ["buco", "maxilar", "pescoco"], peso: 2, motivo: "Queixo e buço formam o contorno inferior do rosto." },
   { de: "laterais-face", para: ["maxilar", "pescoco"], peso: 2, motivo: "A lateral da face desce para o maxilar e o pescoço." },
   { de: "testa",       para: ["glabela", "laterais-face"], peso: 1, motivo: "Testa e glabela fecham o terço superior." },
@@ -142,7 +142,7 @@ export const AFINIDADES = [
   { de: "interglúteo", para: ["anus", "gluteos", "virilha"], peso: 2, motivo: "Interglúteo e ânus são tratados juntos na mesma posição." },
   { de: "anus",        para: ["interglúteo", "virilha", "gluteos"], peso: 2, motivo: "Fecha a região íntima posterior." },
   { de: "gluteos",     para: ["interglúteo", "coxa-posterior", "lombar"], peso: 2, motivo: "Glúteo tratado e posterior de coxa sem tratar cria degrau." },
-  { de: "axilas",      para: ["virilha", "seios", "bracos"], peso: 3, motivo: "Axilas e virilha são o combo mais vendido: quem faz uma quase sempre quer a outra." },
+  { de: "axilas",      para: ["virilha", "meia-perna", "virilha-interna", "bracos"], peso: 3, motivo: "Axilas, virilha e meia perna são os combos mais vendidos da clínica: quem faz axilas quer se livrar da lâmina no corpo todo." },
 
   // Pernas
   { de: "meia-perna",  para: ["coxa-anterior", "coxa-posterior", "joelhos", "pes"], peso: 3, motivo: "Meia perna lisa e coxa sem tratar é a divisão mais perceptível de todas." },
@@ -191,10 +191,22 @@ export function identificarAreas(nomeServico = "") {
     if (bateu) encontradas.add(id);
   });
 
-  // "Virilha completa" no Belle já engloba a parte interna.
-  if (/virilha completa/.test(t)) encontradas.add("virilha-interna");
+  // "Virilha completa" no Belle já engloba a parte interna e geralmente região íntima posterior.
+  if (/virilha completa/.test(t)) {
+    encontradas.add("virilha-interna");
+  }
   // "Exceto anal" desfaz o que o nome do combo sugere.
   if (/exceto anal|sem anal|nao anal/.test(t)) encontradas.delete("anus");
+
+  // Barba feminina / face feminina no cadastro de mulheres: engloba buço, mento, maxilar e laterais
+  if (/barba feminina|face feminina|rosto feminino|facial feminina/.test(t)) {
+    encontradas.add("buco");
+    encontradas.add("mento");
+    encontradas.add("maxilar");
+    encontradas.add("laterais-face");
+    encontradas.delete("barba");
+    encontradas.delete("faixa-barba");
+  }
 
   // A área mais específica vence a genérica que está contida no mesmo nome.
   [...encontradas].forEach(id => {

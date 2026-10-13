@@ -8,10 +8,12 @@ const btnConfirmarSalvarSemEvolucao = document.getElementById("btn-confirmar-sal
 const btnCancelarSalvarSemEvolucao = document.getElementById("btn-cancelar-salvar-sem-evolucao");
 
 let callbackConfirmar = null;
+let callbackCancelar = null;
 
-export function abrirModalTravaEvolucao(areasSemEvolucao, onConfirmar) {
+export function abrirModalTravaEvolucao(areasSemEvolucao, onConfirmar, onCancelar = null) {
   if (!modalTravaEvolucao || !listaAreasSemEvolucao) return;
   callbackConfirmar = onConfirmar;
+  callbackCancelar = onCancelar;
 
   let html = "";
   areasSemEvolucao.forEach(item => {
@@ -32,6 +34,7 @@ export function fecharModalTravaEvolucao() {
     modalTravaEvolucao.style.display = "none";
   }
   callbackConfirmar = null;
+  callbackCancelar = null;
 }
 
 btnConfirmarSalvarSemEvolucao?.addEventListener("click", () => {
@@ -42,5 +45,8 @@ btnConfirmarSalvarSemEvolucao?.addEventListener("click", () => {
 });
 
 btnCancelarSalvarSemEvolucao?.addEventListener("click", () => {
+  if (typeof callbackCancelar === "function") {
+    callbackCancelar();
+  }
   fecharModalTravaEvolucao();
 });

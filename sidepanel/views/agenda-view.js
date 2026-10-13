@@ -3,9 +3,9 @@
  * Gerencia a grade de agendamentos, filtros de salas, status tabs e busca rápida.
  */
 
-import { state } from '../core/state.js';
+import { state, clientesPacotesCache, clientesSaldosCache } from '../core/state.js';
 import { abrirModalAgendarProxima } from '../components/modal-agendar-proxima.js';
-import { buscarSaldoVendaPlanoApi } from '../core/api-client.js';
+import { buscarSaldoVendaPlanoApi, buscarVendasPlanosClienteApi } from '../core/api-client.js';
 
 const selectProfissional = document.getElementById("select-profissional");
 const agendaTimelineContainer = document.getElementById("agenda-timeline-container");
@@ -139,58 +139,140 @@ function gerarHtmlChipsServicos(app, saldoLista = null) {
       const progresso = obterProgressoDeSaldo(s.nome, s.cod_servico, lista);
       const badgeProgresso = progresso ? `<span class="service-chip-progresso">${progresso}</span>` : "";
       const nomeLimpo = (s.nome || "").replace(/\s*-\s*\d+\/\d+/, "").trim();
-      return `<span class="service-chip-pill">${badgeProgresso}✨ ${nomeLimpo}</span>`;
+      return `<span class="service-chip-pill">${badgeProgresso}${nomeLimpo}</span>`;
     }).join("");
   } else {
     const progresso = obterProgressoDeSaldo(app.procedimento, null, lista);
     const badgeProgresso = progresso ? `<span class="service-chip-progresso">${progresso}</span>` : "";
     const procLimpo = (app.procedimento || "").replace(/\s*-\s*\d+\/\d+/, "").trim();
-    return `<span class="service-chip-pill">${badgeProgresso}✨ ${procLimpo}</span>`;
+    return `<span class="service-chip-pill">${badgeProgresso}${procLimpo}</span>`;
   }
 }
 
 /**
- * Consulta em segundo plano o saldo exato de cada orçamento presente na agenda do dia
+ * Consulta em segundo plano TODOS os planos e saldos dos clientes com status ATIVOS
+ * ('confirmado', 'aguardando', 'atendimento').
+ * Agrupa por cliente único para evitar requisições redundantes de clientes com múltiplos agendamentos no dia.
  */
 async function carregarSaldosAgenda(appointments) {
   if (!state.currentToken || !Array.isArray(appointments) || appointments.length === 0) return;
 
-  const orcamentosParaBuscar = [];
-  const orcsVistos = new Set();
+  // 1. Filtra estritamente agendamentos ATIVOS (confirmados, na recepção ou em atendimento)
+  const STATUS_ATIVOS = new Set(["confirmado", "aguardando", "atendimento"]);
+  const agendamentosAtivos = appointments.filter(app => 
+    !app.isBloqueado && 
+    !app.isAvaliacao && 
+    app.codCliente && 
+    STATUS_ATIVOS.has(String(app.status || "").toLowerCase())
+  );
 
-  appointments.forEach(app => {
-    const orc = String(app.codOrcamento || "").trim();
-    if (orc && !cacheSaldosAgenda.has(orc) && !orcsVistos.has(orc) && !app.isBloqueado && !app.isAvaliacao) {
-      orcsVistos.add(orc);
-      orcamentosParaBuscar.push(app);
+  if (agendamentosAtivos.length === 0) return;
+
+  // 2. Agrupa por cliente único (1 cliente = 1 busca de vendasplanos)
+  const mapaClientes = new Map();
+  agendamentosAtivos.forEach(app => {
+    const codCli = String(app.codCliente).trim();
+    if (!mapaClientes.has(codCli)) {
+      mapaClientes.set(codCli, {
+        codCliente: codCli,
+        clienteNome: app.clienteNome,
+        agendamentos: []
+      });
     }
+    mapaClientes.get(codCli).agendamentos.push(app);
   });
 
-  if (orcamentosParaBuscar.length === 0) return;
+  const listaClientes = Array.from(mapaClientes.values());
+  console.log(`[Agenda] ⚡ Pré-carregando histórico e saldos para ${listaClientes.length} clientes ativos (confirmados/aguardando)...`);
 
-  // Lotes concorrentes pequenos de 4 requisições
-  const batchSize = 4;
-  for (let i = 0; i < orcamentosParaBuscar.length; i += batchSize) {
-    const batch = orcamentosParaBuscar.slice(i, i + batchSize);
-    await Promise.allSettled(batch.map(async (app) => {
+  // 3. Processa clientes em lotes controlados de 3 para não sobrecarregar
+  const batchSize = 3;
+  for (let i = 0; i < listaClientes.length; i += batchSize) {
+    const batch = listaClientes.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(async ({ codCliente, agendamentos }) => {
       try {
-        const resSaldo = await buscarSaldoVendaPlanoApi(
-          state.currentToken,
-          app.codOrcamento,
-          app.codPlano,
-          app.idGeinfo,
-          state.currentCodEstab
-        );
-        if (Array.isArray(resSaldo) && resSaldo.length > 0) {
-          const orcKey = String(app.codOrcamento).trim();
-          cacheSaldosAgenda.set(orcKey, resSaldo);
-          registrarSaldoCapturado(orcKey, resSaldo);
+        // Se já está no cache global de pacotes do cliente, pula
+        let pacotesCliente = clientesPacotesCache.get(codCliente);
+        if (!pacotesCliente) {
+          pacotesCliente = await buscarVendasPlanosClienteApi(state.currentToken, codCliente, state.currentCodEstab);
+          if (Array.isArray(pacotesCliente)) {
+            clientesPacotesCache.set(codCliente, pacotesCliente);
+          }
         }
-      } catch (e) {
-        // Silencioso em caso de falha de rede individual
+
+        const pacotes = Array.isArray(pacotesCliente) ? pacotesCliente : [];
+
+        // 4. Identifica todos os orçamentos que precisam de saldo detalhado
+        // Prioridade: os orçamentos agendados hoje + outros pacotes ativos do cliente
+        const orcsParaConsultar = new Map();
+
+        // Orçamentos dos agendamentos de hoje
+        agendamentos.forEach(app => {
+          const orc = String(app.codOrcamento || "").trim();
+          if (orc && !cacheSaldosAgenda.has(orc)) {
+            orcsParaConsultar.set(orc, {
+              codOrcamento: orc,
+              codPlano: app.codPlano || 0,
+              idGeinfo: app.idGeinfo || state.currentIdGeinfo
+            });
+          }
+        });
+
+        // Outros pacotes do cliente trazidos pelo vendasplanos
+        pacotes.forEach(p => {
+          const orc = String(p.cod_orcamento || "").trim();
+          if (orc && !cacheSaldosAgenda.has(orc) && !orcsParaConsultar.has(orc)) {
+            orcsParaConsultar.set(orc, {
+              codOrcamento: orc,
+              codPlano: p.cod_plano || 0,
+              idGeinfo: p.id_geinfo || state.currentIdGeinfo
+            });
+          }
+        });
+
+        // 5. Busca saldos de cada orçamento
+        const saldosConsolidados = clientesSaldosCache.get(codCliente) || [];
+
+        for (const [orcKey, dadosOrc] of orcsParaConsultar.entries()) {
+          try {
+            const resSaldo = await buscarSaldoVendaPlanoApi(
+              state.currentToken,
+              dadosOrc.codOrcamento,
+              dadosOrc.codPlano,
+              dadosOrc.idGeinfo,
+              state.currentCodEstab
+            );
+            if (Array.isArray(resSaldo) && resSaldo.length > 0) {
+              cacheSaldosAgenda.set(orcKey, resSaldo);
+              registrarSaldoCapturado(orcKey, resSaldo);
+              saldosConsolidados.push(...resSaldo);
+            }
+          } catch (e) {}
+        }
+
+        if (saldosConsolidados.length > 0) {
+          clientesSaldosCache.set(codCliente, saldosConsolidados);
+          // Atualiza visualmente os chips dos cards desse cliente na agenda imediatamente
+          agendamentos.forEach(app => {
+            const orc = String(app.codOrcamento || "").trim();
+            const saldoItem = orc ? cacheSaldosAgenda.get(orc) : saldosConsolidados;
+            if (saldoItem) {
+              const card = document.querySelector(`.appointment-card[data-app-id="${app.id}"]`);
+              if (card) {
+                const chipsBox = card.querySelector(".services-chips-box");
+                if (chipsBox) {
+                  chipsBox.innerHTML = gerarHtmlChipsServicos(app, saldoItem);
+                }
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.warn(`[Agenda] Falha ao pré-carregar cliente #${codCliente}:`, err);
       }
     }));
   }
+  console.log(`[Agenda] ✅ Pré-carregamento de saldos concluído.`);
 }
 
 export function atualizarKpis() {
@@ -229,6 +311,16 @@ export function atualizarKpis() {
   if (cFinalizado) cFinalizado.textContent = finalizados;
   if (cFalta) cFalta.textContent = faltas;
   if (cBloqueado) cBloqueado.textContent = bloqueados;
+
+  const optAtendimento = document.getElementById("opt-status-atendimento");
+  const optAgendado = document.getElementById("opt-status-agendado");
+  const optFalta = document.getElementById("opt-status-falta");
+  const optBloqueado = document.getElementById("opt-status-bloqueado");
+
+  if (optAtendimento) optAtendimento.textContent = `Em Andamento (${atendimento})`;
+  if (optAgendado) optAgendado.textContent = `Marcados (${agendados})`;
+  if (optFalta) optFalta.textContent = `Falhou (${faltas})`;
+  if (optBloqueado) optBloqueado.textContent = `Bloqueados (${bloqueados})`;
 
   // Destaque visual pulsante no botão de Aguardando quando houver clientes na recepção
   const btnAguardando = document.querySelector('.status-tab-btn[data-status="aguardando"]');
@@ -503,12 +595,12 @@ export function renderizarAgenda(onAbrirAtendimento) {
         <div class="app-card-header">
           <div class="app-card-time-wrap">
             <span class="app-time" style="color: #991b1b;">⏰ ${app.horario} - ${app.hrFim}</span>
-            <span class="app-duracao-txt">${app.duracaoMin}m</span>
+            <span class="app-duracao-txt">(${app.duracaoMin}m)</span>
           </div>
-          <span class="app-badge badge-bloqueado">🔒 Bloqueado</span>
+          <span class="app-badge badge-bloqueado">Bloqueado</span>
         </div>
         <div class="app-client-name" style="color: #b91c1c; font-size: 12px;">🔒 ${app.procedimento}</div>
-        <div class="app-footer" style="border-top-color: #fecaca; margin-top: 4px;">
+        <div class="app-footer">
           <span class="app-footer-sala" style="color: #64748b;">📍 ${app.salaNome}</span>
         </div>
       `;
@@ -524,44 +616,40 @@ export function renderizarAgenda(onAbrirAtendimento) {
     else if (app.status === "finalizado") { statusLabel = "Atendido"; badgeClass = "badge-finalizado"; }
     else if (app.status === "falta") { statusLabel = "Falhou"; badgeClass = "badge-falta"; }
 
-    // Metadados do cliente (Apenas Código ID, sem telefone)
-    const metaClienteHtml = app.codCliente ? `<div class="app-card-meta">Cód. ${app.codCliente}</div>` : "";
+    // 1. Formato Solicitado: "COD - Cliente"
+    const codPrefix = app.codCliente ? `${app.codCliente} - ` : "";
+    const clienteTitulo = `${codPrefix}${app.clienteNome}`;
 
-    // Tipo de Consulta: Avaliação ou Serviço
+    // 2. Tipo de Consulta: Apenas Avaliação se for o caso (sem poluição de badge Serviço)
     const badgeTipoConsulta = app.isAvaliacao
-      ? `<span class="badge-tipo-consulta badge-tipo-avaliacao" title="Agendamento de Avaliação (sem parâmetros de laser)">📋 Avaliação</span>`
-      : `<span class="badge-tipo-consulta badge-tipo-servico" title="Sessão de Laser / Procedimento">✨ Serviço</span>`;
+      ? `<span class="badge-tipo-consulta badge-tipo-avaliacao" title="Agendamento de Avaliação">Avaliação</span>`
+      : "";
 
-    // Chips de Serviços / Procedimentos com Quantidade de Sessões individuais de cada área
+    // 3. Chips de Serviços / Procedimentos com Quantidade de Sessões (sem emoji)
     let servicosHtml = "";
     if (app.isAvaliacao) {
       const procNome = (app.procedimento || "Avaliação").trim();
-      servicosHtml = `<div class="services-chips-box"><span class="service-chip-pill service-chip-avaliacao">📋 ${procNome}</span></div>`;
+      servicosHtml = `<span class="service-chip-pill service-chip-avaliacao">${procNome}</span>`;
     } else {
       const orcKey = String(app.codOrcamento || "").trim();
       const saldoLista = orcKey ? cacheSaldosAgenda.get(orcKey) : null;
-      servicosHtml = `<div class="services-chips-box">${gerarHtmlChipsServicos(app, saldoLista)}</div>`;
+      servicosHtml = gerarHtmlChipsServicos(app, saldoLista);
     }
 
-    // Tags de Alerta Operacional (Questionário Pendente, Aniversariante)
+    // 4. Tags de Alerta Operacional
     let tagsHtml = "";
-    if (app.questPendente) tagsHtml += `<span class="tag-alert-quest" title="Questionário de anamnese pendente">⚠️ Questionário</span>`;
-    if (app.fazAniver) tagsHtml += `<span class="tag-alert-aniver" title="Cliente faz aniversário hoje!">🎂 Aniversariante</span>`;
+    if (app.questPendente) tagsHtml += `<span class="tag-alert-quest" title="Questionário de anamnese pendente">Questionário</span>`;
+    if (app.fazAniver) tagsHtml += `<span class="tag-alert-aniver" title="Cliente faz aniversário hoje!">Aniversariante</span>`;
 
-    // Botões de Ação Contextual
-    const exibirBtnAgendar = (state.currentUserRole === "recepcao" || state.currentUserRole === "gerente" || state.currentUserRole === "consultora");
+    // 5. Botão Contextual Apenas para Aguardando (cliente na recepção)
     let botoesAcaoHtml = "";
     if (app.status === "aguardando") {
       botoesAcaoHtml = `
-        <button class="btn-card-iniciar-atendimento ${app.isAvaliacao ? 'btn-card-iniciar-avaliacao' : ''}" data-app-id="${app.id}">
-          ${app.isAvaliacao ? "📋 Iniciar Avaliação" : "🩺 Iniciar Atendimento"}
-        </button>
-      `;
-    } else if (exibirBtnAgendar) {
-      botoesAcaoHtml = `
-        <button class="btn-agendar-proxima-card" data-app-id="${app.id}">
-          📅 Agendar Próxima Sessão
-        </button>
+        <div class="app-card-action-wrap">
+          <button class="btn-card-iniciar-atendimento ${app.isAvaliacao ? 'btn-card-iniciar-avaliacao' : ''}" data-app-id="${app.id}">
+            ${app.isAvaliacao ? "Iniciar Avaliação" : "Iniciar Atendimento"}
+          </button>
+        </div>
       `;
     }
 
@@ -569,8 +657,7 @@ export function renderizarAgenda(onAbrirAtendimento) {
       <div class="app-card-header">
         <div class="app-card-time-wrap">
           <span class="app-time">⏰ ${app.horario} - ${app.hrFim}</span>
-          <span class="app-duracao-txt">${app.duracaoMin}m</span>
-          ${isAtual ? '<span class="tag-horario-atual">⚡ Agora</span>' : ''}
+          ${isAtual ? '<span class="tag-horario-atual">Agora</span>' : ''}
         </div>
         <div class="app-card-badges-wrap">
           ${badgeTipoConsulta}
@@ -578,17 +665,16 @@ export function renderizarAgenda(onAbrirAtendimento) {
         </div>
       </div>
 
-      <div class="app-card-client-block">
-        <div class="app-client-name">👤 ${app.clienteNome}</div>
-        ${metaClienteHtml}
+      <div class="app-card-client-row">
+        <div class="app-client-name" title="${clienteTitulo}">👤 ${clienteTitulo}</div>
+        ${tagsHtml ? `<div class="tags-container-card">${tagsHtml}</div>` : ''}
       </div>
 
-      ${servicosHtml}
-      ${tagsHtml ? `<div class="tags-container-card">${tagsHtml}</div>` : ''}
+      <div class="services-chips-box">${servicosHtml}</div>
 
       <div class="app-footer">
-        <span class="app-footer-sala" title="Sala / Recurso">📍 ${app.salaNome}</span>
-        <span class="app-footer-prof" title="Profissional Responsável">👩‍⚕️ ${app.profissional}</span>
+        <span class="app-footer-prof" title="${app.profissional}">👩‍⚕️ ${app.profissional}</span>
+        <span class="app-footer-sala" title="${app.salaNome}">📍 ${app.salaNome}</span>
       </div>
 
       ${botoesAcaoHtml}
@@ -601,14 +687,6 @@ export function renderizarAgenda(onAbrirAtendimento) {
         if (typeof callbackAbrirAtendimento === "function") {
           callbackAbrirAtendimento(app);
         }
-      });
-    }
-
-    const btnAgendar = card.querySelector(".btn-agendar-proxima-card");
-    if (btnAgendar) {
-      btnAgendar.addEventListener("click", (e) => {
-        e.stopPropagation();
-        abrirModalAgendarProxima(app);
       });
     }
 
@@ -790,16 +868,39 @@ export function inicializarAgendaView(onAbrirAtendimento, options = {}) {
     });
   }
 
+  const selectStatusMais = document.getElementById("select-status-mais");
   const statusTabButtons = document.querySelectorAll(".status-tab-btn");
+
   statusTabButtons.forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       statusTabButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+      if (selectStatusMais) {
+        selectStatusMais.value = "";
+        selectStatusMais.classList.remove("active");
+      }
       state.filtroStatusAtivo = btn.getAttribute("data-status") || "todos";
       renderizarAgenda();
     });
   });
+
+  if (selectStatusMais) {
+    selectStatusMais.addEventListener("change", (e) => {
+      const val = e.target.value;
+      statusTabButtons.forEach(b => b.classList.remove("active"));
+      if (val) {
+        selectStatusMais.classList.add("active");
+        state.filtroStatusAtivo = val;
+      } else {
+        selectStatusMais.classList.remove("active");
+        state.filtroStatusAtivo = "confirmado";
+        const btnConfirmado = document.querySelector('.status-tab-btn[data-status="confirmado"]');
+        if (btnConfirmado) btnConfirmado.classList.add("active");
+      }
+      renderizarAgenda();
+    });
+  }
 
   const kpiCards = document.querySelectorAll(".kpi-card");
   kpiCards.forEach(k => {
@@ -811,6 +912,11 @@ export function inicializarAgendaView(onAbrirAtendimento, options = {}) {
           if (b.getAttribute("data-status") === filter) b.classList.add("active");
           else b.classList.remove("active");
         });
+        if (selectStatusMais) {
+          selectStatusMais.value = ["atendimento", "agendado", "falta", "bloqueado"].includes(filter) ? filter : "";
+          if (selectStatusMais.value) selectStatusMais.classList.add("active");
+          else selectStatusMais.classList.remove("active");
+        }
         renderizarAgenda();
       }
     });

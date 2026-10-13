@@ -12,7 +12,8 @@
     "cookies"
   ],
   "host_permissions": [
-    "https://app.bellesoftware.com.br/*"
+    "https://app.bellesoftware.com.br/*",
+    "https://atendiai.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"

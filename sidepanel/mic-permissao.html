@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Permissão de Microfone — Belle Copilot</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      padding: 32px;
+      max-width: 440px;
+      text-align: center;
+      border: 1px solid #e2e8f0;
+    }
+    .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    h2 {
+      margin: 0 0 8px 0;
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    p {
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0 0 24px 0;
+    }
+    .btn {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    .status {
+      margin-top: 16px;
+      font-size: 13px;
+      font-weight: 600;
+      display: none;
+    }
+    .status.sucesso {
+      color: #16a34a;
+      display: block;
+    }
+    .status.erro {
+      color: #dc2626;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🎙️</div>
+    <h2>Liberar Microfone no Belle Copilot</h2>
+    <p>O Google Chrome exige que a permissão de áudio da extensão seja autorizada em uma aba completa para funcionar no painel lateral.</p>
+    
+    <button type="button" id="btn-autorizar" class="btn">
+      <span>🎙️</span>
+      <span>Autorizar Microfone</span>
+    </button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="mic-permissao.js"></script>
+</body>
+</html>

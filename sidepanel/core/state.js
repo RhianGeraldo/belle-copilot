@@ -41,6 +41,8 @@ export const state = {
   currentListaServicosRegistro: [],
   ultimosRegistrosLaserCliente: [],
   lastSaldoServicosCache: [],
+  todosPacotesCliente: [],
+  todosSaldosCliente: [],
   lastInterceptedArrGrid: null,
   // Unidade sob a qual o arrGrid acima foi obtido. O grid NÃO carrega essa informação:
   // `cod_clinica` responde "1" em todas as filiais, então a unidade é registrada aqui.
@@ -50,12 +52,14 @@ export const state = {
 
   // Filtros Ativos
   filtroSalaAtivo: "todos",
-  filtroStatusAtivo: "todos",
+  filtroStatusAtivo: "confirmado",
   termoBuscaAtivo: ""
 };
 
 // Caches com TTL
 export const saldoPlanosCache = new Map();
+export const clientesPacotesCache = new Map(); // codCliente -> array de pacotes (vendasplanos)
+export const clientesSaldosCache = new Map();  // codCliente -> array consolidado de saldos de todos os planos
 export const laserParamsCache = new Map();
 export const getServicosCache = new Map();
 export const servicosCatalogoCache = new Map();

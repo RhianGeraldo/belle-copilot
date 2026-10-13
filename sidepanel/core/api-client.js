@@ -513,8 +513,37 @@ export async function buscarVendasPlanosClienteApi(token, codCliente, codEstab =
   const authTok = token || state.currentToken || "";
   if (!authTok || !codCliente) return [];
 
+  const finalCodEstab = codEstab || state.currentCodEstab || "1";
+  const finalIdGeinfo = state.currentIdGeinfo || "";
+
   try {
-    const url = `https://app.bellesoftware.com.br/api/release/controller/Plano/v1.0/vendasplanos?codCliente=${codCliente}&estabGeral=1&limit=50`;
+    const params = new URLSearchParams({
+      idGeinfo: finalIdGeinfo,
+      codEstab: String(finalCodEstab),
+      codCliente: String(codCliente),
+      dtIni: "1945-01-01T03:00:00.000Z",
+      dtFim: "9999-09-12T03:00:00.000Z",
+      status: "",
+      origem: "Ambos",
+      codVendedor: "",
+      codOrc: "",
+      tpPlan: "",
+      pfCmp: "",
+      ckClass: "1",
+      cres: "1",
+      vencidos: "0",
+      tpDt: "0",
+      codCamp: "",
+      indicacao: "",
+      ckFinan: "0",
+      resumoCli: "1",
+      desconsiderarEstab: "1",
+      limit: "50",
+      offset: "0",
+      estabGeral: "1"
+    });
+
+    const url = `https://app.bellesoftware.com.br/api/release/controller/Plano/v1.0/vendasplanos?${params.toString()}`;
     const res = await fetch(url, {
       method: "GET",
       headers: {
@@ -628,6 +657,8 @@ export async function salvarParametrosLaserEmLoteApi(payloadArray) {
         anexo: null
       };
 
+      console.log(`[LaserAPI] 💾 Gravando parâmetro da área "${nomeArea}" vinculado ao agendamento #${payloadFormatado.codAgendamento}`);
+
       const res = await fetch(`https://app.bellesoftware.com.br/api/release/controller/PainelAtend/v1.0/parametro_laser?estabGeral=1`, {
         method: "POST",
         headers: {
@@ -720,12 +751,16 @@ export async function salvarEdicaoAgendaApi(token, payloadEdicao, codEstab = "1"
 
     if (res.ok) {
       const data = await res.json();
-      if (data?.vld || data?.rs) {
-        return { success: true, codConsulta: data.rs, data: data };
+      console.log(`[AgendaAPI] 📥 Resposta de /edicaoagenda #${payloadEdicao.codAgenda}:`, data);
+      if (data && (data.vld === false || data.status === false || data.sucesso === false || data.error)) {
+        const msgErro = data.msg || data.mensagem || data.error || data.erro || JSON.stringify(data);
+        console.warn(`[AgendaAPI] ❌ /edicaoagenda recusado pelo Belle:`, msgErro);
+        return { success: false, error: msgErro, data };
       }
-      return { success: true, codConsulta: data?.rs, data };
+      return { success: true, codConsulta: data?.rs || data?.codConsulta || payloadEdicao.codAgenda, data };
     } else {
       const errTxt = await res.text().catch(() => "");
+      console.warn(`[AgendaAPI] ❌ /edicaoagenda falhou HTTP ${res.status}:`, errTxt);
       return { success: false, error: errTxt || `HTTP ${res.status}` };
     }
   } catch (e) {
@@ -845,16 +880,18 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       return { success: false, error: "Não foi possível carregar os detalhes do agendamento no Belle para edição segura." };
     }
 
-    // 1. Identifica os serviços originais cadastrados no agendamento
+    // 1. Identifica os serviços originais cadastrados no agendamento (isolamento estrito por consulta)
     let servicosOriginais = [];
     if (Array.isArray(detalhes.arrServ) && detalhes.arrServ.length > 0) {
       servicosOriginais = [...detalhes.arrServ];
     } else if (Array.isArray(detalhes.obServ) && detalhes.obServ.length > 0) {
       servicosOriginais = [...detalhes.obServ];
-    } else if (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0) {
-      servicosOriginais = [...state.currentServicosAgendadosHoje];
-    } else if (Array.isArray(app.arrServ) && app.arrServ.length > 0) {
+    } else if (Array.isArray(app?.arrServ) && app.arrServ.length > 0) {
       servicosOriginais = [...app.arrServ];
+    } else if (Array.isArray(state.currentServicosAgendadosHoje) && state.currentServicosAgendadosHoje.length > 0) {
+      servicosOriginais = state.currentServicosAgendadosHoje.filter(s => {
+        return String(s.codAgendamento) === String(codConsulta);
+      });
     }
 
     // 2. Aplica a remoção estrita das áreas não realizadas
@@ -888,30 +925,19 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       servicosFinais = servicosOriginais;
     }
 
-    // 3. Recalcula tempo e término proporcional se o número de serviços mudou
-    const hrIni = detalhes.hrIni || app.horario || "00:00";
-    let tempoFinal = Number(detalhes.tempo || app.tempo || 5);
-    let hrFimFinal = detalhes.hrFim || app.hrFim || "00:30";
+    // 3. Preserva o horário e tempo originais da consulta na grade
+    const hrIni = detalhes.hrIni || app?.horario || "00:00";
+    const tempoFinal = Number(detalhes.tempo || app?.tempo || 30);
+    const hrFimFinal = detalhes.hrFim || app?.hrFim || "00:30";
 
-    if (servicosFinais.length !== servicosOriginais.length) {
-      let tempoCalculado = 0;
-      servicosFinais.forEach(s => {
-        tempoCalculado += Number(s.tempo || s.tempo_atendimento || 5);
-      });
-      if (tempoCalculado > 0) {
-        tempoFinal = tempoCalculado;
-        const [h, m] = hrIni.split(":").map(Number);
-        const minFim = (h * 60 + m) + tempoFinal;
-        hrFimFinal = `${String(Math.floor(minFim / 60)).padStart(2, "0")}:${String(minFim % 60).padStart(2, "0")}`;
-      }
-    }
-
-    // 4. Resolve atendente/profissional logada
+    // 4. Resolve atendente/profissional responsável
     const codProfAlvo = (state.currentCodUsuario && state.currentCodUsuario !== "master-admin")
       ? String(state.currentCodUsuario)
-      : String(detalhes.codProfiss || app.codProfissional || state.currentUserData?.cod_usuario || "");
+      : String(detalhes.codProfiss || app?.codProfissional || state.currentUserData?.cod_usuario || "");
 
-    const nomProfAlvo = String(state.currentUserName || detalhes.nomProf || app.profissional || "Profissional").trim();
+    const nomProfAlvo = (state.currentCodUsuario && state.currentCodUsuario !== "master-admin" && state.currentUserName)
+      ? String(state.currentUserName).trim()
+      : String(detalhes.nomProf || app?.profissional || state.currentUserName || "Profissional").trim();
 
     // 5. Monta o payload oficial de /edicaoagenda preservando 100% dos dados originais
     const payloadEdicao = {
@@ -919,6 +945,11 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       codAgenda: String(codConsulta),
       tpEdicao: "A",
       estab: String(detalhes.estab || codEstab || state.currentCodEstab || "1"),
+      dtAgenda: detalhes.dtAgenda || app?.dataAgenda || state.currentDataAgenda,
+      codSala: detalhes.codSala,
+      obSala: detalhes.obSala,
+      codCliente: detalhes.codCliente,
+      obCli: detalhes.obCli,
       hrIni: hrIni,
       hrFim: hrFimFinal,
       tempo: tempoFinal,
@@ -929,7 +960,7 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
     // Mantém o status original no formato exato do Belle (nunca em minúsculo)
     if (detalhes.status || detalhes.statusAgendamento) {
       payloadEdicao.status = detalhes.status || detalhes.statusAgendamento;
-    } else if (app.statusFormatado) {
+    } else if (app?.statusFormatado) {
       payloadEdicao.status = app.statusFormatado;
     } else {
       payloadEdicao.status = "Marcado";
@@ -960,7 +991,31 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
       if (detalhes.nomeProf !== undefined) payloadEdicao.nomeProf = nomProfAlvo;
     }
 
-    // 7. Se e SOMENTE se o agendamento já possuía obOrc nativo do Belle, filtra seus serviços
+    // 7. Validação prévia de plano no Belle (/validacao)
+    const codOrcNum = Number(detalhes.codOrcamento || detalhes.codOrc || app?.codOrcamento || detalhes.obOrc?.cod_orcamento || 0);
+    const codCliNum = Number(detalhes.codCliente || app?.codCliente || detalhes.obCli?.cod_paciente || 0);
+
+    if (codOrcNum > 0 || detalhes.tpPlano === "orc" || detalhes.usaPlan) {
+      try {
+        const payloadValidacao = {
+          codAgenda: String(codConsulta),
+          status: detalhes.status || "Marcado",
+          codOrc: codOrcNum,
+          codCli: codCliNum,
+          arrServ: servicosFinais,
+          statusAlterado: detalhes.status || "Marcado"
+        };
+        console.log(`[AgendaAPI] 📤 Validando alteração de serviços de plano no Belle (/validacao):`, payloadValidacao);
+        await validarAgendamentoApi(authTok, payloadValidacao, codEstab);
+      } catch (eVal) {
+        console.warn("[AgendaAPI] Aviso ao chamar /validacao:", eVal);
+      }
+      payloadEdicao.planVld = true;
+      payloadEdicao.servVld = true;
+      payloadEdicao.stsVld = true;
+    }
+
+    // 8. Se e SOMENTE se o agendamento já possuía obOrc nativo do Belle, filtra seus serviços
     if (detalhes.obOrc && Array.isArray(detalhes.obOrc.servicos)) {
       const obOrcFiltrado = detalhes.obOrc.servicos.filter(os => {
         if (areasParaRemover.length > 0) {
@@ -978,7 +1033,23 @@ export async function atualizarServicosAgendamentoApi(token, app, servicosOuOpco
     }
 
     console.log(`[AgendaAPI] 🔄 Enviando /edicaoagenda #${codConsulta} (Atendente: ${nomProfAlvo}, ${servicosFinais.length} serviços mantidos):`, payloadEdicao);
-    const res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
+    let res = await salvarEdicaoAgendaApi(authTok, payloadEdicao, codEstab);
+
+    // Fallback: Se falhou e tinha obOrc alterado, tenta enviar com o obOrc original preservado
+    if (!res || !res.success) {
+      if (detalhes.obOrc) {
+        console.warn(`[AgendaAPI] ⚠️ Primeira tentativa de /edicaoagenda recusada (${res?.error}). Tentando fallback preservando obOrc original...`);
+        const payloadFallback = {
+          ...payloadEdicao,
+          obOrc: detalhes.obOrc
+        };
+        const resFallback = await salvarEdicaoAgendaApi(authTok, payloadFallback, codEstab);
+        if (resFallback && resFallback.success) {
+          console.log(`[AgendaAPI] ✅ Fallback com obOrc original aceito com sucesso pelo Belle!`);
+          res = resFallback;
+        }
+      }
+    }
 
     if (res && res.success) {
       return {

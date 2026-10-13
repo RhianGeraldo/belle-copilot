@@ -106,9 +106,62 @@ export function extrairParametrosAnterioresDaArea(nomeArea, historicoRegistros =
  * Se na sessão anterior a área foi dividida (ex: [Geral] e [Lábios]),
  * retorna as sub-zonas pré-configuradas com seus respectivos fototipos e energias anteriores.
  */
+export function normalizarDataParaIso(dataStr) {
+  if (!dataStr) return "";
+  const str = String(dataStr).trim();
+  const parte = str.split(" ")[0].split("T")[0];
+  if (parte.includes("/")) {
+    const [d, m, y] = parte.split("/");
+    if (d && m && y) {
+      return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  return parte;
+}
+
+export function isRegistroDeHoje(reg, app = null) {
+  if (!reg) return false;
+  
+  const appAlvo = app || state.selectedAppointment;
+  const codCli = appAlvo?.codCliente;
+  const nomeCli = (appAlvo?.clienteNome || "").toLowerCase().trim();
+
+  // Todos os agendamentos deste cliente hoje
+  const agsHoje = (state.appointmentsData || []).filter(a => {
+    if (a.isBloqueado || a.status === "bloqueado") return false;
+    if (codCli && a.codCliente) return String(a.codCliente) === String(codCli);
+    if (nomeCli && a.clienteNome) return a.clienteNome.toLowerCase().trim() === nomeCli;
+    return false;
+  });
+
+  const idsHoje = agsHoje.map(a => String(a.codConsulta || a.id)).filter(Boolean);
+  if (appAlvo?.codConsulta) idsHoje.push(String(appAlvo.codConsulta));
+  if (appAlvo?.id) idsHoje.push(String(appAlvo.id));
+
+  // 1. Checa por ID do agendamento (100% infalível quando retornado pelo Belle)
+  const regCodAg = String(reg.codAgendamento || reg.cod_agendamento || reg.codConsulta || reg.cod_consulta || "").trim();
+  if (regCodAg && idsHoje.includes(regCodAg)) {
+    return true;
+  }
+
+  // 2. Checa por Data
+  const d = new Date();
+  const localHoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const agendaData = normalizarDataParaIso(state.currentDataAgenda);
+
+  const rawData = reg.data_hora || reg.data || reg.dataHora || reg.dt_atendimento || reg.dthr_atendimento || reg.dt_inclusao || reg.created_at;
+  const regDataIso = normalizarDataParaIso(rawData);
+
+  if (regDataIso) {
+    if (regDataIso === localHoje) return true;
+    if (agendaData && regDataIso === agendaData) return true;
+  }
+
+  return false;
+}
+
 export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codServ = "", perfilCliente = null) {
   if (!Array.isArray(historicoRegistros) || historicoRegistros.length === 0) {
-    // Verifica se há no cache persistente do perfil
     if (perfilCliente?.subzonas && codServ && perfilCliente.subzonas[codServ]) {
       return perfilCliente.subzonas[codServ].map(s => ({
         rotulo: s.rotulo || "Geral",
@@ -117,6 +170,7 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
         energiaValor: "",
         energiaAnterior: s.energiaAnterior || "",
         temEnergiaAnterior: false,
+        jaSalvoHoje: false,
         freqNum: s.freq || 0.8,
         disparosNum: s.disparos || 200,
         obs: "",
@@ -132,6 +186,7 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
       energiaValor: "",
       energiaAnterior: "",
       temEnergiaAnterior: false,
+      jaSalvoHoje: false,
       freqNum: 0.8,
       disparosNum: 200,
       obs: "",
@@ -166,6 +221,7 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
       energiaValor: "",
       energiaAnterior: "",
       temEnergiaAnterior: false,
+      jaSalvoHoje: false,
       freqNum: 0.8,
       disparosNum: 200,
       obs: "",
@@ -175,17 +231,78 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
     }];
   }
 
-  // 2. Identifica o dia mais recente dessa área
-  const primeiraData = regsArea[0].data_hora;
+  // Separa registros gravados HOJE dos registros de sessões passadas reais
+  const regsHoje = regsArea.filter(r => isRegistroDeHoje(r));
+  const regsPassados = regsArea.filter(r => !isRegistroDeHoje(r));
+
+  // CASO A: Esta área JÁ FOI GRAVADA HOJE no prontuário!
+  if (regsHoje.length > 0) {
+    return regsHoje.map((reg, idx) => {
+      let rotulo = `Sub-Zona ${idx + 1}`;
+      const matchBrackets = String(reg.area || "").match(/\[(.*?)\]/);
+      const matchParens = String(reg.area || "").match(/\((.*?)\)/);
+      if (matchBrackets) {
+        rotulo = matchBrackets[1].trim();
+      } else if (matchParens) {
+        rotulo = matchParens[1].trim();
+      } else if (idx === 0) {
+        rotulo = "Geral";
+      }
+
+      let energiaHoje = reg.energia || "";
+      if (!energiaHoje && reg.observacao) {
+        const matchEnergia = reg.observacao.match(/\b(\d{2,3})\s*(?:j|ft|joules)?\b/i);
+        if (matchEnergia) energiaHoje = matchEnergia[1];
+      }
+
+      const anteriorReg = regsPassados[idx] || regsPassados[0] || null;
+      let energiaAnterior = anteriorReg?.energia || "";
+      if (!energiaAnterior && anteriorReg?.observacao) {
+        const matchEnergia = anteriorReg.observacao.match(/\b(\d{2,3})\s*(?:j|ft|joules)?\b/i);
+        if (matchEnergia) energiaAnterior = matchEnergia[1];
+      }
+
+      const temAnterior = String(energiaAnterior || "").trim() !== "" && parseFloat(energiaAnterior) > 0;
+      const freqNum = parseFloat(String(reg.frequencia || "0.8").replace(",", ".")) || 0.8;
+      const disparosNum = parseInt(reg.qtd_disparos, 10) || 150;
+
+      const obsTexto = String(reg.observacao || reg.obs || "").toUpperCase();
+      const isNaoRealizadaHoje = obsTexto.includes("NÃO REALIZADA") || 
+                                 obsTexto.includes("NAO REALIZADA") ||
+                                 obsTexto.includes("NÃO FEITO") ||
+                                 obsTexto.includes("NAO FEITO");
+
+      return {
+        rotulo: rotulo,
+        fototipo: reg.fototipo || anteriorReg?.fototipo || "IV",
+        modo: reg.modo_aplicacao || anteriorReg?.modo_aplicacao || "HR",
+        energiaValor: String(energiaHoje),
+        energiaAnterior: temAnterior ? String(energiaAnterior) : "",
+        temEnergiaAnterior: temAnterior,
+        jaSalvoHoje: true,
+        isNaoRealizadaHoje: isNaoRealizadaHoje,
+        freqNum: freqNum,
+        disparosNum: disparosNum,
+        obs: reg.observacao || "",
+        origEnergia: temAnterior ? parseFloat(energiaAnterior) : 0,
+        origFototipo: anteriorReg?.fototipo || reg.fototipo || "IV",
+        origModo: anteriorReg?.modo_aplicacao || reg.modo_aplicacao || "HR",
+        origFreq: freqNum,
+        origDisparos: disparosNum
+      };
+    });
+  }
+
+  // CASO B: Parâmetros ainda NÃO foram gravados hoje — usa a sessão anterior mais recente
+  const primeiraData = regsPassados[0]?.data_hora || regsArea[0]?.data_hora;
   const diaMaisRecente = primeiraData ? primeiraData.split(" ")[0] : "";
   const regsUltimaSessao = diaMaisRecente 
-    ? regsArea.filter(r => r.data_hora && r.data_hora.startsWith(diaMaisRecente))
-    : [regsArea[0]];
+    ? regsPassados.filter(r => r.data_hora && r.data_hora.startsWith(diaMaisRecente))
+    : (regsPassados.length > 0 ? [regsPassados[0]] : [regsArea[0]]);
 
-  // 3. Se houver 2 ou mais registros na última sessão para essa área, houve divisão em sub-zonas!
+  // Divisão em sub-zonas na sessão anterior
   if (regsUltimaSessao.length >= 2) {
     return regsUltimaSessao.map((reg, idx) => {
-      // Extrai rótulo de [Rótulo] ou (Rótulo)
       let rotulo = `Sub-Zona ${idx + 1}`;
       const matchBrackets = String(reg.area || "").match(/\[(.*?)\]/);
       const matchParens = String(reg.area || "").match(/\((.*?)\)/);
@@ -216,9 +333,10 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
         energiaValor: temEnergia ? String(energiaEncontrada) : "",
         energiaAnterior: temEnergia ? String(energiaEncontrada) : "",
         temEnergiaAnterior: temEnergia,
+        jaSalvoHoje: false,
         freqNum: freqNum,
         disparosNum: disparosNum,
-        obs: "", // Não pré-preenche observações de sessões passadas
+        obs: "",
         origEnergia: temEnergia ? parseFloat(energiaEncontrada) : 0,
         origFototipo: reg.fototipo || "IV",
         origModo: reg.modo_aplicacao || "HR",
@@ -228,7 +346,7 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
     });
   }
 
-  // 4. Caso tenha apenas 1 registro na última sessão
+  // Sessão anterior única
   const regUnico = regsUltimaSessao[0];
   let energiaEncontrada = regUnico.energia || "";
   if (!energiaEncontrada && regUnico.observacao) {
@@ -250,9 +368,10 @@ export function extrairSubzonasHistorico(nomeArea, historicoRegistros = [], codS
     energiaValor: temEnergia ? String(energiaEncontrada) : "",
     energiaAnterior: temEnergia ? String(energiaEncontrada) : "",
     temEnergiaAnterior: temEnergia,
+    jaSalvoHoje: false,
     freqNum: freqNum,
     disparosNum: disparosNum,
-    obs: "", // Não pré-preenche observações de sessões passadas
+    obs: "",
     origEnergia: temEnergia ? parseFloat(energiaEncontrada) : 0,
     origFototipo: regUnico.fototipo || "IV",
     origModo: regUnico.modo_aplicacao || "HR",
@@ -279,6 +398,7 @@ export function coletarParametrosDosFormularios() {
   const listaParaSalvar = [];
   formCards.forEach(card => {
     const codServ = card.getAttribute("data-cod-serv") || "";
+    const codAgendamento = card.getAttribute("data-cod-agendamento") || String(app?.codConsulta || app?.id || "");
     const areaNome = card.getAttribute("data-area-nome") || "Área";
     const areaFormatada = card.getAttribute("data-area-formatada") || areaNome;
     const status = card.getAttribute("data-status") || "realizada";
@@ -291,6 +411,7 @@ export function coletarParametrosDosFormularios() {
 
       listaParaSalvar.push({
         cod_paciente: String(app?.codCliente || ""),
+        codAgendamento: codAgendamento,
         data_hora: hojeStr,
         area: areaFormatada,
         codServ: codServ,
@@ -346,6 +467,7 @@ export function coletarParametrosDosFormularios() {
 
       listaParaSalvar.push({
         cod_paciente: String(app?.codCliente || ""),
+        codAgendamento: codAgendamento,
         data_hora: hojeStr,
         area: areaParaSalvar,
         codServ: codServ,

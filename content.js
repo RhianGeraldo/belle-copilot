@@ -268,11 +268,114 @@ function extrairContextoPagina() {
 // Responde ao painel com o contexto da página (usuário logado, unidade e data ativa).
 // As antigas rotas BELLE_FETCH_*/BELLE_SALVAR_* foram removidas: o painel consulta a API
 // do Belle diretamente pelo core/api-client.js e nenhuma delas tinha chamador.
+// Reconhecimento de fala executado diretamente no contexto da aba do Belle (onde o microfone já está autorizado!)
+let activeSpeechRec = null;
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "GET_BELLE_PAGE_CONTEXT") {
     sendResponse(extrairContextoPagina());
     return true;
   }
+
+  if (request.action === "BELLE_VOZ_INICIAR") {
+    const SpeechRecClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecClass) {
+      sendResponse({ sucesso: false, erro: "Web Speech API não suportada nesta aba." });
+      return true;
+    }
+
+    let transcricaoAcumulada = "";
+    let pausadoIntencionalmente = false;
+
+    function iniciarInstanciaSpeech() {
+      if (pausadoIntencionalmente) return;
+
+      try {
+        activeSpeechRec = new SpeechRecClass();
+        activeSpeechRec.lang = "pt-BR";
+        activeSpeechRec.continuous = true;
+        activeSpeechRec.interimResults = true;
+
+        activeSpeechRec.onstart = () => {
+          safeSendMessage({ action: "BELLE_VOZ_EVENTO", tipo: "start" });
+        };
+
+        activeSpeechRec.onresult = (evt) => {
+          let interimTrans = "";
+
+          // Itera a partir do resultIndex do evento atual
+          for (let i = evt.resultIndex; i < evt.results.length; ++i) {
+            const item = evt.results[i];
+            if (item.isFinal) {
+              const trecho = (item[0]?.transcript || "").trim();
+              if (trecho) {
+                transcricaoAcumulada = `${transcricaoAcumulada} ${trecho}`.trim().replace(/\s+/g, " ");
+              }
+            } else {
+              interimTrans += (item[0]?.transcript || "");
+            }
+          }
+
+          const textoDisplay = `${transcricaoAcumulada} ${interimTrans}`.trim().replace(/\s+/g, " ");
+
+          safeSendMessage({
+            action: "BELLE_VOZ_EVENTO",
+            tipo: "result",
+            final: transcricaoAcumulada,
+            interim: interimTrans.trim(),
+            display: textoDisplay
+          });
+        };
+
+        activeSpeechRec.onerror = (errEvt) => {
+          console.warn("[Belle Voz] Erro:", errEvt.error);
+          if (errEvt.error !== "no-speech") {
+            safeSendMessage({ action: "BELLE_VOZ_EVENTO", tipo: "error", erro: errEvt.error });
+          }
+        };
+
+        activeSpeechRec.onend = () => {
+          // Se não foi pausa intencional do usuário, preserva o que já foi falado e reconecta suavemente
+          if (!pausadoIntencionalmente) {
+            setTimeout(() => {
+              if (!pausadoIntencionalmente) {
+                iniciarInstanciaSpeech();
+              }
+            }, 100);
+          } else {
+            safeSendMessage({ action: "BELLE_VOZ_EVENTO", tipo: "end" });
+          }
+        };
+
+        activeSpeechRec.start();
+      } catch (startErr) {
+        console.warn("[Belle Voz] Falha ao iniciar:", startErr);
+        safeSendMessage({ action: "BELLE_VOZ_EVENTO", tipo: "error", erro: startErr.message });
+      }
+    }
+
+    try {
+      pausadoIntencionalmente = false;
+      iniciarInstanciaSpeech();
+      sendResponse({ sucesso: true });
+    } catch (err) {
+      sendResponse({ sucesso: false, erro: err.message });
+    }
+    return true;
+  }
+
+  if (request.action === "BELLE_VOZ_PARAR") {
+    if (activeSpeechRec) {
+      try { 
+        activeSpeechRec.onend = null; 
+        activeSpeechRec.stop(); 
+      } catch (e) {}
+      activeSpeechRec = null;
+    }
+    sendResponse({ sucesso: true });
+    return true;
+  }
+
   return false;
 });
 

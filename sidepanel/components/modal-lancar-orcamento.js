@@ -110,16 +110,27 @@ function criarInstanciaReconhecimento() {
     console.warn("[Voz] Evento de erro local:", event.error);
     isGravando = false;
     
+    // Detecta se o navegador é o Brave (navigator.brave ou User-Agent)
+    const isBrave = Boolean(navigator.brave && typeof navigator.brave.isBrave === "function") || navigator.userAgent?.includes("Brave");
+    
     let msgErro = "Erro ao capturar áudio.";
     let linkPermissao = false;
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      msgErro = "Microfone não autorizado. Abrindo página para liberar...";
-      linkPermissao = true;
-      abrirPaginaPermissaoMicrofone();
+      if (isBrave) {
+        msgErro = "O Brave bloqueia a API de fala do Google por padrão. Digite seu relato ou use o Google Chrome.";
+      } else {
+        msgErro = "Microfone não autorizado. Abrindo página para liberar...";
+        linkPermissao = true;
+        abrirPaginaPermissaoMicrofone();
+      }
     } else if (event.error === "no-speech") {
       msgErro = "Nenhuma fala detectada. Toque novamente para falar.";
     } else if (event.error === "network") {
-      msgErro = "Falha de rede no reconhecimento do Google.";
+      if (isBrave) {
+        msgErro = "O Brave bloqueia o envio de áudio para os servidores do Google. Digite seu relato ou utilize o Chrome.";
+      } else {
+        msgErro = "Falha de conexão com o serviço de voz. Verifique a internet ou digite o relato.";
+      }
     }
     
     atualizarUIGravacao(false, msgErro, true, linkPermissao);

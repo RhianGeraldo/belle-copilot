@@ -13,10 +13,17 @@ let recognition = null;
 let isGravando = false;
 let dadosOrcamentoAtual = null;
 let callbackSalvar = null;
+let usuarioClicouParaGravar = false;
 
 let timestampUltimaAberturaAbaMic = 0;
 
 export async function abrirPaginaPermissaoMicrofone() {
+  // REGRA ABSOLUTA: Só abre a página se o usuário CLICOU intencionalmente no botão de falar e o modal está aberto!
+  if (!usuarioClicouParaGravar || !modalEl || modalEl.style.display !== "flex") {
+    console.log("[Voz] Ignorando abertura de página de permissão: usuário não clicou para falar.");
+    return;
+  }
+
   const agora = Date.now();
   if (agora - timestampUltimaAberturaAbaMic < 3000) {
     return; // Evita abrir abas repetidas em rajada (mínimo 3s de intervalo)
@@ -227,33 +234,6 @@ try {
 } catch (e) {}
 
 async function iniciarGravacao() {
-  // Se o microfone já foi liberado diretamente para a extensão, grava local no painel sem passar pela página web
-  if (usarReconhecimentoLocalDireto) {
-    iniciarGravacaoLocal();
-    return;
-  }
-
-  const tabId = await obterAbaAtivaBelleId();
-  
-  if (tabId) {
-    gravandoViaAbaBelle = true;
-    isGravando = true;
-    atualizarUIGravacao(true, "🔴 Ouvindo... Fale agora");
-
-    try {
-      chrome.tabs.sendMessage(tabId, { action: "BELLE_VOZ_INICIAR" }, (response) => {
-        if (chrome.runtime.lastError || !response?.sucesso) {
-          console.warn("[Voz] Fallback para reconhecimento local:", chrome.runtime.lastError || response?.erro);
-          gravandoViaAbaBelle = false;
-          iniciarGravacaoLocal();
-        }
-      });
-      return;
-    } catch (e) {
-      gravandoViaAbaBelle = false;
-    }
-  }
-
   iniciarGravacaoLocal();
 }
 
@@ -401,6 +381,7 @@ export function abrirModalLancamentoOrcamento({ sugestaoInicial = "", ofertas = 
 }
 
 export function fecharModalLancamentoOrcamento() {
+  usuarioClicouParaGravar = false;
   pararGravacao();
   if (modalEl) modalEl.style.display = "none";
 }
@@ -422,8 +403,10 @@ export function inicializarModalLancamentoOrcamento() {
   const btnMic = document.getElementById("btn-mic-orcamento");
   btnMic?.addEventListener("click", () => {
     if (isGravando) {
+      usuarioClicouParaGravar = false;
       pararGravacao();
     } else {
+      usuarioClicouParaGravar = true;
       iniciarGravacao();
     }
   });
@@ -432,6 +415,10 @@ export function inicializarModalLancamentoOrcamento() {
   if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg && msg.action === "BELLE_VOZ_EVENTO") {
+        // SEGURANÇA TOTAL: Se o modal está fechado ou o usuário não clicou para gravar, ignora completamente
+        if (!usuarioClicouParaGravar || !modalEl || modalEl.style.display !== "flex") {
+          return;
+        }
         if (msg.tipo === "start") {
           isGravando = true;
           atualizarUIGravacao(true, "🔴 Ouvindo... Fale o que ofertou");

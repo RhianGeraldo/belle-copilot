@@ -502,7 +502,7 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
   const isHR = !mVal.includes("SHR");
 
   return `
-    <div class="param-subzona-item" 
+    <div class="param-subzona-item ${isMulti ? 'param-subzona-destacada' : ''}" 
          data-sub-idx="${subIdx}"
          data-orig-fototipo="${sub.origFototipo || sub.fototipo || 'IV'}"
          data-orig-modo="${sub.origModo || sub.modo || 'HR'}"
@@ -522,6 +522,16 @@ export function gerarHtmlSubzonaItem(sub, subIdx, totalSubzonas, sNome) {
             </button>
           ` : ''}
         </div>
+
+        ${subIdx > 0 ? `
+          <div class="subzona-sugestoes-row">
+            <span class="subzona-sugestao-pill" data-rotulo="Lábios / Mais escura">Lábios</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Face Interna">Face Interna</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Púbis / Externa">Púbis</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Buço">Buço</span>
+            <span class="subzona-sugestao-pill" data-rotulo="Face Externa">Face Externa</span>
+          </div>
+        ` : ''}
       ` : ''}
 
       <!-- LINHA 2: ENERGIA (DESTAQUE PRINCIPAL) -->
@@ -859,6 +869,12 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
         <div class="param-section-realizada" style="display: ${isRealizada ? 'block' : 'none'};">
           <div class="param-subzonas-container">
             ${subzonasHtml}
+          </div>
+
+          <div class="param-add-subzona-row">
+            <button type="button" class="btn-add-subzona" style="display: ${subzonas.length >= 4 ? 'none' : 'inline-flex'};" title="Dividir esta área para aplicar com outro fototipo ou energia diferente">
+              ➕ Dividir Sub-Zona (Fototipo Misto)
+            </button>
           </div>
 
           <div class="param-obs-row">

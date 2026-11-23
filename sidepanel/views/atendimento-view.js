@@ -390,7 +390,7 @@ function gerarCardLaserHtml(r, exibirData = false) {
   let tagsHtml = "";
   if (r.fototipo) tagsHtml += `<span class="laser-tag laser-tag-fototipo">Fototipo: ${r.fototipo}</span>`;
   if (r.modo_aplicacao) tagsHtml += `<span class="laser-tag laser-tag-modo">Modo: ${r.modo_aplicacao}</span>`;
-  if (r.energia) tagsHtml += `<span class="laser-tag">Energia: ${r.energia}</span>`;
+  if (r.energia) tagsHtml += `<span class="laser-tag laser-tag-energia">⚡ Energia: ${r.energia}</span>`;
   if (r.frequencia) tagsHtml += `<span class="laser-tag">Freq: ${r.frequencia}</span>`;
   if (r.largura_pulso) tagsHtml += `<span class="laser-tag">Pulso: ${r.largura_pulso}</span>`;
   if (r.qtd_disparos) tagsHtml += `<span class="laser-tag">Disparos: ${r.qtd_disparos}</span>`;
@@ -411,6 +411,59 @@ function gerarCardLaserHtml(r, exibirData = false) {
   `;
 }
 
+export function atualizarReferenciasHistoricoNosFormulariosHoje(historico) {
+  if (!atendListaFormsLaser) return;
+  const cards = atendListaFormsLaser.querySelectorAll(".atend-param-form-card");
+  if (!cards || cards.length === 0) return;
+
+  cards.forEach(card => {
+    const sCod = card.getAttribute("data-cod-serv") || "";
+    const sNome = card.getAttribute("data-area-nome") || "";
+    const subzonasHist = extrairSubzonasHistorico(sNome, historico, sCod, state.currentPerfilCliente);
+    if (!subzonasHist || subzonasHist.length === 0) return;
+
+    const subItems = card.querySelectorAll(".param-subzona-item");
+    subItems.forEach((subItem, sIdx) => {
+      const histSub = subzonasHist[sIdx] || subzonasHist[0] || {};
+      
+      // Atualiza a linha visual de energia anterior
+      const anteriorWrap = subItem.querySelector(".param-energia-anterior");
+      if (anteriorWrap) {
+        const temAnterior = Boolean(histSub.temEnergiaAnterior);
+        const valHtml = temAnterior ? `<strong>${histSub.energiaAnterior}J</strong>` : '<em style="color:#94a3b8;">1ª vez</em>';
+        anteriorWrap.innerHTML = `
+          <span class="param-anterior-label">Anterior:</span>
+          <span class="param-anterior-val">${valHtml}</span>
+        `;
+      }
+
+      // Atualiza metadados originais de segurança clínica
+      if (histSub.temEnergiaAnterior) {
+        subItem.setAttribute("data-orig-energia", histSub.origEnergia || histSub.energiaAnterior || 0);
+      }
+      if (histSub.fototipo) {
+        subItem.setAttribute("data-orig-fototipo", histSub.fototipo);
+      }
+      if (histSub.modo) {
+        subItem.setAttribute("data-orig-modo", histSub.modo);
+      }
+
+      // Se a aplicadora ainda não digitou uma energia (está vazio ou com marcador sem histórico), preenche com a sugestão anterior
+      const inputEnergia = subItem.querySelector(".param-energia");
+      if (inputEnergia) {
+        const temSemHistorico = inputEnergia.hasAttribute("data-sem-historico");
+        const valorAtual = inputEnergia.value.trim();
+        if (histSub.temEnergiaAnterior && histSub.energiaAnterior && (valorAtual === "" || temSemHistorico)) {
+          inputEnergia.value = histSub.energiaAnterior;
+          inputEnergia.removeAttribute("data-sem-historico");
+        }
+      }
+    });
+  });
+
+  salvarEstadoFormularioEmCache();
+}
+
 export function renderizarParametrosLaser(registros) {
   if (!atendListaLaserParams) return;
   if (loadingLaserParams) loadingLaserParams.style.display = "none";
@@ -421,9 +474,12 @@ export function renderizarParametrosLaser(registros) {
   checarEAtualizarUIParametrosSalvos(state.selectedAppointment);
 
   if (!Array.isArray(registros) || registros.length === 0) {
-    if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Sem registros";
+    if (atendLaserDataBadge) atendLaserDataBadge.textContent = "Sem histórico";
     atendListaLaserParams.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 6px;">Nenhum parâmetro de laser anterior registrado para esta cliente.</div>';
-    renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, []);
+    const jaTemForms = atendListaFormsLaser && atendListaFormsLaser.querySelectorAll(".atend-param-form-card").length > 0;
+    if (!jaTemForms) {
+      renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, []);
+    }
     return;
   }
 
@@ -438,7 +494,7 @@ export function renderizarParametrosLaser(registros) {
 
   if (atendLaserDataBadge && diaRecente) {
     const rotuloData = (diaRecenteIso === hojeIso) ? `Hoje (${formatarDataPtBr(diaRecente)})` : formatarDataPtBr(diaRecente);
-    atendLaserDataBadge.textContent = `Última Sessão: ${rotuloData}`;
+    atendLaserDataBadge.textContent = rotuloData;
   }
 
   let cardsHtml = "";
@@ -481,7 +537,12 @@ export function renderizarParametrosLaser(registros) {
     });
   }
 
-  renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, state.ultimosRegistrosLaserCliente);
+  const jaTemForms = atendListaFormsLaser && atendListaFormsLaser.querySelectorAll(".atend-param-form-card").length > 0;
+  if (jaTemForms) {
+    atualizarReferenciasHistoricoNosFormulariosHoje(state.ultimosRegistrosLaserCliente);
+  } else {
+    renderizarFormulariosParametrosLaser(state.currentListaServicosRegistro, state.ultimosRegistrosLaserCliente);
+  }
 
   if (state.selectedAppointment) {
     atualizarOfertasComSexo(state.selectedAppointment, state.lastSaldoServicosCache, state.ultimosRegistrosLaserCliente);
@@ -633,9 +694,10 @@ export function capturarValoresAtuaisDoFormulario() {
   if (!cards || cards.length === 0) return cacheFormularioAtendimento || new Map();
 
   const mapa = new Map();
-  cards.forEach(card => {
+  cards.forEach((card, cardIdx) => {
     const sCod = card.getAttribute("data-cod-serv") || "";
     const sNome = card.getAttribute("data-area-nome") || "";
+    const nomeNorm = normalizarNomeAreaParaMatch(sNome);
     const codAgendamento = card.getAttribute("data-cod-agendamento") || "";
     const status = card.getAttribute("data-status") || "realizada";
     const isOpen = card.classList.contains("param-card-open");
@@ -656,8 +718,7 @@ export function capturarValoresAtuaisDoFormulario() {
       subzonas.push({ rotulo, energia, fototipo, modo, frequencia, disparos, obs });
     });
 
-    const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
-    mapa.set(chave, {
+    const dados = {
       codAgendamento,
       status,
       isOpen,
@@ -665,7 +726,12 @@ export function capturarValoresAtuaisDoFormulario() {
       skipObs,
       obsGeral,
       subzonas
-    });
+    };
+
+    const chave = `${sCod}_${nomeNorm}`;
+    mapa.set(chave, dados);
+    if (nomeNorm) mapa.set(nomeNorm, dados);
+    mapa.set(`idx_${cardIdx}`, dados);
   });
 
   cacheFormularioAtendimento = mapa;
@@ -785,8 +851,9 @@ export function renderizarFormulariosParametrosLaser(listaServicos, historicoReg
     const sNome = s.nome || `Área #${idx + 1}`;
     const areaFormatada = `${sCod} - ${sNome}`;
     const sNomeExibicao = sNome.replace(/^\d+\s*-\s*/, '').trim() || sNome;
-    const chave = `${sCod}_${normalizarNomeAreaParaMatch(sNome)}`;
-    const capturado = valoresCapturados.get(chave);
+    const nomeNorm = normalizarNomeAreaParaMatch(sNome);
+    const chave = `${sCod}_${nomeNorm}`;
+    const capturado = valoresCapturados.get(chave) || (nomeNorm ? valoresCapturados.get(nomeNorm) : null) || valoresCapturados.get(`idx_${idx}`);
 
     // Identifica o agendamento de origem exato desta área
     const codAgendamentoFinal = s.codAgendamento || capturado?.codAgendamento || resolverCodAgendamentoParaServico(sNome, sCod, s);
@@ -1422,10 +1489,13 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
   state.lastClienteLaserRegistrosCod = app.codCliente;
   checarEAtualizarUIParametrosSalvos(app);
 
-  const consultaId = app.id || app.codConsulta;
-  if (idConsultaCacheFormulario !== consultaId) {
+  const consultaId = String(app.id || app.codConsulta || "").trim();
+  const consultaAtual = String(idConsultaCacheFormulario || "").trim();
+  if (consultaAtual && consultaId && consultaAtual !== consultaId) {
     idConsultaCacheFormulario = consultaId;
     limparCacheFormularioLaser();
+  } else {
+    idConsultaCacheFormulario = consultaId;
   }
 
   const codCli = app.codCliente;
@@ -1743,8 +1813,11 @@ export async function abrirAtendimento(app, servicosExtras = null, { onAtivarAba
 
     checarEAtualizarUIParametrosSalvos(app);
 
-    // Renderiza imediatamente os formulários de registro por área
-    renderizarFormulariosParametrosLaser(listaServicos, state.ultimosRegistrosLaserCliente);
+    // Renderiza os formulários de registro por área se ainda não existirem
+    const jaTemCards = atendListaFormsLaser && atendListaFormsLaser.querySelectorAll(".atend-param-form-card").length > 0;
+    if (!jaTemCards) {
+      renderizarFormulariosParametrosLaser(listaServicos, state.ultimosRegistrosLaserCliente);
+    }
 
     // 3. Busca parâmetros anteriores do prontuário do laser
     if (atendListaLaserParams) atendListaLaserParams.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 4px;">Consultando histórico no prontuário...</div>';
@@ -1909,10 +1982,16 @@ export function inicializarAtendimentoView({ onAtivarAba, onRecarregarAgenda } =
   callbackRecarregarAgenda = onRecarregarAgenda;
 
   // Sincronização em tempo real do cache dos formulários de laser
-  atendListaFormsLaser?.addEventListener("input", () => {
+  atendListaFormsLaser?.addEventListener("input", (e) => {
+    if (e.target?.classList?.contains("param-energia")) {
+      e.target.removeAttribute("data-sem-historico");
+    }
     salvarEstadoFormularioEmCache();
   });
-  atendListaFormsLaser?.addEventListener("change", () => {
+  atendListaFormsLaser?.addEventListener("change", (e) => {
+    if (e.target?.classList?.contains("param-energia")) {
+      e.target.removeAttribute("data-sem-historico");
+    }
     salvarEstadoFormularioEmCache();
   });
   atendListaFormsLaser?.addEventListener("click", () => {
